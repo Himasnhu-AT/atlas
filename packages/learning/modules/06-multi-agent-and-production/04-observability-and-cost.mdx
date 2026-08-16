@@ -1,0 +1,194 @@
+---
+id: stage-6.observability-and-cost
+title: Observability and cost
+summary: Production asks three questions of a pile of trace records. Thread a run id through everything, count failures in buckets that have different fixes, and report cost per completed task rather than per call.
+order: 4
+estimatedMinutes: 40
+exercise:
+  id: run-ledger
+  timeboxMinutes: 25
+---
+
+Your agent emits a record per step. That was the easy half, and on its own it produces a log
+nobody reads.
+
+The other half is the query layer, and it is worth designing deliberately, because the queries
+are not arbitrary. Production asks three questions and almost nothing else.
+
+What happened in this one run. Somebody has a complaint, a screenshot and a timestamp, and you
+need the sequence of steps that produced what they are looking at. This is the question that
+gets asked under pressure, and it is answerable only if every record carries the same run id.
+
+What is failing across all runs. Not which run failed, but which kind of failure is common
+enough to be worth an afternoon. This is the question that decides what you work on next.
+
+What is this costing. Not curiosity: a per-request cost you cannot state is a per-request cost
+you cannot price, and an agent whose unit economics are unknown is a product decision waiting
+to be made badly.
+
+Each of the three wants a different shape from the same records, which is why the ledger has
+three methods rather than a search box.
+
+## Runs and steps
+
+```python
+@dataclass(frozen=True)
+class StepRecord:
+    run_id: str
+    index: int
+    kind: str        # "model", "tool", "validate"
+    name: str
+    outcome: str     # "ok", "error", "invalid", "aborted"
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    payload: dict = field(default_factory=dict)
+```
+
+The run id is the only field that has to be right. Everything else is a nice to have that
+degrades gracefully, but a step with no run id belongs to nothing and answers no question.
+Generate it at the entry point, thread it through every component including the ones that call
+out to other services, and put it in whatever the user sees when something goes wrong. A
+support ticket that arrives with a run id in it is a five minute investigation. The same ticket
+without one is an afternoon of grepping timestamps.
+
+Splitting `kind` from `outcome` is the other decision worth copying. Where a step happened and
+what happened to it are independent, and keeping them independent is what makes the failure
+table below a table rather than a chain of special cases.
+
+Three words in this course are close enough to run together, so they are worth pinning down
+here, where they first have to be told apart. A trajectory is one run's steps, which is what the
+eval harness grades. A transcript is a conversation's turns, which is what the support project
+grades. Tracing is the act of emitting records about either, which is what produces the
+`StepRecord` above. Different objects, one habit.
+
+## What never goes in
+
+Payloads are where the value is and where the liability is. The prompt contains what the user
+typed. The tool arguments contain the account they typed it about. Somewhere in there is an
+authorization header that got logged because it was on the request object.
+
+Redaction is a requirement, not a nicety, and the reason is that logs are not one copy. Once a
+prompt is in a log it is in every backup of that log, in whatever aggregator ships it, and in
+the index that makes it searchable. The deletion request that arrives eighteen months later is
+somebody's whole week, and the same is true of the security review that asks which of your
+systems have seen a card number.
+
+Where you redact is a real decision with a real tradeoff, so make it deliberately.
+
+Redacting on the way in means the secret never lands in storage at all. That is the stronger
+position for the deletion request and the security review, because the honest answer becomes
+"that system has never held one". What it costs you is the incident you cannot debug: the
+argument you scrubbed is sometimes exactly the argument that caused the bug, and it is gone.
+
+Redacting on the way out keeps the complete record and filters at the boundary where somebody
+reads it, which is what the exercise does. That buys debuggability and it means the store now
+holds sensitive data, so the protection has moved from "we do not have it" to access control,
+retention limits and encryption, all of which are things you now have to actually operate.
+
+Neither is the correct answer everywhere. The usable rule is to redact on the way in for the
+categories you can never justify holding, secrets and payment details, and on the way out for
+the ones you need for debugging and can defend keeping for a bounded window. Either way the
+key list is a parameter rather than a constant, because what counts as sensitive is a property
+of your product and changes when the product does.
+
+## Five failure buckets
+
+An error rate is one number covering five problems with five different fixes, which is why a
+rising error rate tells you that something is wrong and nothing about what to do.
+
+| bucket | signal | what fixes it |
+| --- | --- | --- |
+| provider error | a model call raised | retry with backoff, or a fallback provider |
+| tool error | your tool raised | your code, or the service behind it |
+| malformed tool call | the model produced arguments that did not fit the schema | the schema, or the prompt around it |
+| step budget exhausted | the loop hit its cap | the loop, or a deliberate raise of the cap |
+| output rejected | the final answer failed its own contract | the contract, or the prompt behind it |
+
+Counting them separately turns a graph into a work item. Provider errors climbing means an
+upstream incident and you wait. Malformed tool calls climbing after a deploy means somebody
+changed a schema. Budget exhaustion climbing means the agent has started going in circles,
+which is a different bug from either.
+
+Keep a sixth bucket for combinations you did not anticipate, and watch it. A failure nobody has
+a name for is the one worth looking at, and the alternative to a bucket is a silent drop.
+
+## Cost per completed task
+
+Token usage comes back on every response, so the arithmetic is not the hard part:
+
+```python
+total += step.prompt_tokens / 1000 * prompt_price
+total += step.completion_tokens / 1000 * completion_price
+```
+
+Two things about that snippet. Prices are passed in rather than written down, because they
+change, they differ per provider and per contract, and a number baked into a reporting function
+is wrong within a quarter. And a model the price table does not know raises rather than costing
+zero, because a model that costs nothing is the most expensive default there is and you find
+out about it at the end of the month.
+
+The number that matters is cost per completed task, not cost per call. Those two can move in
+opposite directions on the same change, which is the whole argument:
+
+```
+                        before      after adding a cheap validation retry
+model calls             300         500
+total cost              $9.00       $10.45
+cost per call           $0.030      $0.021     down 30%
+tasks completed         90          95
+cost per completed      $0.100      $0.110     up 10%
+```
+
+Nothing dishonest happened. The retries really are cheaper than the calls they sit next to, so
+the average call really did get cheaper, and reliability really did improve. And the thing you
+are actually buying, a completed task, got more expensive. Cost per call is an average over a
+denominator you control by changing how you slice the work, which makes it a number you can
+move without moving anything real. Cost per completed task has a denominator that means
+something, so it only improves when the economics improve.
+
+Two details make it honest. Failed runs are charged, because they consumed tokens and produced
+nothing. Leaving them out is how a report shows a cost improvement that is really a reliability
+regression: drop 10 percent of tasks on the floor, exclude their spend, and both your cost and
+your average look better while the product got worse.
+
+And when nothing completed, the honest answer is not zero. Dividing by zero is not an error
+condition here, it is the correct question giving an unbounded answer: you spent money and
+shipped nothing, so `math.inf` is the number, and returning 0.0 would report the most expensive
+possible state as the cheapest one.
+
+## The signal that arrives first
+
+Error rate is a lagging indicator. By the time it moves, the agent has been failing for a
+while.
+
+Step count per completed task moves earlier, and the reason is structural rather than
+statistical. The step budget is a buffer. When something degrades, a search tool returning
+worse results, a prompt change that makes the model less decisive, the loop absorbs it by
+taking more steps, and it keeps succeeding while it does. The error rate does not move at all
+until the degradation is large enough to exhaust the buffer, at which point runs start failing
+all at once and it looks sudden.
+
+Watching mean steps is watching the buffer drain. An agent that used to finish in three steps
+and now finishes in seven, against a cap of eight, is one bad day from a step-budget outage,
+and every one of those runs is currently recorded as a success.
+
+So the summary reports the mean step count over completed runs, and names the individual runs
+whose step count crossed a threshold. Those are not errors and should not page anyone. They are
+the runs to read first, and reading two of them usually tells you what the graph was going to
+tell you a week later.
+
+The same argument applies to duration, which is why the run record carries its own start and
+end rather than the ledger measuring anything. Every number here is a function of records that
+were handed in, so the reporting layer has no clock in it and its tests need no fixture.
+
+## Your exercise
+
+Build the ledger. `redact` and `classify_failure` first, then `cost_of`, then the `Ledger` that
+answers the three questions.
+
+The tests check that redaction reaches into nested dicts and dicts inside lists and never
+mutates the stored record, that each of the five buckets is distinguished, that an unpriced
+model raises rather than costing nothing, and that ingesting the same run twice is refused.
+
+The one worth thinking about is cost per completed task when nothing completed. Returning zero
+says the run was free, which is the opposite of true.

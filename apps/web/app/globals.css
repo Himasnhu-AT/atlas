@@ -1,0 +1,21 @@
+/* Self-hosted variable fonts. Nothing is fetched from a font CDN at runtime,
+   which keeps the first paint independent of a third party and means the
+   desktop app can load the identical faces with no network. */
+@import "@fontsource-variable/literata";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@import "@learn/ui/styles.css";
+
+/* Tailwind v4 finds classes by scanning source, and its automatic detection
+   stops at node_modules, which is where both workspace packages resolve from.
+   Anything outside this app's own tree has to be named or its utilities are
+   never generated at all: the class stays on the element and does nothing.
+
+   packages/ui registers itself from inside its own stylesheet, so it is not
+   listed here. Naming it in each app is what let the desktop app go without
+   it, and shared components silently lost their utilities there while looking
+   correct on the web. */
+@source "../app";
+@source "../components";
+@source "../../../packages/learning/dist";

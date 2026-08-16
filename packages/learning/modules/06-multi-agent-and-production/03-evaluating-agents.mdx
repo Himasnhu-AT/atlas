@@ -1,0 +1,204 @@
+---
+id: stage-6.evaluating-agents
+title: Evaluating agents
+summary: An agent has a trajectory as well as an answer, and the right answer reached by calling a destructive tool twice is not correct. Build assertions over both, and a gate that fails on any regression.
+order: 3
+estimatedMinutes: 45
+exercise:
+  id: eval-harness
+  timeboxMinutes: 30
+---
+
+You already know how to measure a prompt: a file of inputs and expected outputs, a check per
+case, a number at the end. That works because a prompt has one output and the output is the
+whole behaviour.
+
+An agent has a trajectory. It called four tools, one of them twice, one of them the wrong one,
+and then produced an answer that happened to be right. Grade only the answer and that run
+counts as a pass, which is how an agent that issues refunds it was not asked for ships with a
+green suite.
+
+## Two things you can grade
+
+The outcome is what the agent said. It is what the user sees, it is what the ticket is about,
+and it is the easier of the two to assert on.
+
+The trajectory is what the agent did to get there: which tools it called, in what order, how
+many steps it took, and what it never touched. It matters for three reasons that are worth
+separating. Some tools have side effects, and calling one is a fact about the world regardless
+of what the agent then says. Steps cost money and time, so an agent taking six steps where two
+would do is a real defect with no visible symptom. And a right answer reached by a wrong route
+is usually luck, which means it will stop being right on the next input that looks slightly
+different.
+
+The last one is the argument for trajectory assertions even on tools that are perfectly safe.
+An answer that came from the cache when it should have come from the search tool is correct
+today and stale tomorrow.
+
+Four kinds of trajectory assertion cover most of what you need.
+
+| assertion | what it catches |
+| --- | --- |
+| `called("search")` | the agent skipped a step it needed |
+| `never_called("issue_refund")` | a side effect nobody asked for |
+| `called_in_order("search", "summarise")` | a dependency the agent got backwards |
+| `at_most_steps(4)` | flailing, before it becomes a bill |
+
+The ordering one has a trap in it. Written as "the trajectory equals this list", it fails every
+time the agent does something reasonable you did not predict, like searching twice because the
+first query was too narrow. Written as a subsequence it asserts the property you actually care
+about, which is that the search happened before the summary:
+
+```python
+def check(trajectory):
+    cursor = 0
+    for step in trajectory.steps:
+        if cursor < len(wanted) and step.tool == wanted[cursor]:
+            cursor += 1
+    if cursor == len(wanted):
+        return None
+    return f"never reached {wanted[cursor]!r}"
+```
+
+`wanted[cursor]` is the tool the walk stopped on, so it is the one that was never reached, not
+the last one that was. Writing that message the other way round is easy and produces a failure
+report naming the wrong tool, in a suite whose entire value is being readable when you are
+tired.
+
+This distinction decides whether the suite survives. A suite that fails on harmless variation
+gets ignored within a month, and an ignored suite is worse than no suite because it still
+appears in the build.
+
+## Deterministic graders, and models as judges
+
+Reach for deterministic checks first and use them for most of it. Did the JSON parse. Is the
+field present. Was the tool called. Did the answer contain the number. These cost nothing, run
+in a millisecond, and give the same verdict every time, which means a red test is always your
+bug rather than the weather.
+
+Model graded evaluation is for open-ended output where no single string is right, and it is
+genuinely useful. It is also biased in directions that are known, reproducible, and mostly
+explainable, which matters because a bias you understand is a bias you can design around.
+
+Judges prefer longer answers to shorter ones that say the same thing. The mechanism is that
+length correlates with thoroughness in the preference data these models were tuned on, so
+length got learned as a proxy for quality and it fires even when you did not ask about
+thoroughness. The mitigation is to make the rubric ask about specific properties, so the judge
+has something to check rather than an overall impression to form.
+
+Judges score text that resembles their own output higher. Same mechanism as everything else a
+model does: text closer to its own generation distribution is text it finds more probable, and
+"more probable" leaks into "better" when the question is vague. The consequence to plan around
+is that a judge from the same family as the agent it grades is not a neutral referee.
+
+When comparing two candidates, judges are sensitive to which one came first, because the two
+positions are not symmetric in the prompt. The mitigation is mechanical: run each comparison
+both ways and keep only the verdicts that agree. The pairs that flip are the ones the judge did
+not actually have an opinion about, and knowing how many flipped is itself a useful number.
+
+And scores drift when the judge model is updated underneath you, so a number from March and a
+number from September are not comparable unless you pinned the version. Pin it, and treat a
+judge upgrade as a re-baselining event rather than a dependency bump.
+
+None of that makes a judge useless. It makes a judge a component with its own failure modes,
+which means it needs its own validation: score a sample by hand, compare, and keep measuring
+the agreement rate as the rubric changes. A judge you have never checked against human
+judgement is a random number generator with good manners.
+
+The practical shape is that a judge is just another assertion. In the exercise every
+`Assertion` is a name and a callable returning either None or a reason, so a model graded check
+drops into the same suite:
+
+```python
+def judged_by(client, rubric):
+    def check(trajectory):
+        verdict = ask_judge(client, rubric, trajectory.output)
+        return None if verdict.startswith("PASS") else verdict
+    return Assertion(name=f"judged_by({rubric!r})", check=check)
+```
+
+That one is not deterministic, so it belongs in a suite that runs nightly rather than one that
+blocks a merge. Mixing them gives you a build nobody trusts.
+
+## Where the cases come from
+
+Not from imagination. The cases that matter come from failures you have actually seen.
+
+Every incident becomes a case. Somebody reports the agent refunded an order it should not have,
+you reproduce it, and the reproduction is a permanent case in the suite. That is the entire
+method, and it produces a case set weighted toward your real failure modes rather than toward
+the ones that were easy to think of.
+
+How many cases is a question about resolution, not about a magic number. With twenty cases one
+case is five points of pass rate, so twenty cases cannot see a change smaller than five points,
+and a floor set two points below where you are today is a floor that can never trigger. Decide
+what size of change you need to notice, and that decides the count.
+
+A suite where everything passes on the first run is measuring nothing, because it was written
+from the same assumptions as the agent.
+
+## The gate
+
+The number that decides whether a change ships is not the pass rate on its own. Here is why, on
+five cases:
+
+```
+case                    baseline    after the change
+refund-requires-auth    pass        FAIL
+handles-empty-cart      fail        pass
+cites-the-article       fail        pass
+stops-at-budget         pass        pass
+answers-in-one-step     pass        pass
+
+pass rate               0.60   ->   0.80
+```
+
+The rate went up by twenty points and the change is not shippable. `refund-requires-auth` was a
+case somebody wrote after an incident, which is what makes it the least acceptable one in the
+file to trade away, and the aggregate has no way to express that because a pass rate treats
+every case as interchangeable. They are not. A case exists because something specific went
+wrong once.
+
+So the gate compares per case against a stored baseline, which is why `baseline_from` stores a
+verdict per name rather than a number:
+
+```python
+regressions = sorted(name for name, ok in now.items() if baseline.get(name) and not ok)
+ok = not regressions and suite.pass_rate >= floor
+```
+
+Note `baseline.get(name)` rather than `baseline[name]`. A case with no baseline entry is new,
+and new cases fail all the time, because the usual reason to add one is that you just found a
+bug. Treating a new failing case as a regression makes "add a case to the suite" a red build,
+and the effect is that people stop adding cases, which kills the only mechanism that makes the
+suite better over time.
+
+The floor is what catches those new failures and the slow slide across cases that were never in
+the baseline. Set it at whatever you are at today so any drop fails, and raise it when you
+improve something. The two conditions do different jobs: the baseline protects specific
+knowledge, the floor protects the aggregate, and neither substitutes for the other.
+
+## What an eval does not tell you
+
+An eval measures what you thought to check. Agents fail in ways you did not think of, and the
+first evidence of those failures is production, not the suite.
+
+So treat the pass rate as a floor under known behaviour rather than a claim about unknown
+behaviour. It tells you that you have not broken the things you have already broken once. It
+tells you nothing about the failure you have not met yet, which is why the incident-to-case loop
+matters more than the number: the suite's value is that it grows every time reality surprises
+you.
+
+## Your exercise
+
+Build the harness. The assertion builders first, then `run_case` and `run_suite`, then
+`baseline_from` and `gate`. The agent under test ships with the scaffold.
+
+The tests check that a case whose answer is right and which called a destructive tool fails,
+that every assertion runs even after one has failed, that a case can be run twice and give the
+same verdict, and that a suite whose pass rate went up still fails the gate when one case
+regressed.
+
+The two people get wrong are the subsequence in `called_in_order`, and treating a case with no
+baseline entry as a regression, which makes adding a case to the suite a build failure and is
+how suites stop growing.

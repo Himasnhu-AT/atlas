@@ -1,0 +1,109 @@
+import { useEffect, useState } from 'react'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { LessonSidebar, cn } from '@learn/ui'
+import { courseModules, findLessonRefById, type LessonRef } from '../lib/content'
+
+export interface NavigatorProps {
+  activeRef: LessonRef
+  isComplete: (lessonId: string) => boolean
+  onSelectLesson: (ref: LessonRef) => void
+  onCollapse: () => void
+}
+
+/**
+ * Left rail: pick a module, then a lesson inside it.
+ *
+ * The module being browsed is tracked separately from the lesson being
+ * practised, so glancing at what module 6 covers does not throw away the
+ * editor buffer — nothing changes until a lesson is clicked.
+ */
+export function Navigator({ activeRef, isComplete, onSelectLesson, onCollapse }: NavigatorProps) {
+  const [browsingSlug, setBrowsingSlug] = useState(activeRef.module.slug)
+
+  // Following a prev/next jump into another module should move the rail with it.
+  useEffect(() => {
+    setBrowsingSlug(activeRef.module.slug)
+  }, [activeRef.module.slug])
+
+  const browsing = courseModules.find((module) => module.slug === browsingSlug) ?? activeRef.module
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col border-r border-rule bg-paper-raised">
+      <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
+        <label htmlFor="module-picker" className="sr-only">
+          Module
+        </label>
+        <select
+          id="module-picker"
+          value={browsing.slug}
+          onChange={(event) => setBrowsingSlug(event.target.value)}
+          className={cn(
+            'h-8 min-w-0 flex-1 rounded-field border border-rule bg-paper-sunken px-2',
+            'text-xs font-medium text-ink outline-none',
+            'focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40',
+          )}
+        >
+          {courseModules.map((module) => (
+            <option key={module.slug} value={module.slug}>
+              {String(module.order).padStart(2, '0')} — {module.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={onCollapse}
+          title="Collapse the navigator"
+          aria-label="Collapse the navigator"
+          className={cn(
+            'inline-flex size-8 shrink-0 items-center justify-center rounded-field',
+            'text-muted transition-colors duration-150 hover:bg-paper-sunken hover:text-ink',
+          )}
+        >
+          <PanelLeftClose aria-hidden className="size-4" />
+        </button>
+      </div>
+
+      <LessonSidebar
+        module={browsing}
+        activeLessonId={activeRef.lesson.id}
+        isComplete={isComplete}
+        onSelect={(lessonId) => {
+          const ref = findLessonRefById(lessonId)
+          if (ref) onSelectLesson(ref)
+        }}
+        className="min-h-0 flex-1"
+      />
+    </div>
+  )
+}
+
+export interface NavigatorRailProps {
+  onExpand: () => void
+  moduleTitle: string
+}
+
+/** What the navigator collapses down to: a slim strip that can restore it. */
+export function NavigatorRail({ onExpand, moduleTitle }: NavigatorRailProps) {
+  return (
+    <div className="flex h-full w-10 shrink-0 flex-col items-center gap-3 border-r border-rule bg-paper-raised py-2">
+      <button
+        type="button"
+        onClick={onExpand}
+        title="Show the navigator"
+        aria-label="Show the navigator"
+        className={cn(
+          'inline-flex size-8 items-center justify-center rounded-field',
+          'text-muted transition-colors duration-150 hover:bg-paper-sunken hover:text-ink',
+        )}
+      >
+        <PanelLeftOpen aria-hidden className="size-4" />
+      </button>
+      <span
+        className="text-[0.6875rem] font-medium tracking-[0.08em] whitespace-nowrap text-muted uppercase"
+        style={{ writingMode: 'vertical-rl' }}
+      >
+        {moduleTitle}
+      </span>
+    </div>
+  )
+}

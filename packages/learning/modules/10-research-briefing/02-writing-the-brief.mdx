@@ -1,0 +1,122 @@
+---
+id: proj-2.writing-the-brief
+title: Writing the brief
+summary: Workers return raw notes and the supervisor formats once. Every factual sentence carries the tag of the note it came from, and a sentence with no tag is a finding, not prose.
+order: 2
+estimatedMinutes: 50
+exercise:
+  id: cited-synthesis
+  timeboxMinutes: 35
+---
+
+Four workers came back with notes. Somebody has to turn them into a page a person reads. The
+question is who, and the answer decides both what the run costs and whether the citations mean
+anything.
+
+The wrong version is easy to write by accident. Each worker returns a nicely formatted paragraph
+with its own sources listed, and the orchestrator concatenates them. You now have four
+introductions, four sets of numbering that collide, and no way to write a sentence that draws on
+two workers at once. You also paid four times for formatting, which is the one part of this job
+a model is not needed for.
+
+The right version is dull and cheap. Workers return raw notes. One supervisor call reads all of
+them and writes prose. Formatting happens once, in Python.
+
+## Tags before prose
+
+The supervisor cannot cite what it cannot name, so number the notes first:
+
+```
+[S1] d-queue: The median wait is now five years.
+[S2] d-solar: Solar module prices fell 41 percent last year.
+[S3] d-solar: Installers passed half of the decline on.
+[S4] d-storage: Grid battery storage additions doubled.
+```
+
+`number_notes` sorts by document id and then by arrival, and that ordering is doing real work.
+It makes the numbering deterministic: the same notes always produce the same tags, so a brief
+you saved yesterday and a brief you regenerate today mean the same thing by `S2`. Sorting by
+document id also makes the sources block come out grouped, for free.
+
+Then the instruction to the model is narrow. Mark every factual sentence with the tag it came
+from. Write nothing no note supports. When the notes do not answer part of the question, say so
+plainly and leave that sentence untagged.
+
+That last clause is what turns an absence into a signal. If the model has been told to tag
+everything, an untagged sentence is not a formatting slip, it is the model telling you it wrote
+something the notes do not back. You collect those in `Brief.uncited` and you leave them in the
+text, because a brief with the unsupported sentence quietly deleted looks cleaner and is worse.
+
+## Reading the tags back out
+
+The output is prose with markers in it, and you need it as structured claims. That means
+splitting sentences, which is the kind of task that looks solved until you run it on real text:
+
+```python
+_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+```
+
+A terminator followed by whitespace. That single lookbehind already handles decimals, because
+`15.5` has no whitespace after its full stop and never splits. Abbreviations do have whitespace
+after them, so `e.g. vessel day rates` splits and has to be merged back by looking at the tail
+of the previous fragment.
+
+You are not writing a tokenizer for all of English here. You are writing one that does not
+mangle a research brief, and the two cases above are the ones that actually turn up. Reaching
+for a dependency to do this is how a project that promised to need nothing acquires a
+requirements file.
+
+Each sentence then yields a `Claim`, and a marker naming no note goes into `unknown_tags` rather
+than `tags`. A model that invents `[S9]` when there are four notes has invented a source, and
+routing that into the same list as real citations is how a fabrication ends up looking verified
+two lessons later.
+
+## Assemble the document in code
+
+The title line and the sources block are a `join`, not a generation task:
+
+```python
+lines = [f"Research brief: {research.question}", "", prose, "", "Sources"]
+lines.extend(f"- {doc_id}: {titles[doc_id]}" for doc_id in sources)
+```
+
+Sources are the documents something actually cited, each once, in tag order. Asking the model to
+list its own sources produces a list that looks right and includes a document it mentioned but
+never used. You have the claims, so you know exactly which documents were cited. Deriving it is
+three lines and cannot be wrong.
+
+The model's prose goes in unchanged. The verification pass in the next lesson replaces individual
+sentences inside this exact string, so reflowing or re-wrapping it here quietly breaks that.
+
+## What frameworks call this
+
+The supervisor pattern has a name in every framework and roughly one implementation. In the
+OpenAI Agents SDK a supervisor is an agent whose tools are other agents. In CrewAI it is a
+hierarchical process with a manager agent. In LangGraph it is a node that routes and a reducer
+that collects. Illustration, not runnable here:
+
+```python
+# Illustration. OpenAI Agents SDK, not runnable here.
+supervisor = Agent(
+    name="supervisor",
+    instructions="Write the brief from the notes. Tag every factual sentence.",
+    tools=[researcher.as_tool(tool_name="research")],
+)
+```
+
+What every one of them is doing underneath is the loop you already wrote: call the workers,
+collect their output, make one more call to write the answer. The framework buys you retries,
+tracing and concurrency. It does not buy you the decision about who formats, and that decision
+is the one that determines the bill.
+
+## Your exercise
+
+Write `number_notes`, `synthesis_messages`, `split_sentences`, `parse_claims` and `write_brief`.
+
+One assertion in the file is `client.call_count == 1`. It is there because per worker formatting
+is the specific overhead this design exists to remove, and it is very easy to reintroduce by
+making one small helpful call per note.
+
+The other one to notice is that the supervisor call goes on the meter, under its own stage. It
+is one call against the workers' several, so it looks like rounding error and is not: it is the
+call carrying every note at once, and it is the one that grows when you widen the fan out.

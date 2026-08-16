@@ -1,0 +1,190 @@
+---
+id: proj-2.running-it-for-real
+title: Running it for real
+summary: "What changes when the run lasts twenty minutes and costs money: checkpointed resumption, tracing that records decisions without recording content, and an eval set small enough that you actually run it."
+order: 4
+estimatedMinutes: 25
+---
+
+You have written every part of this pipeline and never once run it end to end. That comes first,
+because a machine you have only ever seen in pieces is a machine you do not yet know works.
+
+After that: a real run takes minutes, spends money you can see on an invoice, and fails somewhere
+in the middle roughly as often as any other network-bound program. Three things change, and none
+of them are about the agent logic.
+
+## The whole thing, in one place
+
+Four stages, one budget threaded through all of them, and no glue beyond passing each stage's
+output to the next:
+
+```python
+client = MockClient(script)        # OpenAI(...) in production
+budget = Budget(limit=200_000)
+search = make_search(CORPUS)
+
+research = orchestrate(client, search, CORPUS, QUESTION, budget)
+brief = write_brief(client, research)
+report = verify_brief(
+    client, brief, number_notes(research.notes), research.corpus, budget
+)
+
+print(brief.text if report.ok else redact_unverified(brief, report))
+print(budget.by_stage, "->", budget.spent, "tokens")
+print(f"{research.dropped} notes dropped, {report.supported} claims verified")
+```
+
+Three things in that snippet are worth stopping on, because each of them is a seam where a
+pipeline assembled from separately-tested parts usually breaks.
+
+`research.corpus` is passed to `verify_brief` rather than the module-level `CORPUS`. Both work
+here. Only one keeps working when the corpus is a database query, because then the documents the
+run actually read and the documents that exist today are different sets, and verifying against
+today's is verifying against something the brief never saw.
+
+The same `budget` object goes into all four stages, which is what makes the second `print` a
+fact rather than an estimate. On a three document corpus and two sub questions it reads
+
+```
+{'plan': 49, 'worker': 200, 'synthesis': 150, 'verify': 183} -> 582 tokens
+1 notes dropped, 2 claims verified
+```
+
+The exact numbers mean nothing. The shape means a lot: four stages, all present, summing to the
+total. Note that `verify` is already close to `worker` on a brief with two claims, and it scales
+with claims rather than with sub questions, so it is the stage that overtakes everything else
+first. A meter missing a stage does not look broken. It looks cheap.
+
+And the verified brief and the redacted one are the same object, printed differently. `report.ok`
+is the whole decision, because everything needed to make it was computed by the stage before.
+
+## A long run has to be resumable
+
+The failure that matters is the fourth worker timing out after the first three succeeded. You
+have paid for three workers and you have nothing, and the naive fix, retrying the whole
+`orchestrate` call, pays for those three again.
+
+Your `BudgetExceeded` already carries the notes gathered so far, which is the same instinct one
+step further along: work that has been paid for should survive the thing that went wrong. Make it
+general by writing the state down after each stage.
+
+```python
+def checkpoint(run_id: str, stage: str, payload: dict) -> None:
+    path = STATE_DIR / f"{run_id}.json"
+    state = json.loads(path.read_text()) if path.exists() else {}
+    state[stage] = payload
+    path.write_text(json.dumps(state))
+```
+
+A file per run and a key per stage is enough for a long time. Resumption is then reading the file
+and skipping any stage already in it. The properties that make this work are ones you built in:
+sub questions are deterministic once planned, workers are independent, and note tags are stable,
+so a resumed run produces the same tags as the run it is continuing.
+
+This is exactly what LangGraph's checkpointer does, keyed by thread id, and what Temporal does
+with durable execution. Worth knowing before you adopt one, because the feature you are buying is
+this file, plus the hard parts around it.
+
+## Trace decisions, not content
+
+You will want to know why a run cost what it did and where it went wrong. You will not want a
+database full of the documents you retrieved, which is user content, is large, and is a liability
+the moment the corpus is private.
+
+Record the shape of the run:
+
+```python
+{"run_id": ..., "stage": "worker", "worker": "w2",
+ "sub_query_hash": "9f2c...", "doc_ids": ["d-solar", "d-wind"],
+ "notes_kept": 2, "notes_dropped": 1, "tokens": 812, "ms": 2140}
+```
+
+Document ids rather than document text. A hash of the sub question rather than the question.
+Counts rather than the notes themselves. That is enough to answer every operational question:
+which stage burned the budget, which worker dropped fabricated notes, whether latency is
+retrieval or generation. It is not enough to reconstruct what anybody asked, which is the point.
+
+`notes_dropped` is the one people leave out and then wish they had. It is your fabrication rate,
+per worker, over time, and a jump in it is the earliest signal that a prompt change went wrong.
+
+## An eval set of twelve
+
+The case set from stage 6 carries over: fixed questions, run on every change, small enough that
+you actually run it. What does not carry over is the grader. There a case passed or failed an
+assertion and the gate compared it to a baseline; here every number is continuous, because this
+pipeline has an unusually good property: the verifier is the eval.
+
+Twelve questions against a fixed corpus, each with the document ids a correct brief has to cite.
+Then per run, four numbers:
+
+- citation precision: `report.supported` over `len(report.verifications)`
+- coverage: how many of the expected document ids the brief actually cites
+- fabrication rate: `research.dropped`, the notes refused for citing an unseen document, plus
+  `report.not_in_source`, the citations that survived a worker and failed the source check
+- cost: `budget.by_stage`, so a regression in spend is as visible as a regression in quality
+
+Every one of those is an attribute read off an object the pipeline already returns, which is
+not an accident. A number you have to instrument for later is a number the eval will not have,
+and the two halves of the fabrication rate are the example worth holding on to: one is counted
+inside `run_worker` at the moment a note is discarded, the other falls out of the verification
+pass. Neither can be reconstructed afterwards from the brief.
+
+Twelve, because a suite that takes an afternoon and real money is a suite you will run before
+merging, and a suite of two hundred is one you will run twice and then disable.
+
+Those four numbers describe one run, and the suite produces twelve of them. The ledger from
+stage 6 is what turns that pile into the three questions production asks, and it fits more
+closely than it looks. The stage totals `charge` already records are the same tokens `cost_of`
+prices, once you keep the model name next to them. A dropped note and a `NOT_IN_SOURCE` verdict
+are both output rejections, so they land in a named bucket rather than dissolving into a rate.
+And cost per completed task is what tells you whether raising the worker cap made the briefs
+better or only more expensive, which is the one question `by_stage` cannot answer on its own.
+
+## Ship it for real
+
+Everything you have been graded on ran against the scripted client. That was deliberate: the
+tests are deterministic, they cost nothing, and a red test has always been your bug rather than a
+model having a bad day.
+
+Pointing the same code at a live provider takes two swaps. Not one, and the difference matters
+because the second is the weakest component in the pipeline.
+
+The client is the easy one. Everything you wrote takes `client` as an argument and calls
+`client.chat.completions.create`, so the object is the only thing that changes:
+
+```python
+# from mockllm import MockClient
+# client = MockClient([...])
+
+from openai import OpenAI
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], base_url=BASE_URL)
+```
+
+The other is retrieval. `make_search` imports `embed_text` and `cosine_similarity` from
+`mockllm`, and commenting out the client import leaves both in place, so a worker with a real
+model behind it is still ranking documents by hashing words into 256 buckets. That is the
+mechanism that scores "car" against "automobile" at zero, and it is upstream of everything:
+a note the worker never saw a document for is a note it cannot write. Swap it with the same
+signature and `make_search` is untouched:
+
+```python
+def embed_text(content: str) -> list[float]:
+    response = client.embeddings.create(model="text-embedding-3-small", input=content)
+    return response.data[0].embedding
+```
+
+Cosine similarity stays as it is, since real embedding vectors are compared the same way, and
+any per word preprocessing you added can go once a trained model is doing that work.
+
+What changes after both swaps is what comes back: the model will phrase sub questions you did
+not anticipate, occasionally return a verdict outside your enum, and sometimes cite a document
+it never saw. Your code already handles all three, and watching those branches fire against a
+real model is the part the scripted client cannot teach.
+
+PLACEHOLDER_REFERRAL_OFFER That sentence comes from `PROVIDER_SIGNUP` in
+`packages/learning/src/links.ts` and the content build renders it here, so a referral nobody
+has configured yet renders as no offer rather than as a link that goes nowhere.
+
+None of this section is graded. There is no test for it, no exercise attached to this lesson, and
+nothing in the platform will ever ask you for an API key. Run it if you are curious, skip it if
+you are not, and either way the module is finished.

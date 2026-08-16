@@ -1,0 +1,135 @@
+---
+id: fw-1.channels-and-reducers
+title: Channels and reducers
+summary: State is not a dict you overwrite. It is a set of named channels, each with a reducer and a version number, and the versions are what decide who runs next.
+order: 2
+estimatedMinutes: 45
+exercise:
+  id: channel-reducers
+  timeboxMinutes: 25
+---
+
+Ask someone to add state to an agent and you get a dict. Nodes read it, nodes write it, last
+write wins. It works until two nodes write the same key in the same step, and then one of them
+quietly did nothing.
+
+A channel is that dict entry with two things attached: a rule for combining writes, and a
+counter that goes up every time it is written. The rule fixes the concurrent write. The
+counter turns out to be the entire scheduler.
+
+## The reducer is the interesting half
+
+A reducer takes the current value and an update and returns the new value. Four of them cover
+almost everything.
+
+```python
+def last_value(current, update):
+    return update
+
+def append(current, update):
+    if isinstance(update, list):
+        return list(current) + update
+    return list(current) + [update]
+
+def merge_dicts(current, update):
+    return {**current, **update}
+
+def add_int(current, update):
+    return current + update
+```
+
+Every one of them builds a new value rather than mutating the old one. That is not style. The
+checkpointer in lesson four stores the value it was handed, and a reducer that calls
+`current.append(x)` and returns `current` means every checkpoint in the thread is pointing at
+the same list, so the history you saved shows the same final state at every point. The bug
+looks like a broken checkpointer and lives in the reducer.
+
+Choosing the reducer is where the design happens. `last_value` on a `draft` channel says the
+newest draft is the only one that matters. `append` on a `findings` channel says two research
+nodes can both contribute and neither loses. `add_int` on `tokens_used` says every node's
+usage adds up. You are declaring, once, what "two things wrote this" means, instead of
+discovering it in production.
+
+The default matters too, and it is a callable rather than a value for the reason
+`dataclasses.field(default_factory=list)` exists. One shared empty list handed to every run of
+every graph is the oldest bug in Python, and it survives being wrapped in a graph runtime.
+
+## Versions, not diffs
+
+Here is the part that looks like bookkeeping and is actually the scheduler.
+
+Every channel carries a version, starting at zero. Writing to it runs the reducer and bumps
+the version by exactly one. It bumps whether or not the value changed: writing the same string
+twice takes the version from one to two, because the version records that a node produced
+something, not that the result was interesting.
+
+Separately, the runtime keeps `versions_seen`, a map from node name to the versions that node
+had read the last time it ran. Put those two together and you get the only scheduling rule in
+the system:
+
+```python
+def eligible_nodes(subscriptions, versions, versions_seen):
+    stale = []
+    for node, channels in subscriptions.items():
+        seen = versions_seen.get(node, {})
+        if any(versions.get(name, 0) > seen.get(name, 0) for name in channels):
+            stale.append(node)
+    return sorted(stale)
+```
+
+A node runs when something it subscribes to is newer than what it has seen. Nothing else
+decides. There is no queue of pending work, no dirty flag, no explicit "run b next": there is
+a number that went up, and a node that has not caught up with it.
+
+Strictly greater than, not greater than or equal. With `>=`, a node that has seen version zero
+of a channel sitting at version zero is eligible forever, and your first graph spins until the
+step limit fires.
+
+The sort is not cosmetic either. The order of that list decides the order writes merge inside
+a super-step, so sorting it is what makes two runs of the same graph produce the same answer.
+
+## Subscribing is not reading
+
+A node sees the whole state when it runs. It subscribes to the subset that should cause it to
+run again. Those are different questions and keeping them separate is most of the value.
+
+A summariser that reads `question`, `findings` and `budget` but subscribes only to `findings`
+will re-run when new findings arrive and will not re-run when the budget is decremented by
+some unrelated node. Subscribe it to everything it touches and it wakes on every write in the
+graph, which is how a runtime that is supposed to save you model calls starts making twice as
+many.
+
+## The same idea in LangGraph
+
+Illustration only, and it is worth staring at for a second because it is the same thing in
+less space.
+
+```python
+from typing import Annotated, TypedDict
+import operator
+
+class State(TypedDict):
+    findings: Annotated[list[str], operator.add]   # a channel with a reducer
+    draft: str                                     # a channel with last_value
+```
+
+`Annotated[list[str], operator.add]` is a Channel: the type is documentation, and the second
+argument is the reducer. A bare `str` is a channel whose reducer is last_value, which is the
+default. LangGraph's versions are opaque values rather than the small integers you are about to
+write, and its channels can be more exotic than these four, but the shape is the same.
+
+Subscriptions are the one place the real thing differs. LangGraph infers them from the graph's
+edges instead of asking you, which is friendlier and slightly less explicit. Yours takes them
+as a list, because seeing the subscription written down is the fastest way to understand why a
+node did or did not run.
+
+## Your exercise
+
+Build the channel layer: the four reducers, `ChannelState` with its values and versions, and
+the two scheduling helpers `eligible_nodes` and `mark_seen`.
+
+Two things the tests are strict about. `apply` is all or nothing, so a batch containing one
+unknown channel name writes none of the batch. And the version bumps on every write, including
+one that sets the same value it already had.
+
+Everything you write here is used unchanged by the next two exercises.

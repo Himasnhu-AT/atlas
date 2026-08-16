@@ -1,0 +1,111 @@
+# Working in this repo
+
+A course platform for AI agent engineering: a Next.js site to read on, a Tauri desktop app to
+practice in, and the course itself as a versioned package both consume.
+
+## Layout
+
+```
+apps/web/          Next.js 16, App Router. The site and the API for both clients.
+apps/desktop/      Tauri 2 + Vite. The three-pane practice IDE.
+packages/learning/ The course: MDX lessons, Python exercises, and the build that validates them.
+packages/core/     Domain types, zod schemas, the typed API client.
+packages/ui/       Shared React components and the Tailwind v4 theme.
+```
+
+## Rules that are easy to break
+
+**Content lives in `packages/learning`, never in app code.** Both apps read the built
+manifest. A lesson hard-coded into a component is a bug.
+
+**Run `pnpm content` after touching content.** The apps import `dist/`, which is gitignored,
+so a fresh checkout has no lessons until the content build runs. `pnpm dev` does this for you.
+
+**The student's file is always `solution.py`.** `scaffold.py` is copied to that name on first
+open and `test.py` imports from it. The fixed name is what lets one test grade both a
+student's attempt and the reference, which is what makes the build gate work. Do not
+parameterise it.
+
+**Exercises open on the scaffold, never the reference.** Revealing the solution is a
+deliberate, confirmed, recorded action. This is pedagogy, not decoration.
+
+**Every exercise runs against `mockllm`, and the platform has no AI in it.** No tutor, no
+generated hints, no model calls at runtime. Exercises need no API key and no network.
+
+**Tailwind v4 only.** `@import "tailwindcss"` plus `@theme` in `packages/ui/src/styles.css`.
+There is no `tailwind.config.js` and there never should be.
+
+**Shared packages ship TypeScript source, not a build.** Both apps compile them
+(`transpilePackages` in Next, plain workspace resolution in Vite). Relative imports inside
+them must not carry `.ts` extensions, because Next rejects those.
+
+## The security boundary
+
+Clients never touch the database. The Supabase service key lives only in
+`apps/web/lib/server/` and never reaches a browser or the Tauri bundle. That makes the API the
+boundary, not row level security:
+
+**Every route handler derives `user_id` from the session. No handler ever reads a user id from
+a request body.** Zod schemas in `packages/core` deliberately omit `userId` so a smuggled one
+is dropped at parse time. RLS is enabled in `supabase/schema.sql` as a second layer; nothing
+depends on it.
+
+Two more, in the Rust backend:
+
+**`workspace::resolve` guards every filesystem path.** It canonicalizes and rejects anything
+escaping the root. Never join a caller-supplied path without it.
+
+**There is no general command-exec IPC.** `run_exercise`, `run_tests` and `project_analyse`
+build a command from a fixed interpreter table. Keep it that way.
+
+## Two workspaces, two roots
+
+Exercises live in the app's sandbox under app-data. The app creates it, owns it, and
+`SymlinkPolicy::Forbid` applies: nothing in there is written by a human, so any symlink is a
+bug or an attack.
+
+A **project** is the student's own repository, so the app reaches outside that sandbox. The
+rule that makes it legitimate is explicit consent:
+
+**A project root can only be established through the OS folder picker.** There is deliberately
+no `project_open_path(path)` command. One would let anything reaching the IPC bridge read the
+disk, which is the whole attack. The user points at a directory; from then on every path
+resolves against it through the same guard.
+
+Inside a granted root, `SymlinkPolicy::AllowInternal` applies. Real repositories contain
+symlinks as a matter of course, and refusing them all would make the editor useless. It is not
+a weaker escape guarantee: the target is canonicalized and must still be contained, so a
+symlink pointing outside the granted root is refused exactly as before.
+
+`project_analyse` is static only. It parses, it never executes, and it needs no model. That is
+what lets it run on save. Whether an agent is any *good* needs a live model, which stays a
+separate, explicit, opt-in step.
+
+## The content build is a gate
+
+`pnpm content` fails on a schema violation, a duplicate id or order, a missing prerequisite, a
+prerequisite cycle, a missing exercise file, a broken cross-lesson link, or an exercise whose
+reference solution fails its own test. That last check runs the real test against the real
+reference in a temp directory.
+
+If you change an exercise, the build tells you whether you broke it. Trust it.
+
+## Writing
+
+Prose in lessons and docs avoids the usual AI tells: no em dashes, sentence case headings, no
+emoji, no bold-and-colon list items, no rule-of-three padding, no "let's dive in". Write the
+thing rather than announcing it. State tradeoffs plainly instead of selling.
+
+## Checks
+
+```bash
+pnpm content        # validate the course
+pnpm typecheck      # TypeScript, every package
+pnpm test:rust      # Rust suite
+pnpm lint:rust      # clippy, warnings as errors
+```
+
+## Reference material
+
+`.tmp-legacy/` holds a third-party curriculum used only to shape the syllabus. It is
+gitignored, nothing from it ships, and it can be deleted. Do not import from it.

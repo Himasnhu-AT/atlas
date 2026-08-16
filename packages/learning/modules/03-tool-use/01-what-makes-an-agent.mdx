@@ -1,0 +1,131 @@
+---
+id: stage-3.what-makes-an-agent
+title: What makes an agent an agent
+summary: A loop, the ability to act, and a reason to stop. Most of what gets called an agent is further down that list than the marketing suggests, and knowing where you are is the useful part.
+order: 1
+estimatedMinutes: 25
+---
+
+A model call is a function. Text goes in, text comes out, and nothing in the world has
+changed. Call it a thousand times and you have a thousand pieces of text.
+
+An agent is that function inside a loop, with the loop able to run code between calls and put
+the result back in front of the model. That is the entire structural difference, and every
+other property people attribute to agents follows from it or is marketing.
+
+## Where the line actually is
+
+Two programs, both using a model, both useful. One is an agent and one is not.
+
+```python
+# Not an agent. One call, one answer, done.
+summary = client.chat.completions.create(
+    model="mock",
+    messages=[{"role": "user", "content": f"Summarize this ticket:\n{ticket}"}],
+)
+
+# An agent. The model asks for something, your code runs it, the loop goes round.
+while True:
+    response = client.chat.completions.create(model="mock", messages=messages, tools=TOOLS)
+    if response.choices[0].finish_reason != "tool_calls":
+        break
+    messages.append(assistant_turn(response.choices[0]))
+    for call in response.choices[0].message.tool_calls:
+        result = dispatch(registry, call.function.name, call.function.arguments)
+        messages.append(tool_result_turn(call.id, to_tool_content(result)))
+```
+
+The second one has a property the first cannot have: the number of model calls is decided at
+runtime, by the model, based on what your code came back with. You wrote the loop and you own
+every tool inside it, but you do not know in advance how many times it will go round, and
+neither does anyone else.
+
+That is worth sitting with, because it is where the engineering difficulty comes from. A
+program whose control flow is decided by a model is a program you cannot fully test by
+enumerating paths, cannot bound by reading the source, and cannot cost out in advance. The
+rest of this course is largely about putting that genie back in a bottle you chose.
+
+## Three parts, and the one people leave out
+
+An agent needs something to aim at, something to act with, and a reason to stop.
+
+The goal arrives as the user's message, usually with a system prompt shaping how it is
+interpreted. Nothing exotic.
+
+The tools are functions you wrote, described to the model in a schema it can read. The next
+lesson is entirely about that description, because it is the only thing the model knows about
+your code.
+
+The stopping condition is the one that gets skipped, and it is the one that costs money. A
+loop with no exit does not hang politely; it makes model calls, each one carrying the entire
+conversation so far, until something outside it dies. Two mechanisms cover it, and you want
+both. The natural exit is the model producing a reply that requests no tools, which you detect
+by reading `finish_reason` and not by inspecting the text. The backstop is a step budget: a
+hard cap on model calls, after which the run ends whether or not there is an answer.
+
+The budget must be a hard cap rather than a hint, and hitting it must be loud. A loop that
+quietly returns whatever it has when the budget runs out produces a value indistinguishable
+from a real answer, and the caller has no way to know it is looking at an agent that gave up
+halfway. The third lesson builds this properly.
+
+## Autonomy means who picks the next step
+
+"Autonomous" is doing a lot of unearned work in most agent writing. In code it reduces to one
+question: who decides what happens next?
+
+If your code decides, by running steps in an order you wrote, the model is a component. It
+transforms text at points you chose. This is a pipeline, and it is a perfectly respectable
+thing to build.
+
+If the model decides, by choosing which tool to call with which arguments and when to stop,
+the model is the controller. Your code is the runtime it executes on.
+
+Most real systems sit between the two and the position is a design decision, not a maturity
+level. You can let the model choose freely from twenty tools, or you can let it choose from
+three tools inside a step whose place in the sequence you fixed. Handing over more control
+buys flexibility on inputs you did not anticipate, and costs you predictability, testability,
+and a bounded bill.
+
+## What people mean when they say agent
+
+Roughly five things, in increasing order of how much control the model has.
+
+| Shape | Who decides the next step | What breaks first |
+| --- | --- | --- |
+| One call with structured output | You | Nothing; it is a function call |
+| One tool call, then you handle it | You | The model picks the wrong tool |
+| A fixed pipeline of model calls | You, at design time | An input the pipeline has no branch for |
+| A loop with tools and a budget | The model, within your tools | Loops, cost, and silent wrong answers |
+| A loop that can write and run new code | The model, nearly unbounded | Everything, spectacularly |
+
+Most production systems that are described as agents are on the third or fourth row. Very
+little on the fifth row is running unattended in front of customers, and where it is, there is
+a sandbox and a human somewhere in the loop. This is not a criticism of the field. Row three
+is where a lot of the reliable value is, and a team that describes its fixed pipeline as an
+agent is being loose with words rather than dishonest.
+
+The reason to know which row you are on is that the failure modes are different and the
+engineering is different. Row three fails by not having a branch for the case in front of it,
+which you fix by adding one. Row four fails by looping, by calling the wrong tool with
+confident arguments, and by producing an answer that is wrong in a way no exception marks. You
+cannot fix that by adding a branch, which is why the rest of this module is about budgets,
+observations, and knowing why a run ended.
+
+## The loop is the same underneath every framework
+
+You are about to write this loop by hand. It is around forty lines and it works.
+
+Later in the course you will use frameworks that do it for you, and the honest reason to build
+it first is not purity. It is that every framework's abstractions are named after parts of
+this loop, and its bugs are this loop's bugs wearing a stack trace you did not write. When a
+framework agent calls the same tool nine times, or forgets a tool result, or costs four times
+what you expected, the explanation is in the message list it built. Being able to picture that
+list is the skill.
+
+What frameworks genuinely add is worth knowing too, and it is not the loop. It is persistence
+between runs, concurrency, retries, tracing, human approval steps, and a shape for teams to
+share. Those are real and they are the subject of module 4. The loop itself has been stable
+since providers shipped tool calling, and it fits on a screen.
+
+Next you write the schemas that tell a model what your functions do, and then the loop that
+runs them.

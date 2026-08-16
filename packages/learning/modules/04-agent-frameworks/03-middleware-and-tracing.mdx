@@ -1,0 +1,221 @@
+---
+id: stage-4.middleware-and-tracing
+title: Middleware and tracing
+summary: Five places where something else can listen, held in a list rather than a class hierarchy, and one listener that writes a record per step. Everything a framework calls observability is those two ideas.
+order: 3
+estimatedMinutes: 40
+exercise:
+  id: run-tracing
+  timeboxMinutes: 35
+---
+
+A run goes wrong on step four of six. You cannot reproduce it: the model samples, the tool
+results have moved on, and the input that triggered it is one of forty thousand. All you will
+ever have is what you wrote down while it was happening.
+
+Tracing is the act of writing that down. This lesson is the two mechanisms underneath it: five
+places in the loop where something else can listen, and a listener that turns those calls into
+one record per step.
+
+## Five places to stand
+
+The loop only touches the outside world in a few places, and every one of them is a place where
+it stops being in control. It is about to hand work to a model, or about to hand work to a
+tool, or something has thrown. For a loop shaped like this one that gives five points and no
+sixth:
+
+```python
+before_model(index, messages)              # about to call the model
+after_model(index, response)               # it came back
+before_tool(index, name, arguments)        # about to run a tool
+after_tool(index, name, result, failed)    # it returned
+on_error(index, error)                     # the run is ending badly
+```
+
+Five is not a stylistic choice, it is what the loop's shape allows. Every counter, logger,
+cache, rate limiter, spend cap and human approval gate anyone has asked for hangs off one of
+those five, because those five are the only moments where anything leaves or enters the loop.
+
+The qualification about the loop's shape is worth taking seriously, because the rule predicts
+its own exception. A runtime that streams tokens back as they are generated has a sixth
+boundary, since a token arriving is one more moment work crosses into the loop, and such a
+runtime does add a hook there. That is not a hole in the rule, it is the rule working: five
+falls out of a loop that waits for a whole response, and if you change the boundary you change
+the number of places to stand. Counting the boundaries is the method. Five is just this loop's
+answer.
+
+Two details in that list are load bearing. `after_model` does not fire when the model call
+raised, because there is no response to hand it, and a hook that receives `None` for a response
+has to check every time. `on_error` fires instead, and then the exception continues to
+propagate: a hook observes, it does not handle. And `after_tool` carries `failed`, so a listener
+can distinguish a tool that returned an error string from one that worked, without parsing the
+string.
+
+## A list, not a subclass
+
+The obvious way to add logging to an agent is to subclass it. It works exactly once.
+
+```python
+class LoggingAgent(TracedAgent):
+    def run(self, question):
+        print("starting")
+        return super().run(question)
+```
+
+Now add token counting. You write `CountingAgent`, and it also overrides `run`. To have both
+you need `class Both(LoggingAgent, CountingAgent)`, which works until each one needs to see
+inside the loop rather than around it, at which point neither can, because `run` is one method
+and both want to be in the middle of it. Add a third feature and you are choosing a method
+resolution order. Add a fourth from a library you do not control and you are stuck.
+
+The list of hooks has none of that shape:
+
+```python
+# Tracer is the one you write. The other two stand in for hooks you would add later.
+agent = TracedAgent(client, toolbox, hooks=[Tracer(), SpendCap(limit=5000), Redactor()])
+```
+
+Three features, no inheritance, no ordering puzzle beyond the order of the list, and each one
+overrides only the methods it cares about because `Hook`'s defaults do nothing. Adding a fourth
+is appending to a list. That is why every framework's middleware, callbacks or hooks are a
+sequence rather than a class hierarchy, whatever they call them.
+
+Two consequences fall out, and the second is a real cost. Hooks fire in list order, which is
+worth fixing rather than leaving to chance, because a redactor that runs after a logger has
+redacted nothing. And an exception from a hook is swallowed:
+
+```python
+for hook in self.hooks:
+    try:
+        hook.after_model(index, response)
+    except Exception:
+        pass
+```
+
+A bug in a counter must not take down a run that is otherwise fine, and a hook is by definition
+the part of the system nobody tested. The price is that a broken hook goes quiet instead of
+loud, so your trace silently stops being written and nothing tells you. Which means anything
+you would be genuinely upset to lose belongs in the run, not in a hook. Swallowing is right for
+observability and wrong for a spend cap, and if you need the cap to be enforced rather than
+observed, it goes in the loop.
+
+## One record per step
+
+The unit of the trace is the model call. Not the run, and not the tool call.
+
+A run level record cannot answer "what happened on step four", which is the only question
+anybody actually asks. A tool level record cannot tell you about a step that made no tool call,
+which includes the step where the model gave up and answered. One record per step, holding what
+that step sent, what came back, what it called, what it cost and how long it took, answers
+both. The list of those records for a single run is that run's trajectory, and it is the object
+module 6 grades an agent on when the answer alone is not enough.
+
+```python
+StepRecord(
+    index=1,
+    messages=[{"role": "user", "content": "where is order A-1174?"}],
+    response_text=None,
+    finish_reason="tool_calls",
+    tool_calls=["lookup_order"],
+    prompt_tokens=94, completion_tokens=12,
+    elapsed_ms=250,
+    error=None,
+)
+```
+
+`response_text` is `None` rather than `""` because the model asked for tools instead of
+speaking, and that is a different event from answering with an empty string. `tool_calls` is a
+list rather than a set, because the same tool called twice in one step is the signal that
+something is looping, and a set throws exactly that signal away.
+
+The trap in building this is the message list. The agent keeps appending to the list it handed
+you, so a record that stores the reference rather than a copy will, by the end of the run,
+claim that step one sent the entire conversation. Every record ends up identical and the trace
+becomes useless in a way that looks fine until you read it. Copy the list and copy each dict
+inside it. This is the same reason `MockClient` snapshots each request rather than storing it.
+
+Timing has a matching trap, which is why the tracer takes its clock as a parameter defaulting
+to `time.monotonic`. A trace that reads the wall clock directly is a trace no test can assert
+on, and timing regressions are precisely the thing you want a test for. Read the clock exactly
+twice per step, once when the step opens and once when it closes, and the exercise hands you a
+clock with a fixed number of readings so a third read shows up as a failure rather than as a
+number nobody checks.
+
+`on_error` has the case worth thinking about. If the model call raised, the step has no record
+yet, so you create one and keep it, because a step whose call failed is the one somebody will
+actually read. If the step already closed normally and the run failed afterwards, which is what
+a spent budget looks like, the record exists and you mark it. Appending a second record for one
+model call makes every count in the summary wrong, and a trace whose step count disagrees with
+reality is worse than no trace.
+
+## Redaction, and why the numbers survive
+
+The reason traces get turned off in production is that they contain what the user typed. The
+answer is not to turn them off, it is to keep the parts that do not identify anybody.
+
+`redact` blanks named fields to a constant and leaves the rest of the record standing:
+
+```python
+kept = redact(record, ["content", "response_text"])
+```
+
+That empties the text of every message and the assistant's reply. It does not touch the roles,
+the `tool_call_id`s, the index, the finish reason, the tool names, the token counts or the
+elapsed time. So the sequence is still readable as a sequence, and every number in the record
+still means what it meant.
+
+That gives the design a property worth stating as an invariant, because it is what makes
+redaction a real guarantee rather than a nicety:
+
+```python
+summarise(redact(record, fields)) == summarise(record)     # for any fields
+```
+
+It holds for a reason rather than by luck. Redaction only ever blanks text, and `summarise`
+only ever reads counts, indexes and tool names, so the two touch disjoint parts of the record
+and cannot interfere. The exercise tests exactly this equality.
+
+A redaction scheme without that property is one you stop using the first time somebody
+questions a cost report, and then you are back to tracing nothing. With it, the records you
+keep after stripping user data are still the records your accounting runs on, which is what
+lets the ledger in the next section consume a redacted trace and get the right answer.
+
+`redact` must copy rather than blank in place, and deeply enough to be a copy: a new record, a
+new message list, a new dict per message. Blanking in place would redact the live conversation
+the agent is still running, which turns an observability feature into a data loss bug.
+
+## The ledger falls out of the same records
+
+Once every step carries a token count and a tool name, the spend question is arithmetic.
+`summarise` walks the records and returns the step count, the failed step count, the token
+totals, the elapsed time, and a count per tool.
+
+Nothing in it is about money, and yet tokens per run plus calls per tool is the whole input to
+a cost report. That is the argument for spending effort on the record shape once rather than
+adding a counter every time somebody asks a new question. A new question about a well shaped
+record is a function over a list; a new question about a badly shaped one is a change to the
+agent and a wait for new data.
+
+That is as far as this module takes it.
+[Observability and cost](lesson:stage-6.observability-and-cost) builds the query layer on top
+of records of exactly this shape: pricing per model, failure classification, cost per completed
+task, and what to do when nothing completed.
+
+## Your exercise
+
+Write `summarise`, `redact`, `Tracer` and `TracedAgent`. `Hook`, `Toolbox` and `StepRecord` are
+given, so the work is the tracer that turns hook calls into records and the agent that emits
+them in the right order.
+
+The tests pin the order of the five points exactly, using a hook that records every call it
+receives, and they check that hooks fire in list order. They check that a record holds a
+snapshot by asserting step one's record has one message where the live list would show three.
+They check the clock is read exactly four times across two steps. And they check the two
+`on_error` cases separately: a model call that raises must reach `on_error` and still
+propagate, and a spent budget must mark the last existing record rather than adding one, which
+the test verifies through `summarise` reporting two steps and one failure.
+
+The one people get wrong is `BrokenHook`. A hook that raises must not stop the run and must not
+stop the hooks after it in the list, which means the `try` goes around each hook individually
+rather than around the loop over them. Wrap the whole loop and the first broken hook silences
+every hook behind it, including the tracer.

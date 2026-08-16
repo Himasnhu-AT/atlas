@@ -1,0 +1,153 @@
+---
+id: fw-2.two-runtimes-one-loop
+title: Two runtimes, one loop
+summary: What the OpenAI Agents SDK and Pydantic AI each optimise for, what a pre 1.0 version number really promises, and what vendor coupling costs when the platform underneath moves.
+order: 1
+estimatedMinutes: 30
+---
+
+The last module was about frameworks that model an agent as a graph. This one is about the
+other family: runtimes that keep the loop you already wrote and add a small number of
+opinions around it. Two are worth knowing in detail, because between them they cover most of
+what people mean by "we use an agent framework" today.
+
+The first is the OpenAI Agents SDK, which is the production successor to Swarm, an
+experimental library OpenAI published in 2024 and explicitly told people not to ship. Its
+whole vocabulary is four words: agents, handoffs, guardrails, sessions. Here is what an
+agent and a handoff look like in it. You cannot run this in the exercise environment, so
+read it as illustration.
+
+```python
+# Illustration only. Needs the openai-agents package and an API key.
+from agents import Agent, Runner, function_tool
+
+@function_tool
+def order_status(order_id: str) -> str:
+    """Look up the status of an order."""
+    return lookup(order_id)
+
+billing = Agent(
+    name="Billing",
+    instructions="Answer billing questions. Refunds are not yours to give.",
+    tools=[order_status],
+)
+
+triage = Agent(
+    name="Triage",
+    instructions="Work out who should handle this and hand off.",
+    handoffs=[billing],
+)
+
+result = await Runner.run(triage, "I was charged twice for order A-1174")
+result.final_output
+```
+
+The second is Pydantic AI, from the team behind Pydantic. Its opinion is that the interesting
+part of an agent is the boundary where untyped model output becomes a typed Python object,
+and everything else follows from that.
+
+```python
+# Illustration only. Needs the pydantic-ai package and an API key.
+from dataclasses import dataclass
+from pydantic import BaseModel
+from pydantic_ai import Agent, RunContext
+
+class Ticket(BaseModel):
+    title: str
+    severity: int
+    tags: list[str] = []
+
+@dataclass
+class Deps:
+    db: Database
+
+# MODEL is a provider qualified string, "openai:..." or "anthropic:...".
+agent = Agent(MODEL, deps_type=Deps, output_type=Ticket)
+
+@agent.tool
+def customer_plan(ctx: RunContext[Deps], customer_id: str) -> str:
+    """Which plan a customer is on."""
+    return ctx.deps.db.plan_for(customer_id)
+
+result = agent.run_sync("Printer on fire, customer 7", deps=Deps(db=db))
+result.output.severity  # an int, or the run failed
+```
+
+Under both of those is the loop from module 3. Messages in, a response, tool calls dispatched,
+results appended, repeat until the model stops asking for tools. The handoff in the first
+example is a tool call. The `Ticket` in the second is a tool schema plus a validator. Nothing
+in either sample requires a mechanism you have not already built.
+
+## What each is actually optimising
+
+The Agents SDK optimises for orchestration you can read. Agents are objects with names, and
+the thing they do to each other is transfer control, so a run reads as a sequence of named
+handoffs and its trace looks like an org chart. It leaves types mostly alone: output typing
+exists, but it is not what the library is about.
+
+Pydantic AI optimises for the type boundary. Dependencies are injected into tools through a
+run context rather than reached for as globals, output is validated against a model, and a
+failed validation is an ordinary control flow event that the library knows how to feed back
+to the model. Multi agent work is possible but it is not the organising idea.
+
+Choose on whichever of those two problems is actually hurting you. If you cannot explain who is
+answering at any given moment, the first shape helps. If your agent produces text that three
+different functions parse three different ways, the second one does.
+
+## Reading a version number
+
+Both libraries have moved fast, and both spent a long stretch carrying a major version below 1.
+That number is not modesty. Under semver, a package below 1.0 is telling you in advance that a
+minor bump may break your code, and libraries in this space use that licence. Function names
+get renamed, a result attribute changes, a decorator gains a required argument. Check what the
+version is before you depend on it, and read a 1.0 as a narrower promise rather than as a
+surface that has stopped moving.
+
+Treat it as an operational fact rather than a complaint. Pin the exact version in your lock
+file, read the changelog before you bump it, and keep the integration behind one module of
+your own so a rename touches one file. Budget a maintenance window every few months for the
+whole dependency, not just a `pip install --upgrade` in CI. An agent stack that nobody has
+upgraded in a year is not stable, it is stale, and the gap gets more expensive the longer you
+leave it.
+
+The corollary is about what you build on top. Code that calls the framework at four hundred
+sites is a rewrite when the framework moves. Code that calls it in one adapter is an
+afternoon.
+
+## What coupling costs when the platform moves
+
+Library churn is the mild version. The expensive version is a hosted product being retired
+underneath you.
+
+OpenAI's Assistants API is the case study. It was a server side agent runtime: threads,
+messages, and tool state lived on the provider's infrastructure rather than in your process.
+Teams built on it, and then it was superseded by the Responses API and put on a deprecation
+schedule. Everything those teams had stored provider side, meaning conversation state and
+run history, had to be moved to something else. Everything they had kept in their own
+database was fine.
+
+The lesson is not "never use a hosted runtime". Hosted state is genuinely convenient and
+sometimes correct. The lesson is to know which of your assets live somewhere you do not
+control, and to be able to say what a migration would cost before you need the answer.
+
+Ranked by how well it survives a provider or framework change: your prompts survive almost
+anything, your tool implementations are plain functions and survive too, your message history
+survives if it is in your database and does not if it is in theirs, and your orchestration
+survives in proportion to how little of it is written in someone else's vocabulary.
+
+## What this module builds
+
+Three pieces, each the miniature of something the two SDKs ship.
+
+A runner with handoffs, so multi agent stops being a diagram and becomes one reassignment
+inside a loop you already understand.
+
+A guardrail layer that can stop a run before the first model call, which is the only kind of
+check that saves money rather than reporting on it.
+
+Typed output with a retry loop, where a validation error goes back to the model as a tool
+result and the model corrects itself.
+
+None of them need a network. All of them are the mechanism the real libraries use, with the
+tracing, the streaming, and the provider abstraction left out. When you next read the Agents
+SDK source looking for why a handoff did not fire, you will know what you are looking at.

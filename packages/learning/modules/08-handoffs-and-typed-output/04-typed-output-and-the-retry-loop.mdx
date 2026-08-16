@@ -1,0 +1,149 @@
+---
+id: fw-2.typed-output-and-the-retry-loop
+title: Typed output and the retry loop
+summary: Structured output is a tool call carrying a schema, and the framework's retry story is nothing more exotic than feeding the validation error back to the model as a tool result.
+order: 4
+estimatedMinutes: 55
+exercise:
+  id: validated-output
+  timeboxMinutes: 25
+---
+
+You asked for a ticket and got back a paragraph that mostly contains one. Somewhere in your
+codebase there is now a regex looking for the word "severity", and it works until the model
+writes "priority" instead.
+
+Constrained JSON modes exist and you should use them where you have them. OpenAI ships
+`json_schema` response formats, Google has `responseSchema`, Anthropic has structured output,
+and all of them constrain decoding so the bytes you get back parse. What none of them is, is a
+contract. No two support the same corner of JSON Schema, so a swap of provider is a rewrite of
+the part you were relying on, and a document that parses is still a document that can be wrong.
+
+The shape that survives all of that is the one you already have. Structured output is a tool
+named `final_output` whose parameters are the schema of your type. The model calls it, you
+validate the arguments against a validator you own, and if they validate you have an object
+rather than a paragraph.
+
+## Generating the schema
+
+Pydantic AI takes a model class as `output_type` and derives the JSON Schema from it. You are
+going to do the same thing from a dataclass, and the mapping is small enough to write out.
+
+```python
+@dataclass
+class Ticket:
+    title: str = field(metadata={"description": "One line summary of the problem"})
+    severity: int = field(metadata={"description": "1 is lowest, 5 is highest"})
+    tags: list[str] = field(default_factory=list)
+```
+
+becomes
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {"type": "string", "description": "One line summary of the problem"},
+    "severity": {"type": "integer", "description": "1 is lowest, 5 is highest"},
+    "tags": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["title", "severity"],
+  "additionalProperties": false
+}
+```
+
+The descriptions are not decoration. They are read by the model on every call and they are
+the cheapest accuracy in the whole system: "severity" alone invites a guess, and "severity, 1
+is lowest and 5 is highest" gets you a number on the scale you meant. If you write a field
+into a schema and cannot think of a description for it, that is usually a sign the field name
+is doing too much work.
+
+A field with a default is not required, which is how you tell the model what it may leave
+out. A required field the model cannot know is how you get a fabricated one.
+
+## Validating, and why you collect every problem
+
+The strict modes from the opening remove one whole class of problem and none of this one. They
+say nothing about whether severity 9 is meaningful on a scale of 1 to 5, or whether the tags
+the model picked are tags your tracker has ever seen. You validate anyway.
+
+Validate everything before you raise. One problem per round trip means the model fixes the
+severity, sends it back, and learns about the missing title on the next call, and you have
+paid twice for one correction. Collecting them costs nothing:
+
+```
+title: missing
+severity: expected integer, got str
+```
+
+Two rules in that message are worth naming. Type names on the left of "got" are the JSON ones
+the model was shown, because telling a model it sent a `str` where you wanted an `int` is
+telling it about Python, not about the contract it was given. And `bool` is a subclass of
+`int` in Python, so an int field that does not explicitly reject `True` will happily record a
+ticket at severity 1 when the model answers "true".
+
+## The retry loop is one append
+
+Here is the whole mechanism that frameworks describe as automatic retries.
+
+```python
+try:
+    output = validate_into(output_type, arguments)
+except ValidationError as error:
+    retries += 1
+    messages.append({
+        "role": "tool",
+        "tool_call_id": call.id,
+        "content": str(error),
+    })
+    continue
+return TypedResult(output, retries, messages)
+```
+
+The validation error goes back as the result of the call that produced it. From the model's
+side nothing unusual happened: it called a tool, the tool reported a problem, and it gets
+another turn with the whole conversation still in front of it, including its own bad payload.
+Models are good at this. A field named in an error message is usually fixed on the next
+attempt.
+
+Pydantic AI exposes the same idea to your own tools as an exception called `ModelRetry`: raise
+it inside a tool and the message becomes the tool result the model reads. Same mechanism,
+different entry point.
+
+The bound is what turns this from a feature into a bill. Count retries, not attempts, and
+raise when the budget is gone with the last error attached. Three failures in a row is not
+bad luck: either the schema asks for something the model cannot know, the descriptions are
+ambiguous, or the type is wrong for the job. An agent that retries forever turns a prompt
+problem into an outage with a large invoice.
+
+## Dependencies, and why tools take a context
+
+The last piece is how a tool reaches a database without a global. Pydantic AI passes a
+`RunContext` as the tool's first argument, carrying whatever the caller handed to `run` as
+`deps`, plus run state such as the retry count.
+
+```python
+def lookup_customer(ctx: RunContext, customer_id: str) -> str:
+    """Look up a customer by id."""
+    return ctx.deps.db.plan_for(customer_id)
+```
+
+Two things fall out of that. The tool is testable with a dictionary standing in for the
+database, with no patching and no import time connection. And the context parameter must be
+kept out of the schema you send: it is the framework's argument, not the model's, and
+advertising it invites the model to fill in your database handle with a string.
+
+## Your exercise
+
+Four functions: `json_schema_for`, `validate_into`, `build_tool_schema`, and `run_typed`.
+
+The tests pin the schema exactly, including the order of `required`, so read the mapping in
+the docstring before writing it. They also check that a rejected payload's error text appears
+in the next request rather than only in a log, which is the difference between a retry loop
+and a retry counter.
+
+One environment detail will cost you an hour if you skip it. Both files start with
+`from __future__ import annotations`, so every annotation is a string at runtime and
+`__annotations__` gives you `'int'` rather than `int`. Use `typing.get_type_hints`, which
+resolves them, and remember that `X | None` reports its origin as `types.UnionType` on some
+versions and `typing.Union` on others.

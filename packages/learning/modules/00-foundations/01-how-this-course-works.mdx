@@ -1,0 +1,175 @@
+---
+id: stage-0.how-this-course-works
+title: How this course works
+summary: What you end up having built, how an exercise is graded, why the reference solution sits behind a deliberate click, and why nothing here calls a real model.
+order: 1
+estimatedMinutes: 12
+---
+
+Two things are true of this course and they pull against each other. Everything you write
+runs. Nothing you write calls a real model. The rest of this lesson is what that combination
+buys you, what it costs you, and how a lesson works so that the next one is not a surprise.
+
+## Where this ends up
+
+The last two modules are projects, and they are the destination everything before them is
+pointing at.
+
+The first is a support agent that knows when to escalate. It answers a customer from a
+knowledge base, marks every factual sentence with the article it came from, refuses when the
+knowledge base does not cover the question, and hands the conversation to a person with a
+summary that person can act on without reading the transcript. It is graded by a harness that
+plays customers at it and fails the agent for escalating on the first vague question as well
+as for grinding on past the point where a human was clearly needed.
+
+The second is a research briefing pipeline. It fans a question out to workers that each go and
+find something, writes a single brief from what comes back, and then makes a separate pass over
+its own draft checking that every claim it cited is actually supported by the text it cited.
+Anything that is not supported gets pulled out of the brief rather than shipped with a footnote
+nobody checked.
+
+Everything between here and there is the equipment those two need. A model call and what it
+costs you. Prompts, and the difference between an instruction and an example. Tool calling and
+the loop that drives it. Retrieval. What an agent framework does for you and what it hides.
+Graph runtimes, handoffs between agents, and output you can rely on having a shape.
+
+## The shape of a lesson
+
+A lesson is prose followed by an exercise. The prose gives you the idea and the vocabulary
+for it. The exercise makes you build the thing, and a test decides whether you did.
+
+The desktop app puts three panes in front of you: the lesson, an editor, and a terminal. This
+is what the editor holds when an exercise opens, taken from the next lesson's:
+
+```python
+def count_words(content: str | None) -> int:
+    """
+    Count the whitespace separated words in one message's content.
+
+    Args:
+        content: the text of a message, or None. None is not an error here. An
+            assistant turn that only calls a tool carries no text at all.
+
+    Returns:
+        The number of words. Runs of spaces, tabs and newlines count as a single
+        separator. Both None and "" count zero.
+    """
+    raise NotImplementedError
+```
+
+A signature, a docstring, and no body. The first thing to do is run the tests before writing a
+line, because seeing them all fail tells you the toolchain works:
+
+```
+$ python3 test.py
+test_an_empty_string_is_zero (__main__.TestCountingWords.test_an_empty_string_is_zero) ... ERROR
+test_collapses_runs_of_whitespace (__main__.TestCountingWords.test_collapses_runs_of_whitespace) ... ERROR
+...
+Ran 16 tests in 0.001s
+
+FAILED (errors=16)
+```
+
+Then you write one function, run again, and watch its tests turn to `ok` while the rest stay
+red. The exercise is done when the last one flips.
+
+That docstring is the specification, and it is written so that it is sufficient. If you read it
+and nothing else you should be able to write the function, which is why it says what None does
+rather than leaving you to find out from a failure. Where it is not sufficient, the tests are:
+they are the same specification written more precisely than prose can manage. Opening `test.py`
+when a failure confuses you is the normal thing to do and not cheating. The only file in the
+exercise you are asked to leave shut is `reference.py`, and only until you have attempted the
+thing yourself.
+
+Some lessons, this one included, have no exercise. Those are the ones where the idea is worth
+more than any code you could write about it in twenty minutes.
+
+## The scaffold, and what reading a solution costs
+
+The first time you open an exercise, the app copies `scaffold.py` to `solution.py`. That copy
+is your file. The scaffold has the signatures and the docstrings and nothing else: every body
+raises `NotImplementedError`, so the first run is red and it is supposed to be.
+
+The reference solution is complete, commented, and deliberately out of reach. Asking for it
+takes a click, a confirmation, and it is recorded against the exercise. That friction is on
+purpose and it is worth being straight about why.
+
+Reading a working solution after a real attempt is one of the better things you can do. You
+have a version of the problem in your head, you know exactly where it got awkward, and the
+reference either confirms your shape or shows you a better one. The comparison is what teaches:
+you are not reading code, you are reading the difference between two designs, one of which you
+built and understand the reasons behind.
+
+Reading it instead of attempting teaches you close to nothing, and worse, it feels like
+learning. The mechanism behind that feeling is worth knowing, because it will mislead you
+again. Recognising a correct solution is a much easier task than producing one, and reading
+exercises only recognition. Everything looks obvious, because it is obvious once somebody has
+told you what shape to write. The confidence you come away with is calibrated to the easy task
+and you then attempt the hard one. Every programmer has read a solution, nodded, closed the
+tab, and been unable to reproduce it an hour later.
+
+The friction has a cost too, and it is not zero. Sometimes you are stuck because the lesson
+genuinely failed to explain something, and no amount of sitting with it will produce the idea,
+because the idea is not in the room. Grinding through that teaches nothing either. Telling the
+two situations apart from the inside is hard, which is what the timebox is for.
+
+## Twenty minutes
+
+Each exercise carries a timebox, usually twenty minutes, shown in its header. Nothing expires
+and nothing is submitted. The clock is a suggestion about when struggling stops paying.
+
+Up to about twenty minutes, being stuck is the work, and it is worth being specific about why.
+While you are stuck you are producing candidate answers and rejecting them, and each rejection
+is you working out what the problem actually requires. That is what makes the reference legible
+later: you arrive at it holding a question, and the answer lands as a resolution rather than as
+a fact you read. Skip the twenty minutes and you have no question, so there is nothing for the
+answer to attach to.
+
+The useful test is not how long it has been but whether you are still generating candidates. If
+you have read the same three lines four times and produced no new idea about them, the next
+hour will produce no new idea either, and the reference is the cheaper move. The timebox is
+there so you have a number to check that feeling against instead of a mood.
+
+If you are stuck but still moving, ignore the timer.
+
+## Nothing here calls a real model
+
+Every exercise runs against `mockllm`, a scripted client that ships with the course. You give
+it a list of responses and it hands them out one per call. It returns the same objects a real
+SDK returns, with the same `choices`, the same `finish_reason`, the same tool call structure,
+so the line that changes between here and production is the one that builds the client:
+
+```python
+client = MockClient([text("Six on weekdays.")])   # in this course
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])   # in production
+
+# Everything below this line is identical either way.
+response = client.chat.completions.create(model=MODEL, messages=messages)
+```
+
+That is the point of building the mock to mirror a real API rather than inventing a simpler
+one. A simpler client would be easier to learn and would teach you a shape that does not exist
+anywhere.
+
+Four things follow. The tests run in about a second. They give the same answer every time, so
+a red test has exactly one possible cause, which is your code. Against a live model it has two,
+your bug or the model being unhelpful today, and you cannot tell them apart by looking, so
+every debugging session opens with an unanswerable question. You also need no API key, so
+nothing stands between you and lesson two, and it all works with the network off.
+
+The cost is real and it is not small. You will never watch a live model do something you did
+not expect: quietly ignore the third instruction in your system prompt, invent a plausible
+tool name, get worse when you make the prompt longer. Developing a feel for that is a genuine
+part of this craft and you will have to get it somewhere else, by pointing your own code at a
+real provider and paying attention. What this course can teach without a network is the
+machinery: the loop, the state, the failure handling, the checks. That is most of the code and
+almost all of the bugs.
+
+## What you need
+
+Python 3.10 or newer, and nothing else.
+
+No virtual environment, no `pip install`, no Docker, no model weights on disk. `mockllm` is a
+single standard library file the app copies into your workspace next to each exercise, and the
+tests use `unittest`, which comes with Python. The next lesson makes you prove all of that
+actually works on your machine.

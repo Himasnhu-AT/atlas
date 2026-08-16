@@ -1,0 +1,185 @@
+---
+id: proj-1.grounded-answers-and-scope
+title: Grounded answers and the scope boundary
+summary: Retrieve first, answer second, and treat a reply that cites nothing as a failure rather than an answer. Out of scope is a route to somebody, not a dead end.
+order: 2
+estimatedMinutes: 60
+exercise:
+  id: grounded-reply
+  timeboxMinutes: 30
+---
+
+The answering layer is four steps and there is a decision hidden in each one.
+
+```
+retrieve   find the articles that might answer this
+prompt     hand the model those articles and the question
+call       exactly one model call
+verify     check what came back against what you sent
+```
+
+The fourth step is the one people skip, and it is the one that turns a demo into something
+you can point at a paying customer.
+
+## Retrieval decides what the answer can be
+
+A model with no context will answer anyway. It has read enough support documentation to
+produce something that sounds exactly like your help centre, complete with a refund window it
+invented. The only thing that stops it is having the real text in front of it and a rule about
+what to do when that text is not there.
+
+So retrieval runs first, and its result is the input to a decision rather than to a prompt:
+
+```python
+hits = retrieve(articles, question, k=2, floor=0.12)
+if not hits:
+    return Reply(OUT_OF_SCOPE_TEXT, [], [], "out_of_scope")
+```
+
+Nothing above the floor means no grounded answer is possible. Calling the model at that point
+buys you a fluent, unsupported paragraph and a line on the invoice. Refuse first. This is the
+cheapest bug in the module to fix and the most expensive one to leave in, because it fires on
+every out of scope question forever.
+
+The floor is a real parameter with a real cost either way. Too high and legitimate questions
+fall off the edge and go to a person. Too low and the model gets handed a barely related
+article and dutifully answers from it, which reads exactly like a hallucination and is
+actually your retrieval. Start around 0.1 for the embeddings in this course, look at what gets
+dropped, and move it deliberately.
+
+Ordering matters more than it looks. Ties break on article id, not on corpus order:
+
+```python
+scored.sort(key=lambda pair: (-pair[1], pair[0].id))
+```
+
+Two articles with the same score is not a hypothetical when a help centre has near duplicate
+pages, and retrieval that reorders itself between runs makes every downstream test flaky. You
+will spend an afternoon blaming the model.
+
+## What the embeddings here can and cannot do
+
+`mockllm.embed_text` is the hashing trick: it buckets words into 256 dimensions and counts
+them. There is no training and no notion of meaning, so "car" and "automobile" score zero
+against each other, and two unrelated words occasionally land in the same bucket and score
+higher than they should.
+
+It also means stopwords carry the same weight as real words. Left alone, "What is the capital
+of France?" scores about 0.3 against an article about refunds, purely on `is`, `the` and `of`.
+The exercise gives you a `normalise()` that lowercases and drops a small stopword list, and
+with it that question scores zero against everything. That is not a workaround for the mock. It is
+what real retrieval pipelines do, and it is a reminder that retrieval quality is mostly
+preprocessing before it is ever a model choice.
+
+Everything you write here works unchanged against a real embedding API. It just gets better
+at synonyms, and you get to delete the stopword list.
+
+## The prompt shape
+
+Three messages, and the order is not decoration.
+
+```python
+[
+    {"role": "system", "content": SYSTEM},
+    {"role": "user", "content": "Context:\n\n[A2] Password reset\n..."},
+    {"role": "user", "content": question},
+]
+```
+
+The system message states the rule the whole design rests on: every factual sentence carries
+the bracket id of the article it came from, and anything the context does not answer gets
+refused rather than guessed.
+
+The context goes in the middle, with each article rendered under its own bracket id. The id is
+what makes the next step possible. Without it the model writes a fluent paragraph and you have
+no way to tell which sentence came from where.
+
+The question goes last and alone. Burying it above a wall of retrieved text is the most
+reliable way to get an answer to a question nobody asked. Recall across a long prompt is
+strongest at its start and its end and weakest in the middle, which is exactly where a buried
+question sits.
+
+## Citations are a contract you can check
+
+Asking for citations is a prompt. Verifying them is engineering, and it is about fifteen lines:
+
+```python
+CITATION = re.compile(r"\[(A\d+)\]")
+
+def parse_citations(text, allowed):
+    permitted = set(allowed)
+    cited, dropped = [], []
+    for marker in CITATION.findall(text or ""):
+        bucket = cited if marker in permitted else dropped
+        if marker not in bucket:
+            bucket.append(marker)
+    return cited, dropped
+```
+
+`allowed` is what retrieval actually returned for this question. Anything outside it is an id
+the model made up, and that is the most useful hallucination signal you will ever get: exact,
+free, and not a judgement call. A model that cites `[A9]` when you sent it A1 and A2 is
+telling you something is wrong with either your prompt or your context window, and it is
+telling you in a way a regular expression can catch in production.
+
+`allowed` is doing security work here rather than bookkeeping: a marker the model copied out of
+a document body, put there by whoever wrote that document, is indistinguishable from one the
+model invented, and this check drops both.
+
+Note what the function does not do. It does not check that the cited article supports the
+sentence it is attached to. That needs a second model call and a rubric, and it is worth
+building later. Checking that the id is real costs nothing and catches the worst cases.
+
+## Three routes, not two
+
+The reply carries a route, and there are three of them for a reason.
+
+`answered` means the model produced text and grounded at least part of it in something that
+was actually retrieved.
+
+`out_of_scope` means retrieval came back empty. The model was never called. The customer gets
+a line that names where the question is going next, because a refusal that ends the
+conversation is worse than useless: it teaches the customer that this channel does not work,
+which is expensive to unlearn.
+
+`unsupported` means the model answered and cited nothing. This is the interesting one. It is
+not the same as out of scope, because there was relevant context and the model chose to write
+around it. Separating them tells you which problem you have. A pile of `out_of_scope` means
+the knowledge base has a gap. A pile of `unsupported` means the prompt is not holding, and no
+amount of new articles will fix it.
+
+The unsupported reply still carries the model's text. Throwing it away leaves a human staring
+at an empty ticket with no idea what the agent nearly said. Whether that text ever reaches the
+customer is the session's decision, and the next lesson makes it.
+
+## What this looks like in a real stack
+
+For illustration only, since none of this runs here. A production version of the same four
+steps, using pgvector and an OpenAI client:
+
+```python
+# Illustration. Needs a database, an API key, and a network.
+rows = db.execute(
+    "SELECT id, title, body, 1 - (embedding <=> %s) AS score "
+    "FROM articles ORDER BY embedding <=> %s LIMIT 2",
+    (query_vector, query_vector),
+)
+hits = [r for r in rows if r.score >= 0.12]
+```
+
+The shape is identical. A vector index replaces the loop over four articles, the scores come
+from a trained model instead of word buckets, and the floor is still a number you argue about
+with a support lead. Everything after retrieval, the prompt, the single call, the citation
+check, the three routes, is the code you are about to write, unchanged.
+
+## Your exercise
+
+Build the answering layer. `retrieve`, `build_messages`, `parse_citations` and `answer`, with
+the knowledge base handed in as a list of `Article` from the test file.
+
+The tests check the ordering rule and the tie break, that an empty retrieval costs zero model
+calls, that a fabricated `[A9]` lands in `dropped` and not in `cited`, and that a reply citing
+nothing routes as `unsupported` while keeping its text.
+
+The one that catches people is the tie break: sort by score descending and by id ascending,
+which is not what `sorted(..., reverse=True)` gives you, because that reverses both keys.

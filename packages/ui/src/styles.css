@@ -1,0 +1,458 @@
+@import "tailwindcss";
+
+/*
+ * Register this package's own components as a source, here rather than in each
+ * app that imports this file.
+ *
+ * Tailwind's automatic detection stops at node_modules, and both apps reach
+ * this package through a workspace symlink that lives there. Without this line
+ * a utility used only in a shared component generates no CSS in the consuming
+ * app, and the failure is silent: the class stays on the element and does
+ * nothing. That is how LessonSidebar's lesson badges lost `size-5` in the
+ * desktop app while looking correct on the web, which declared the path itself.
+ */
+@source "./";
+
+/*
+ * The visual system.
+ *
+ * The rule that decides every question here: this is a workbook, not a
+ * dashboard. Paper, ink, hairline rules where a book would put rules, and a
+ * great deal of empty space. A student spends hours reading these pages, so the
+ * page behaves like something printed and the interface stays out of the way.
+ *
+ * If a change makes a screen feel more like an admin panel, it is wrong even
+ * when it looks good in isolation.
+ *
+ * There is one theme. Paper is the product.
+ */
+
+@theme {
+  /* --- Paper and ink -----------------------------------------------------
+     A warm off-white, because pure white glares under the lamp someone is
+     reading a chapter under at 11pm. Ink is warm near-black rather than #000,
+     which on paper stock reads as printed rather than as a screen. */
+  --color-paper: #f7f4ee;
+  --color-paper-raised: #fffdf9;
+  --color-paper-sunken: #efeae1;
+
+  --color-ink: #1a1714;
+  --color-ink-soft: #4a443c;
+  --color-muted: #6d6558;
+
+  --color-rule: #ddd6c9;
+  --color-rule-strong: #c4bbaa;
+
+  /* The accent is fountain-pen blue-black: the colour a person would actually
+     have written in the margin of this book. One idea per screen wears it.
+     `--color-accent` is for 24px and up; `--color-accent-deep` is the same hue
+     taken dark enough to pass AA as small text. See the contrast table in
+     DESIGN.md and re-measure if you retune either. */
+  --color-accent: #2d4a72;
+  --color-accent-deep: #24395a;
+  --color-accent-wash: #e8edf4;
+
+  /* Verdicts. These report whether a test passed. They are never decoration,
+     which is why there is no scale: one green, one red, one amber, each with a
+     wash for the surface behind it. `--color-fail-deep` is the single
+     exception, and it is not a scale step: destructive buttons are the one
+     place a verdict colour becomes a background that has to respond to a
+     pointer, and a hover that only changes opacity reads as disabled. */
+  --color-pass: #2f6b46;
+  --color-pass-wash: #e4efe7;
+  --color-fail: #9c3328;
+  --color-fail-deep: #7d281f;
+  --color-fail-wash: #f6e7e4;
+  --color-warn: #8a6218;
+  --color-warn-wash: #f5ecdb;
+
+  /* --- Type --------------------------------------------------------------
+     Three families. Literata is a reading face, drawn for long-form screen
+     text, and carries every heading and lead. Inter runs the interface. Mono is
+     for code and for numbers that are measurements, never as a costume. */
+  --font-serif: "Literata Variable", Literata, Georgia, "Times New Roman", serif;
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,
+    SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /* Every size in the product is one of these. Adding a seventh means
+     amending this block and DESIGN.md, not writing an arbitrary value. */
+  --text-eyebrow: 11px;
+  --text-eyebrow--line-height: 1.4;
+  --text-eyebrow--letter-spacing: 0.16em;
+
+  --text-display: clamp(38px, 6.4vw, 68px);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.02em;
+
+  --text-title: clamp(30px, 4.2vw, 44px);
+  --text-title--line-height: 1.12;
+  --text-title--letter-spacing: -0.015em;
+
+  --text-lead: clamp(17px, 1.7vw, 20px);
+  --text-lead--line-height: 1.55;
+
+  --text-section: 21px;
+  --text-section--line-height: 1.3;
+  --text-section--letter-spacing: -0.005em;
+
+  --text-quote: clamp(19px, 2.2vw, 25px);
+  --text-quote--line-height: 1.42;
+
+  --text-caption: 13px;
+  --text-caption--line-height: 1.5;
+
+  /* --- Space -------------------------------------------------------------
+     The reading column is capped where prose stops being readable, not where
+     the viewport ends. */
+  --container-page: 1120px;
+  --container-reading: 68ch;
+
+  --radius-field: 4px;
+  --radius-sheet: 6px;
+
+  /* --- Motion ------------------------------------------------------------
+     One curve. It decelerates hard, so movement reads as an arrival rather
+     than a slide. No bounce and no elastic anywhere in this product. */
+  --ease-paper: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /* Keeps a heading from landing under the sticky masthead when a lesson
+       anchor is followed. */
+    scroll-padding-top: 5rem;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.65;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* One focus treatment for the entire product. Do not remove it locally. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 1px;
+  }
+
+  ::selection {
+    background-color: var(--color-accent);
+    color: var(--color-paper);
+  }
+
+  ::placeholder {
+    color: var(--color-muted);
+  }
+
+  /* Tailwind v4 leaves bare `border` at currentColor, which paints hairlines in
+     text colour. Every rule in this product is the same 1px, so default it. */
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-rule);
+  }
+
+  :where(h1, h2, h3, h4) {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    text-wrap: balance;
+  }
+
+  :where(code, kbd, samp, pre) {
+    font-family: var(--font-mono);
+    font-feature-settings: "liga" 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Reading
+   ---------------------------------------------------------------------------
+   `.prose-learn` styles a rendered lesson. The content build emits plain HTML,
+   so everything below targets real elements rather than utility classes.
+
+   Long-form reading is the product's core surface: a student is here for forty
+   minutes at a time. The measure, the space above headings, and the code block
+   treatment matter more than anything on the marketing page.
+--------------------------------------------------------------------------- */
+
+@layer components {
+  .prose-learn {
+    color: var(--color-ink-soft);
+    font-size: 17px;
+    line-height: 1.72;
+    max-width: var(--container-reading);
+  }
+
+  .prose-learn > * + * {
+    margin-top: 1.15em;
+  }
+
+  .prose-learn h2,
+  .prose-learn h3 {
+    color: var(--color-ink);
+    /* More space above a heading than below it, so a section reads as
+       belonging to the words that follow rather than the ones before. */
+    margin-top: 2.4em;
+    margin-bottom: 0.6em;
+    text-wrap: balance;
+  }
+
+  .prose-learn h2 {
+    font-size: var(--text-section);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    padding-bottom: 0.35em;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .prose-learn h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-top: 1.9em;
+  }
+
+  /* Anchor links are wrapped around headings by the content build. They must
+     not look like body links or the page turns blue. */
+  .prose-learn h2 a,
+  .prose-learn h3 a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .prose-learn h2 a:hover,
+  .prose-learn h3 a:hover {
+    color: var(--color-accent-deep);
+  }
+
+  .prose-learn a {
+    color: var(--color-accent-deep);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+    text-decoration-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
+    transition: text-decoration-color 0.2s var(--ease-paper);
+  }
+
+  .prose-learn a:hover {
+    text-decoration-color: var(--color-accent);
+  }
+
+  .prose-learn strong {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  .prose-learn ul,
+  .prose-learn ol {
+    padding-left: 1.4em;
+  }
+
+  .prose-learn ul {
+    list-style: none;
+  }
+
+  /* An en dash rather than a bullet: it is what a typesetter would set, and it
+     keeps the left edge of the list quiet. */
+  .prose-learn ul > li::before {
+    content: "–";
+    color: var(--color-muted);
+    position: absolute;
+    margin-left: -1.4em;
+  }
+
+  .prose-learn ol {
+    list-style: decimal;
+  }
+
+  .prose-learn li {
+    position: relative;
+    margin-top: 0.45em;
+  }
+
+  .prose-learn li::marker {
+    color: var(--color-muted);
+  }
+
+  .prose-learn blockquote {
+    margin-block: 1.8em;
+    padding-left: 1.3em;
+    border-left: 1px solid var(--color-rule-strong);
+    color: var(--color-muted);
+    font-family: var(--font-serif);
+    font-size: 1.02em;
+  }
+
+  .prose-learn hr {
+    border: 0;
+    border-top: 1px solid var(--color-rule);
+    margin-block: 2.6em;
+  }
+
+  /* Inline code sits inside a sentence, so it takes no background: a tinted box
+     mid-paragraph breaks the line's colour and its rhythm. */
+  .prose-learn :not(pre) > code {
+    font-size: 0.88em;
+    color: var(--color-ink);
+    background-color: var(--color-paper-sunken);
+    padding: 0.12em 0.34em;
+    border-radius: 3px;
+  }
+
+  .prose-learn pre {
+    margin-block: 1.6em;
+    padding: 1.1rem 1.2rem;
+    /* Code is the one place the page goes darker: a listing is a plate set into
+       the page, and the contrast is what makes it read as a specimen rather
+       than as more prose. */
+    background-color: #f2eee6;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sheet);
+    overflow-x: auto;
+    /* Prevents a long line from widening the page instead of scrolling. */
+    max-width: 100%;
+  }
+
+  .prose-learn pre code {
+    display: block;
+    font-size: 13.5px;
+    line-height: 1.75;
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+
+  .prose-learn table {
+    width: 100%;
+    margin-block: 1.8em;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+
+  .prose-learn th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-ink);
+    padding: 0.55em 0.8em 0.55em 0;
+    border-bottom: 1px solid var(--color-rule-strong);
+  }
+
+  .prose-learn td {
+    padding: 0.55em 0.8em 0.55em 0;
+    border-bottom: 1px solid var(--color-rule);
+    vertical-align: top;
+  }
+
+  /* A table can hold a wide code sample; let it scroll rather than the page. */
+  .prose-learn .table-scroll {
+    overflow-x: auto;
+  }
+
+  /* Denser variant, for the desktop app's narrower lesson pane. */
+  .prose-compact {
+    font-size: 15.5px;
+    line-height: 1.68;
+  }
+
+  .prose-compact h2 {
+    font-size: 18px;
+    margin-top: 2em;
+  }
+
+  .prose-compact pre code {
+    font-size: 12.5px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Motion
+
+   The gesture is ruling a line on paper. A rule is drawn from the left as its
+   content arrives; everything else is a quiet arrival underneath that one idea.
+   If a proposed animation cannot be described as something that happens to
+   paper or ink, it does not belong.
+--------------------------------------------------------------------------- */
+
+/*
+ * The hidden pre-state applies only where scripting is on, because only then
+ * can anything reveal it. With JavaScript off, none of this applies and the
+ * page renders fully visible. No content here can be hidden by a script that
+ * failed to run.
+ */
+@media (scripting: enabled) {
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 0.65s var(--ease-paper),
+      transform 0.65s var(--ease-paper),
+      filter 0.65s var(--ease-paper);
+  }
+
+  /* Ink settling into paper. The one focal entrance in the product; using it
+     twice on a page is what stops it being focal. */
+  [data-reveal="settle"] {
+    transform: translateY(18px);
+    filter: blur(4px);
+    transition-duration: 0.85s;
+  }
+
+  [data-reveal][data-shown] {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
+  [data-rule] {
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.75s var(--ease-paper) 0.08s;
+  }
+
+  [data-reveal][data-shown] [data-rule],
+  [data-rule][data-shown] {
+    transform: none;
+  }
+}
+
+/*
+ * Reduced motion removes travel, not feedback.
+ *
+ * A blanket `animation-duration: 0.01ms !important` on `*` is the usual
+ * shortcut, and it takes hover, focus and open/close feedback with it. That
+ * leaves the interface feeling broken for exactly the people who asked for it
+ * to be calmer. Transforms, blur and smooth scrolling go; colour and opacity
+ * transitions stay, because those communicate state without moving anything.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  [data-reveal],
+  [data-reveal="settle"],
+  [data-rule] {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: color, background-color, border-color, outline-color,
+      opacity, text-decoration-color !important;
+    transition-duration: 0.15s !important;
+  }
+}

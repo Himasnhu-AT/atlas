@@ -1,0 +1,245 @@
+---
+id: stage-0.reading-a-completion
+title: Reading a completion
+summary: The object every model call hands back, and why finish_reason rather than the text is the thing your code branches on. Truncation, tool call turns, and what usage is actually counting.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: reading-a-completion
+  timeboxMinutes: 20
+---
+
+One object comes back from a model call, and every module after this one reaches into it. It
+is worth twenty minutes now so that nothing in the next ten modules is unfamiliar.
+
+## The objects, from the outside in
+
+`mockllm` returns the shape the OpenAI chat completions API defined and most providers now
+mirror. Printed out, a plain text reply looks like this:
+
+```python
+Completion(
+    choices=[
+        Choice(
+            message=Message(role="assistant", content="Six on weekdays.", tool_calls=None),
+            finish_reason="stop",
+            index=0,
+        )
+    ],
+    usage=Usage(prompt_tokens=7, completion_tokens=3),
+    model="mock",
+)
+```
+
+Each layer is there for a reason.
+
+The `Completion` is the whole response to one request. A real provider adds an id, a creation
+timestamp, and a few fields for its own bookkeeping. `mockllm` carries the parts you will
+actually read.
+
+`choices` is a list because one request can return several candidate replies, which is what the
+API's `n` parameter asks for. Nothing in this course asks for more than one, so every exercise
+indexes `choices[0]`, but index it deliberately rather than treating the list as the message.
+
+The `Choice` holds the `message` and the `finish_reason` that says why the model stopped
+producing it.
+
+The `Message` is a role, `content` which is the text or `None`, and `tool_calls` which is a list
+of requested calls or `None`. It has the same shape as the messages you send, which is not a
+coincidence. The model is stateless: your next request is the whole conversation again, and the
+assistant message you just received goes into that list unchanged. One shape, travelling in
+both directions.
+
+`usage` sits beside the choices rather than inside them, because it describes the call. With
+`n` above one, `completion_tokens` covers every candidate the call produced, not one of them.
+
+## finish_reason is what you branch on
+
+Three values matter here.
+
+| finish_reason | what happened | what your code does next |
+| --- | --- | --- |
+| `stop` | the model finished the turn it meant to take | read `message.content` and use it |
+| `length` | it hit the output cap partway through | do not use the text as an answer |
+| `tool_calls` | it wants tools run before it can continue | run them, append the results, call again |
+
+Here is the dispatch that everybody writes first, and it is wrong in a way that will not show
+up in testing:
+
+```python
+def reply_for(completion):
+    message = completion.choices[0].message
+    if message.tool_calls:
+        return run_tools(message.tool_calls)
+    return message.content
+```
+
+Walk the three cases through it. A `stop` completion has no tool calls, so it returns the text,
+which is right. A `tool_calls` completion has them, so it runs the tools, which is right. A
+`length` completion has no tool calls either, so it falls into the same branch as `stop` and
+returns half a sentence as though it were the answer. Nothing raises. Nothing logs. The
+function is correct on the two cases you tried and silently wrong on the third.
+
+The same dispatch, written on the field that actually carries the information:
+
+```python
+def reply_for(completion):
+    choice = completion.choices[0]
+    if choice.finish_reason == "tool_calls":
+        return run_tools(choice.message.tool_calls)
+    if choice.finish_reason == "stop":
+        return choice.message.content or ""
+    raise IncompleteReply(choice.finish_reason)
+```
+
+The improvement is not the extra line. It is that the second version has no fall-through path.
+Every value it does not recognise ends up at the `raise`, including `length`, including
+`content_filter`, and including whatever a provider adds next year. The first version has a
+default branch too, it just did not choose it on purpose: whichever case has no distinguishing
+attribute quietly inherits everything else.
+
+`run_tools` is doing a lot of work in one name there, and the turn it belongs to does not end
+when it returns: the results go back into the conversation and the model is called again.
+Wrapping that in a loop is [the ReAct loop](lesson:stage-3.the-react-loop), which is where the
+dispatch above stops being a function and becomes an agent.
+
+Branch on this field rather than on the text, for a reason worth stating plainly.
+`finish_reason` is set by the serving stack when generation halts, not produced by the model.
+The loop that generates tokens stops for one of a few reasons, and the stack records which.
+The model cannot decide to emit it, cannot be talked out of it by a clever system prompt, and
+cannot be tricked into it by text somebody pasted into a user message.
+
+Every alternative you might reach for is generated text and inherits all of text's problems.
+Ask the model to end with `DONE` and you get `Done.`, `I'm done!`, and eventually a summary of
+a document that contains the word `DONE`, which ends your loop four steps early with the answer
+half built. Prompts that ask a model to announce when it is finished mostly predate tool
+calling being a first class feature and were the only option at the time. When the API carries
+the signal, use the API's.
+
+## What "length" actually means
+
+`length` means generation hit a ceiling and stopped partway. Two ceilings produce it, and they
+fail differently enough to be worth telling apart.
+
+The first is the output limit on the request, the `max_tokens` style parameter. The decode loop
+counts the tokens it has produced and halts at the cap whether or not the model was finished.
+
+The second is the context window, which the prompt and the reply share. A long conversation
+leaves less room for the answer even when you set no cap at all, so the same code that worked
+for ten turns starts truncating at forty. That one is worse because nothing about the request
+changed. The input just grew.
+
+The text that comes back is real. It is well formed, it reads like an answer, and it stops
+somewhere you would notice if you were reading it and will not notice if you are not:
+
+```python
+response = client.chat.completions.create(model="mock", messages=messages)
+answer = response.choices[0].message.content   # looks fine
+store(answer)                                  # and now nothing knows it was cut off
+```
+
+Once a truncated reply has been written to a database, shown to a customer, or appended to a
+conversation as the assistant's turn, no part of your system remembers it was incomplete. It is
+not an error anywhere. It is just wrong, in a way that reads as the model being careless.
+
+It gets sharper the moment you asked for JSON, because a document that stops early usually does
+not parse and the parse error says nothing about why. Checking `finish_reason` before you parse
+turns that into a decision you can act on: ask again with a larger output budget, send less
+input, or split the work into pieces that each fit. What to do about it in code, and the retry
+loop it turns into, is [structured output](lesson:stage-2.structured-output).
+
+The truncated reply is billed either way. You pay for the tokens it produced before it stopped.
+
+## No content on a tool call turn
+
+When the model asks for tools, `content` is `None` and `tool_calls` holds the requests:
+
+```python
+Message(
+    role="assistant",
+    content=None,
+    tool_calls=[
+        ToolCall(id="call_1_0", function=Function(name="get_hours", arguments='{"day": "monday"}')),
+    ],
+)
+```
+
+`None`, not an empty string. And in the other direction, `tool_calls` is `None` rather than an
+empty list on an ordinary text turn, so `for call in message.tool_calls` on a normal reply
+raises `TypeError`. That is the crash you will write first, and it fires on the most common
+response your agent will ever receive.
+
+Some models fill in both text and tool calls in one turn, usually a sentence about what they
+are about to do. So treat `content` as optional information rather than as proof of what kind
+of turn this is. `finish_reason` is the field that knows.
+
+The `arguments` field is a JSON string rather than a dict, because it is generated text and the
+provider hands it to you exactly as the model produced it. It can therefore be malformed, and
+`json.loads` on it is a call that can raise. Some providers offer a strict mode that constrains
+decoding to your schema and makes valid JSON a guarantee rather than a likelihood, which is
+worth turning on where it exists and is not universal. Handling a broken argument object is a
+case you write, not an outage, and the tool use module is where it becomes your problem.
+
+What matters here is that the assistant message goes back into your conversation exactly as you
+received it, tool calls included, before the tool results do. The API requires that pairing:
+a tool result message refers to a `tool_call_id`, and the request is rejected if the call it
+answers is not there. Rebuilding the assistant message from its parts, rather than keeping the
+object you were handed, is how people lose the `id` and end up with a request the provider
+refuses.
+
+## usage, and why the prompt keeps growing
+
+`prompt_tokens` counts everything you sent, which is the entire conversation and not the newest
+message. `completion_tokens` counts what came back. Both describe this call alone.
+
+Which means the interesting number is never a single completion's usage. It is the sequence:
+
+```
+turn 1    prompt 7     completion 3     paid 10
+turn 2    prompt 21    completion 4     paid 25
+turn 3    prompt 38    completion 9     paid 47
+                                        --------
+                                        paid 82
+```
+
+At the end of that conversation the transcript is about 47 tokens long and you have paid for 82.
+Nothing went wrong. The model is stateless, so every turn re-sends the whole history, and turn
+three paid for turn one's question a third time. Read the prompt column against the total: the
+prompt rises gently, 7 to 21 to 38, and the total does not. Three turns is not enough to show
+you what that does over twenty, which is a thing worth working out with a real number attached
+rather than taking on trust here.
+
+Two footnotes. Output tokens are usually priced higher per token than input, because reading
+the prompt happens in one pass over the whole thing while producing the reply takes one pass
+per token generated, so the smaller number on the right is not the smaller number on the
+invoice. And several providers discount a repeated prompt prefix through caching, which makes
+the resend cheaper without making it smaller, so the window still fills at the same rate. That
+second one, and the twenty turn arithmetic, are
+[tokens and the context window](lesson:stage-1.tokens-and-context).
+
+The numbers `mockllm` reports come from a word count with a multiplier, not a real tokenizer.
+They move in the right direction as a conversation grows, which is the part worth noticing. Do
+not read anything into the exact value.
+
+## Your exercise
+
+Seven small pure functions over a `Completion`, and no loop anywhere. `finish_reason` and
+`stopped_early` are the mechanical ones. `answer_text` returns the text but raises
+`IncompleteReply` when the turn did not finish, carrying the reason so the caller can tell a
+truncation from a tool call. `tool_names` lists the requested tools in call order.
+`total_tokens` and `usage_totals` count one call and a whole conversation. Then
+`describe` composes all of them into a single log line, which is the dispatch from the top of
+this lesson with a fourth arm on it.
+
+The tests build their fixtures by running `text()`, `truncated()`, `tool_call()` and
+`tool_calls()` through a real `MockClient`, so what you are handed is exactly what every later
+exercise receives. Two fixtures are built by hand, because `mockllm` has no script helper for
+them: a finished turn with no content, and a `finish_reason` of `content_filter`.
+
+Two of the seven will catch you, and both are about what a field holds when nothing interesting
+happened. One is `tool_calls`, which holds nothing at all rather than an empty list when the
+model asked for no tools. The other is a branch you can write either as the cases you know
+about or as the one case you are sure of, which are the same code today and different code the
+first time a provider adds a value. The second version of `reply_for` above is the shape that
+survives; the first is the shape that does not. Decide which you are writing before you run the
+tests, then see whether the tests agree with you.

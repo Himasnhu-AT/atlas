@@ -1,0 +1,11 @@
+id: proj-2
+slug: research-briefing
+name: Research briefing with verified citations
+summary: An orchestrator that fans questions out to workers, a supervisor that writes the brief once, and a verification pass that checks every cited claim against the source text before anything ships. With the accountant that shows what fan out costs.
+version: 1.1.0
+track: projects
+order: 10
+isActive: true
+prerequisites: [proj-1]
+difficulty: advanced
+estimatedHours: 5

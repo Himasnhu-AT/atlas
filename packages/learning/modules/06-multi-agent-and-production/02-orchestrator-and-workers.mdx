@@ -1,0 +1,202 @@
+---
+id: stage-6.orchestrator-and-workers
+title: Orchestrator and workers
+summary: One component owns the plan and the others own a bounded task. The hard parts are writing subtasks that are genuinely independent and deciding what to believe when two workers disagree.
+order: 2
+estimatedMinutes: 45
+exercise:
+  id: orchestrator
+  timeboxMinutes: 40
+---
+
+Routing sends a whole request to one place. Some requests do not have one place to go. "Compare
+our pricing to theirs and tell me whether we should change the seat minimum" is three pieces of
+work and a judgement, and no single specialist has all of it.
+
+That is where the topology stops being a router and becomes something with a shape.
+
+## Three shapes worth knowing
+
+```
+pipeline      A ─▶ B ─▶ C
+
+orchestrator      ┌─▶ W1 ─┐
+              O ──┼─▶ W2 ─┼──▶ O
+                  └─▶ W3 ─┘
+
+peer group    A ◀─▶ B ◀─▶ C
+```
+
+A pipeline runs stages in a fixed order and each one transforms the last one's output. It is
+the easiest to reason about and the easiest to debug, because there is no dynamic decision to
+second-guess and a failure has exactly one place it could have started. It is also the only one
+of the three that can express work where step two genuinely needs step one's answer. What it
+cannot do is adapt: the stages are decided before the request arrives.
+
+An orchestrator with workers has one component that decides what the pieces are and several
+that each do one piece. It adapts, because the plan is written per request, and it parallelises,
+because the pieces do not depend on each other. The cost is that the plan is now a thing that
+can be wrong, and a bad plan is expensive in a way a bad answer is not.
+
+A peer group lets agents talk to each other and decide among themselves who does what. It is
+the most flexible and the least predictable. Termination stops being structural and becomes
+something you have to enforce, cost stops being a function of the plan, and reproducing a run
+means reproducing a conversation. There are problems that need it. Most of the time it is a
+research topic that arrived in a product.
+
+The orchestrator shape dominates in practice for one reason: exactly one component owns the
+plan, and every other component owns a bounded task it can be judged on in isolation. That is
+what makes the system debuggable. When the brief is wrong you look at the orchestrator, and
+when the answer to a well-posed subtask is wrong you look at that worker.
+
+## Decomposition is where it goes wrong
+
+The orchestrator's output is a list of subtasks. Two failures show up immediately and both are
+expensive.
+
+The first is overlap. The planner emits "find the list price on the pricing page" and "on the
+pricing page, find the list price", which is one piece of work phrased twice, and you have paid
+two workers to learn one thing. A planner that does this once does it on a slice of your
+traffic forever, so it is worth catching mechanically rather than noticing in a report.
+
+The cheap catch is a token set. Drop word order and compare what is left:
+
+```python
+WORD = re.compile(r"[a-z0-9']+")
+
+def goal_fingerprint(goal):
+    return frozenset(WORD.findall(goal.lower()))
+
+goal_fingerprint("find the list price on the pricing page") == \
+    goal_fingerprint("on the pricing page, find the list price")   # True
+```
+
+Be clear about what that does and does not buy. It catches restatement, which is the common
+case, because a model asked for several subtasks tends to produce the same nouns in a different
+arrangement. It does not catch paraphrase: "find the list price" and "what do we charge per
+seat" have no words in common and may or may not be the same question, and a token set will
+never tell you which. Catching that needs an embedding comparison or a model call, which means
+a threshold to tune and a new way to be wrong, this time by merging two subtasks that were
+genuinely different. The cheap check is not a lesser version of the expensive one. It is the
+part that is free and exact, and the honest position is to take it and measure how much
+duplication survives before deciding the expensive one is worth its own failure mode.
+
+The second is dependence, and it is the one that produces nonsense rather than waste. "Find
+their price" and "calculate how much cheaper we are" cannot run in parallel: the second needs
+the first's answer, and a worker handed it in isolation will either refuse or invent a number
+to subtract from. A plan with a dependency in it is a pipeline, and running it as a fan out
+does not make it faster, it makes it wrong.
+
+So the plan gets checked before anything is spent on it:
+
+```python
+problems = plan_problems(subtasks, max_workers=self.max_workers)
+if problems:
+    raise PlanError("; ".join(problems))
+```
+
+Checking after the fan out costs one call per subtask and leaves you with a report you cannot
+trust. Checking before costs one call, the planning one, which you had already paid for.
+
+## What a worker returns
+
+A worker could return a paragraph. Here specifically, it should not.
+
+The orchestrator's next job is to compare what came back, and comparing two paragraphs means
+either another model call or a regular expression over prose. Both are worse than asking for
+structure in the first place.
+
+```python
+WorkerResult(
+    subtask_id="t1",
+    status="ok",
+    key="price",
+    value="49",
+    confidence=0.8,
+    evidence="pricing-page",
+)
+```
+
+Structure buys a second thing that is easy to miss. A result carrying the key it answered can
+be checked against the subtask that asked for it, so a worker that wandered off and answered a
+different question is caught for free, before its answer reaches the aggregate. Prose cannot be
+checked that way. You would need a model to tell you whether the paragraph is about the thing
+you asked, and now your verification step has the same failure modes as the thing it verifies.
+
+The status field earns its place too. A worker that looked and found nothing is not the same as
+a worker whose provider returned a 503, and neither is the same as a worker that produced a
+number with no source. Collapsing them into an empty result loses the only information that
+tells you which one to fix.
+
+## Aggregation, and the case where they disagree
+
+Most of aggregation is boring. Collect the results, drop the ones that failed, assemble the
+rest.
+
+The interesting case is two workers answering the same question differently, which happens
+whenever you deliberately cross-check an important number against a second source, and that is
+a thing you should do for important numbers. Somebody now has to decide, and the decision
+belongs in code because it will otherwise be made implicitly by whichever result happened to be
+first in the list.
+
+The rule in the exercise is to rank distinct values by the best confidence anybody gave them,
+and to accept the top one only when it strictly beats the next. Work it through on three
+workers all asked for the seat minimum from different places:
+
+```
+t1  seats = "5"   confidence 0.30   evidence  onboarding-deck
+t2  seats = "5"   confidence 0.30   evidence  onboarding-deck-v2
+t3  seats = "10"  confidence 0.90   evidence  signed-contract
+```
+
+Count workers and "5" wins two to one. Rank values by their best confidence and "10" wins,
+0.90 against 0.30, which is the right answer: t1 and t2 read the same deck twice. That is the
+first deliberate detail. Values are ranked, not workers, because three workers reading one
+wrong source is one wrong source and counting them as three converts a duplicated document
+into a majority.
+
+Now make t3 report 0.30 as well. Nothing separates the values, and the exercise reports the key
+as unresolved and leaves it out of the findings entirely rather than picking one.
+
+That is the part people argue with, because leaving a gap feels like giving up. The alternative
+is worse. A guessed winner sitting in `findings` is indistinguishable from an established fact
+two layers downstream, and the layer that consumes it has no way to know it was a coin flip. An
+absent finding is a question somebody can answer. A fabricated one is a bug that surfaces in
+front of a customer.
+
+Confidence deserves the same suspicion here as it got in the routing lesson, and more, because
+now it is deciding between two answers rather than one threshold. It is self-reported, it is
+not a calibrated probability, and a worker that read a bad source confidently will say so
+confidently. What makes it usable is that the rule needs only an ordering and refuses to act
+when the ordering is flat. Where you have a better signal, use it instead: source authority
+beats self-reported confidence outright, and so does agreement between two genuinely
+independent sources, which is the thing worth engineering the plan to produce.
+
+## The multiplier
+
+Fanning out to five workers is five conversations plus the planning call, each carrying its own
+prompt. The report from the exercise puts that number on its face:
+
+```python
+model_calls=1 + len(subtasks)
+```
+
+It is on the report rather than in a log because it is a design parameter, not telemetry. You
+want to see it while you are deciding whether a plan may have six subtasks, not afterwards.
+[The research briefing project](lesson:proj-2.fan-out-and-what-it-costs) measures what this
+costs against a real corpus, and the ratio is larger than the call count suggests, because
+worker prompts carry retrieved documents and the synthesis prompt carries every note.
+
+## Your exercise
+
+Build the orchestrator. `goal_fingerprint` and `parse_plan` first, then `plan_problems`, then
+`run_worker`, then `aggregate`, then the `Orchestrator` that runs them in order.
+
+The tests check that a plan with a dependency in it is refused after exactly one model call,
+that a worker's prompt never contains another worker's goal, that a worker answering the wrong
+key fails rather than contributing, and that a provider failure on one worker leaves the others'
+answers intact.
+
+The one that catches people is the tie in `aggregate`. Ranking claims by confidence and taking
+the first passes every other test in the file, and quietly resolves a contested fact by list
+order.

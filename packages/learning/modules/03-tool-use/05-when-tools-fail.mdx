@@ -1,0 +1,162 @@
+---
+id: stage-3.when-tools-fail
+title: When tools fail
+summary: Four failures, and only three of them belong in the conversation. The fourth belongs in a retry, and the run has to end with something a caller can act on.
+order: 5
+estimatedMinutes: 45
+exercise:
+  id: resilient-agent
+  timeboxMinutes: 35
+---
+
+The loop you have crashes on the first thing that goes wrong. That was the right first
+version: a loop that swallows everything is much harder to debug than one that stops. Now it
+needs to survive the failures that are survivable, and the useful move is to notice that
+"something went wrong" is four different events with four different answers.
+
+## Four failures, and where each one goes
+
+| What happened | Whose problem | What the loop does |
+| --- | --- | --- |
+| The model named a tool that does not exist | The model's | Observation, keep going |
+| Arguments will not parse or will not validate | The model's | Observation, keep going |
+| The tool ran and raised | The world's, but recoverable | Observation, keep going |
+| The provider itself failed | Neither | Retry the call, do not tell the model |
+
+The first three share a shape. In each case the model made a decision, your code carried it
+out or tried to, and the result was not what anyone wanted. That is exactly what the
+observation slot in the loop is for. A tool message saying the call failed and why is a normal
+message, and a model that gets one usually corrects itself on the next turn: it picks the tool
+that does exist, or fills in the argument it missed, or tries a different city.
+
+Crashing instead throws away a run that was one turn from working. It also throws away
+everything else in the batch, which the previous lesson covers.
+
+The fourth is different in kind. A 503 from the provider is not a decision the model made and
+not information it can act on. The model never saw the request. Feeding it back as an
+observation teaches it that a perfectly good tool call was wrong, which is both false and
+expensive, and the next thing it does will be to try something worse.
+
+## What a good error observation says
+
+The content of the tool message is the model's entire view of what went wrong. Write it for a
+reader who has to fix it in one attempt.
+
+```python
+"error: unknown tool 'lookup_pop'. Available tools: lookup_population, lookup_timezone"
+"error: LookupError: no population on file for 'Atlantis'. On file: lagos, paris, tokyo"
+"error: wrong arguments for lookup_population: unexpected keyword argument 'town'"
+```
+
+Each of those names what failed, why, and what would work instead. Compare with what the same
+failures produce if you let the defaults speak.
+
+```python
+"error: KeyError"
+"error: 'town'"
+"Traceback (most recent call last):\n  File \"agent.py\", line 74, in dispatch..."
+```
+
+The first two say nothing. The third says a great deal about your file layout and nothing
+about the problem, and it costs a few hundred tokens per occurrence to say it.
+
+The exception type earns its place next to the message. `LookupError` means the record is
+missing and a different argument might work. `ConnectionError` means the tool is down and
+trying again with different arguments is pointless. The model can act on that difference, and
+the message alone does not carry it.
+
+One thing not to put in an observation: anything the caller of the agent should not see.
+Internal hostnames, connection strings and stack frames all end up in the conversation, and
+the conversation frequently ends up in a log, a trace, or a reply to a customer.
+
+## The fourth failure belongs in a retry
+
+Around the model call, not inside the conversation:
+
+```python
+for attempt in range(attempts):
+    try:
+        return client.chat.completions.create(model=model, messages=messages, tools=tools)
+    except APIError as error:
+        if error.status_code not in RETRYABLE_STATUS:
+            raise
+        if attempt == attempts - 1:
+            raise
+        sleep(base_delay * (2**attempt))
+```
+
+Three decisions are in there. Retry only what can succeed on a second try, which is a 429 and
+the 5xx family. A 400 means the request you built is wrong and it will be wrong the next time
+too, so retrying it turns one clear error into three and delays the moment you read it. A 401
+will not find a different API key on the way round.
+
+Wait longer each time. A provider returning 503 is usually a provider under load, and the
+whole population of clients retrying immediately and in unison is what keeps it there.
+Doubling is the standard answer, and in production you add jitter, a small random offset per
+client, so that a thousand clients that failed together do not come back together. The
+exercise leaves jitter out only because a deterministic test cannot assert on a random number.
+
+Re-raise the provider's own error when the attempts run out rather than wrapping it in
+something of your own. Its status code is what the layer above yours will want to look at.
+
+Retrying the model call is safe because it changes nothing on your side. Retrying a tool is
+not the same thing, and it is worth being explicit with yourself about which tools are safe to
+run twice. An agent that retries a search costs a little time. An agent that retries a payment
+does something else.
+
+## The loop that retries forever
+
+The failure mode this design creates is the one to watch for. Errors going back as
+observations means the model can respond to an error by making the same call again, and get
+the same error, and do it again. Every turn costs a full model call carrying a conversation
+that grows each time.
+
+`max_steps` caps the damage but does not diagnose it, and it cannot tell a run that was making
+progress from one that was stuck on turn two. So count failures per call rather than in total.
+Canonicalize the call into a signature, name plus arguments with sorted keys, so that the same
+call with reordered keys is recognised as the same call, and end the run when one signature
+has failed some small number of times.
+
+Three is a reasonable default. The model gets the error, gets a chance to correct, gets one
+more, and then you stop paying for it. Raise it when you have watched transcripts where the
+fourth attempt worked, which does happen, and not before.
+
+## Telling the caller what happened
+
+Inside the loop, an unmet budget is a bug and raising is right. At the boundary where the
+agent meets the rest of your program, "I could not finish" is an ordinary outcome that a queue
+worker or an HTTP handler has to render, and an outcome you have to render is data.
+
+```python
+@dataclass(frozen=True)
+class AgentRun:
+    answer: str
+    ok: bool
+    reason: str      # answered, max_steps, repeated_failure, provider_error
+    steps: int
+    messages: list[dict]
+```
+
+The reason matters more than the flag. A week of runs that ended in `max_steps` means the
+budget is too tight or the task needs a different shape. A week of `repeated_failure` on one
+signature means a tool's schema is misleading and the model keeps calling it wrong. A week of
+`provider_error` is not your problem at all. Collapsing all three into `ok: False` throws away
+the only thing that told you which week you are having.
+
+Return the transcript either way. A failed run that discards its messages leaves a human
+staring at a ticket that says the agent did not finish, with no way to find out what it was
+doing.
+
+## Your exercise
+
+Write `call_signature`, `safe_dispatch`, `call_with_retry` and `run_resilient_agent`. The
+`AgentRun` type and the tools are given.
+
+The tests check that the three recoverable failures reach the model as tool messages rather
+than exceptions, that the backoff delays double, that a 400 is not retried at all, that three
+identical failing calls end the run with `repeated_failure`, and that a spent budget is
+reported rather than raised.
+
+The part people get wrong is where the failure count lives. Count per signature across the
+whole run, not per step and not in total: a run that fails three different calls once each is
+an agent exploring, and a run that fails one call three times is an agent stuck.

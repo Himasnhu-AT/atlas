@@ -1,0 +1,187 @@
+---
+id: stage-5.the-rag-pipeline
+title: The RAG pipeline
+summary: Ingest, retrieve, assemble, generate. The assembly step in the detail it deserves, why a grounding instruction needs a score floor behind it, and why retrieval quality and answer quality are two different measurements.
+order: 4
+estimatedMinutes: 50
+exercise:
+  id: rag-pipeline
+  timeboxMinutes: 40
+---
+
+Everything so far has been a piece. This is the assembly, and the interesting parts are the two
+that tutorials hurry past: exactly how the retrieved text is laid out for the model, and what
+happens when retrieval comes back with nothing worth sending.
+
+## Two phases, and knowing which one you are in
+
+Retrieval systems have an offline half and an online half, and confusing them is how people end
+up with a system that is slow for the wrong reason.
+
+Ingest runs when documents change. Split each document, attach metadata, embed every chunk, store
+the vectors. It touches the entire corpus, so it is where batching matters most:
+
+```python
+store.add(all_chunks)          # one embedding request for the batch
+```
+
+One request per chunk turns a ten second ingest into an hour for no benefit, because embedding
+APIs are rate limited per request as well as per token.
+
+Query runs per question: embed the question, search, drop what scores too low, assemble what
+survives into a prompt, generate. Only the last step involves a model. The rest is arithmetic,
+which is why retrieval is cheap to evaluate and cheap to iterate on.
+
+## Assembly is where implementations get sloppy
+
+The retrieved chunks have to become one string. It is tempting to join them with newlines and
+move on, and that is the version that produces answers attributed to the wrong document.
+
+Here is the layout, on the real corpus from the exercise, for the question "How much does the Pro
+plan cost?":
+
+```
+[1] pricing.md#0
+The Pro plan includes unlimited projects and priority support.
+
+[2] pricing.md#1
+The Pro plan costs $49 per month when billed annually.
+```
+
+Three decisions in that, each doing a specific job.
+
+The number is what the model cites. It is short and it does not tempt the model to paraphrase it
+the way a filename would. Numbering starts at 1 because that is what a model writing `[1]` in
+prose expects. The citation string next to it is what turns `[2]` back into a document when a
+human asks where the answer came from.
+
+The blank line between blocks is doing more work than it looks. Without it two chunks read as one
+continuous passage, and the model attributes the second chunk's facts to the first chunk's
+number. That is a real misattribution produced entirely by whitespace.
+
+### The chunk text goes in unmodified
+
+Those three are decisions you can revisit. This one is not: the chunk text goes into the block
+exactly as it came out of the document, not escaped, not reformatted, not tidied.
+
+A citation is only checkable if the text the model was answering from is the text your source
+actually contains, and any transformation on the way in breaks the match between a quoted
+sentence and the document it came from.
+
+A document can of course contain the string `[1]` in its own body. That is fine: the block id was
+never proof of where a sentence came from, because the check later compares the model's citations
+against the list your code knows it retrieved, and a marker the document contributed is not in
+that list.
+
+## Grounding, and the half of it you can enforce
+
+The system prompt does three things at once:
+
+```python
+SYSTEM_PROMPT = (
+    "You answer questions using only the context provided in this conversation.\n"
+    "Every factual sentence must end with the bracketed number of the source it "
+    "came from, like [1].\n"
+    f'If the context does not answer the question, reply exactly: "{NO_ANSWER}"\n'
+    "Do not use anything you know outside the context."
+)
+```
+
+It scopes the model to the context, asks for citations, and gives an exact sentence to return
+when the context does not answer the question. That last line matters more than it looks:
+without a specific alternative, "say you do not know" competes with the model's much stronger
+tendency to answer, and you get a hedged paragraph instead of a refusal you can detect in code.
+
+Models mostly comply. Mostly is the problem, and it is the reason for a threshold underneath:
+
+```python
+hits = [hit for hit in store.search(question, k=k) if hit.score >= min_score]
+if not hits:
+    return Answer(NO_ANSWER, [], grounded=False)
+```
+
+Two things happen there and both are the point. The unanswerable question stops being the model's
+judgement call and becomes your code's, which is the only half of the promise you can enforce.
+And the call is not made at all, so a question your corpus cannot answer costs nothing.
+
+The instruction and the floor do different jobs. The floor decides whether there is anything
+worth sending; the instruction decides what happens when what you sent turns out not to contain
+the answer. Neither replaces the other.
+
+## Two kinds of citation
+
+This distinction is the one to carry into module 9, and it is easy to lose.
+
+```python
+return Answer(
+    text=reply,
+    sources=[hit.chunk.citation() for hit in hits],
+    grounded=True,
+)
+```
+
+`sources` is a record of what your code sent, built from the hits in the order they were
+numbered, so `sources[0]` is what `[1]` refers to. It is true whatever the model wrote, including
+when the model wrote no citations at all.
+
+The `[2]` inside the answer text is something else: a claim the model made. It might be right, it
+might point at a source that does not support the sentence, and it might be a number you never
+sent.
+
+Keeping them separate is what makes verification possible later, because you have both a record
+of what was sent and a claim about what was used.
+[Grounded answers and scope](lesson:proj-1.grounded-answers-and-scope) in module 9 does that
+comparison and treats a cited id that was never retrieved as the cheapest hallucination signal
+available. [The verification pass](lesson:proj-2.the-verification-pass) in module 10 goes further
+and checks the quoted text against the source, which is the step that depends on the context
+having gone in unmodified.
+
+## Evaluate it in two halves
+
+A RAG system that gives a bad answer has two possible bugs, they have nothing to do with each
+other, and one number cannot tell you which one you have.
+
+Retrieval quality asks whether the chunk that contains the answer came back at all. Take your
+questions, note which chunk should answer each one, and count how often it is in the top `k`.
+That is the same measurement [chunking](lesson:stage-5.chunking) used to settle chunk size, which
+is the point: one set of labelled questions answers both, and it costs nothing to run because no
+model is involved. It is also where most RAG problems actually live.
+
+The example above is worth sitting with for that reason:
+
+```
+pricing.md#0     0.4781   The Pro plan includes unlimited projects and priority support.
+pricing.md#1     0.3419   The Pro plan costs $49 per month when billed annually.
+pricing.md#2     0.2097   The Free plan is limited to three projects...
+```
+
+The question was how much Pro costs. The chunk that answers it is second, beaten by one that
+shares more words with the question and contains no price at all. Retrieval at `k=1` would fail
+this question outright while looking entirely healthy, and at `k=3` with a floor of 0.25 the
+third chunk is dropped for scoring too low. That is your `k` and your threshold interacting on a
+real query, and it is invisible unless you measure retrieval on its own.
+
+Answer quality asks, given the chunks that were sent, whether the answer is right and supported.
+The deterministic checks go a long way: did it decline when nothing was retrieved, did it cite
+anything, are the ids it cited ones you actually sent.
+
+Keep them apart because they have opposite fixes. A bad answer from good chunks is a prompt
+problem and no amount of retrieval tuning will touch it. A good answer from bad chunks is luck,
+it will not survive the next question, and no amount of prompt work will fix it. A single end to
+end score averages the two together and tells you to go and look at everything.
+
+## Your exercise
+
+Build the pipeline: `ingest`, `format_context`, `build_messages`, and `answer`. The chunking and
+the vector store are already in the file, done the way you did them in the last two exercises.
+
+The tests check the context layout exactly, including the blank line between blocks and the
+citation next to each number, and that chunk text arrives unmodified. On the answer side they
+check that an unanswerable question costs zero model calls, that `sources` is populated even when
+the model cites nothing, and that lowering the floor to zero produces a grounded answer built
+from irrelevant chunks, which is what a confident wrong answer looks like from the inside.
+
+The part people get wrong is the empty reply. A model that returns an empty string is not the
+same as a question you declined to answer, so an empty reply stays empty rather than becoming
+`NO_ANSWER`. Collapsing them buys a tidier return value and destroys your ability to tell a
+broken generation from a working refusal in a log.

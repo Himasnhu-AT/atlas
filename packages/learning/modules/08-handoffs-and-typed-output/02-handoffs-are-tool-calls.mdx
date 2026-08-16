@@ -1,0 +1,129 @@
+---
+id: fw-2.handoffs-are-tool-calls
+title: Handoffs are tool calls
+summary: Multi agent orchestration deflated. One synthetic tool per target agent, and a variable holding whichever agent the loop is currently driving.
+order: 2
+estimatedMinutes: 55
+exercise:
+  id: handoff-runner
+  timeboxMinutes: 25
+---
+
+A multi agent system sounds like several programs talking to each other. In the runtime style
+frameworks it is one loop, one message list, and a variable called `current_agent`. A handoff
+is what happens when the model calls a tool whose only effect is to reassign that variable.
+
+That is not a simplification for teaching. It is the implementation.
+
+## What the model sees
+
+An agent with two tools and one handoff target sends the model three function schemas. Two
+are the real tools. The third is synthetic, generated from the target agent:
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "transfer_to_billing",
+    "description": "Hand off to billing. Answer billing questions.",
+    "parameters": {"type": "object", "properties": {}, "required": []}
+  }
+}
+```
+
+No arguments, because there is nothing to pass. The conversation is already the argument. The
+description carries the target's own instructions, since that is the only signal the model
+has about what the other agent is for, which makes an agent's `instructions` do double duty:
+they are the system prompt when it is driving, and the sales pitch when it is not.
+
+The name matters more than it looks. Providers validate tool names, so an agent called
+`Refund Desk` cannot become `transfer_to_Refund Desk`. Lowercase it, replace the spaces and
+hyphens, and accept that two agents whose names differ only in punctuation now collide. That
+is a naming problem to fix upstream rather than something to encode around.
+
+## The mechanism
+
+When the model calls `transfer_to_billing`, four things happen and none of them are exotic.
+
+The assistant turn goes into the history, exactly as it would for any tool call. A `tool`
+message answers it, keyed to the same call id, with content along the lines of "Transferred
+to billing". You are not doing this for the model's benefit alone: a provider rejects a
+request whose assistant turn contains a call nobody answered, so skipping it breaks the very
+next request.
+
+Then `current_agent = billing`. Then the loop continues.
+
+```python
+targets = {handoff_tool_name(t): t for t in current_agent.handoffs}
+
+for call in choice.message.tool_calls:
+    if call.function.name in targets:
+        target = targets[call.function.name]
+        messages.append({
+            "role": "tool",
+            "tool_call_id": call.id,
+            "content": f"Transferred to {target.name}.",
+        })
+        current_agent = target
+    else:
+        ...dispatch a normal tool...
+```
+
+Nothing is copied, restarted, or spawned. The next request is built from the new agent's
+instructions plus the same history that was there a moment ago.
+
+## What carries over and what does not
+
+The history carries over. Billing sees the customer's original complaint, triage's reasoning,
+and every tool result along the way. This is the point of handoffs and also their sharpest
+edge: the new agent inherits context it did not ask for and cannot decline. The real SDKs
+give you an input filter to trim the history at the boundary, which exists because on long
+runs the inherited context is the thing that goes wrong.
+
+The instructions do not carry over. The system message is rebuilt on every request from
+whoever is driving now. If you store the system message in the history instead of prepending
+it per request, the previous agent's orders stay in the conversation after the transfer and
+the model is reading two sets of instructions with no way to know which one is live. It will
+behave like the average of them, which is worse than either.
+
+The tools do not carry over either, and this is a real containment property. Billing's
+request carries billing's schemas. An agent cannot call a tool it was not given and cannot
+transfer to an agent it does not list, because those names were never in front of the model
+in the first place. Handoffs point one way, from the agent that declares them, so a chain
+that can go triage to billing to refunds cannot walk back up on its own.
+
+## Where it goes wrong
+
+Ping pong. Two agents that each list the other will hand back and forth while the user waits.
+The turn budget catches it, which is why the budget raises rather than returning quietly. If
+you see it, the instructions are the cause: an agent that says "if this is not for you, hand
+off" with no stopping condition is a bug written in English.
+
+The unanswered transfer. Reassigning the agent without appending the tool message leaves a
+dangling call, and the next request fails inside the provider's client with a message that
+does not mention your code.
+
+The hallucinated target. A model asked to route will occasionally invent
+`transfer_to_engineering` because it sounds plausible. Treat any name that looks like a
+transfer but matches no target as its own error rather than letting it fall through to
+"unknown tool", because the fix is different: the fix is usually the instructions, or a
+missing agent, not a typo in your registry.
+
+The extra hop. Every handoff spends a turn and carries the whole conversation with it. Three
+agents in a chain means three full prompts before anyone answers. Sometimes that is worth it
+for the separation. Often one agent with six tools and a clear prompt is faster, cheaper, and
+easier to evaluate. Reach for handoffs when the agents genuinely differ in what they are
+allowed to do, not when they differ only in tone.
+
+## Your exercise
+
+Write the runner: `handoff_tool_name`, `tool_schemas`, `dispatch`, and `run`.
+
+The tests check the mechanism rather than the vibe. After a transfer, the second request has
+to carry the original user message, the transfer's tool message, the new agent's instructions
+as the system message, and the new agent's tools and nothing else. A two hop run has to record
+both hops in order. A transfer to an agent that is not reachable has to raise.
+
+The part people get wrong is the ordering inside one turn: assistant message first, then the
+tool message answering it, then the reassignment. Do those out of order and the run still
+appears to work until the request after next.

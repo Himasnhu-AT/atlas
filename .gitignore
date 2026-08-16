@@ -1,0 +1,61 @@
+# --- reference-only legacy source material (never tracked) ---
+.tmp-legacy/
+
+# --- dependencies ---
+node_modules/
+.pnpm-store/
+
+# --- build output ---
+dist/
+dist-ssr/
+build/
+target/
+.next/
+*.tsbuildinfo
+
+# --- local server state ---
+# The dev store and, more to the point, the session signing secret the web app
+# generates for itself on first run. Committing that key would let anyone with
+# the repo mint a valid session cookie.
+.data/
+
+# --- rust / tauri ---
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
+
+# --- env (keep the example) ---
+.env
+.env.*
+!.env.example
+
+# --- editor / os ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# --- logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- caches ---
+.cache/
+.vite/
+.turbo/
+coverage/
+
+# --- python (exercise workspaces) ---
+__pycache__/
+*.py[cod]
+.venv/
+
+# --- not part of this project ---
+# A separate Remotion/Manim video experiment that happens to sit in this
+# directory. It is ~1.5GB and shares no code with the platform. Untracked here
+# rather than deleted; move it out or give it its own repo.
+video-pilot/

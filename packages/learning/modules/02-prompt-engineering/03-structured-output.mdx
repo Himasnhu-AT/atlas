@@ -1,0 +1,210 @@
+---
+id: stage-2.structured-output
+title: Structured output
+summary: Three ways to get machine readable output and what each costs. The parse failures that actually happen, validation as the thing that makes failure visible, and the retry that feeds the error back.
+order: 3
+estimatedMinutes: 35
+exercise:
+  id: structured-output
+  timeboxMinutes: 35
+---
+
+The moment a program has to act on a model's answer, prose stops working. You cannot branch on
+a paragraph. Something has to turn "it looks like this customer wants a refund on order A-1044,
+though they also mention a delivery problem" into a value your code can switch on, and that
+something is either a parser you write or the model itself.
+
+Making the model produce the structure directly is the cheaper of the two, and this lesson is
+about the three ways to do it and what each one actually guarantees.
+
+## Three levels of guarantee
+
+### Ask, and hope
+
+State the format in the prompt and parse what comes back.
+
+```python
+SYSTEM = (
+    "Extract the order details. Reply with JSON only, no prose and no code fence.\n"
+    'Shape: {"customer_name": string, "order_id": string or null, '
+    '"quantity": integer, "status": "open" | "shipped" | "closed"}'
+)
+```
+
+This works most of the time, and most of the time is the problem. There is no mechanism behind
+it: the prompt shifts the distribution towards JSON shaped tokens and nothing prevents the model
+from emitting a friendly sentence first. It costs nothing, it works with every provider, and it
+is where everyone starts.
+
+Two things make it much better without changing the mechanism. Show one example of the exact
+output, since format is what examples are best at. And name the fields in the prompt exactly as
+you want them spelled, because `order_id` and `orderId` are a coin flip otherwise.
+
+### Constrain the decoding
+
+Several providers will enforce the shape rather than request it, and the mechanism is worth
+understanding because it explains the guarantee exactly.
+
+Generation picks one token at a time from a distribution over the vocabulary. Constrained
+decoding sits between those two steps: at each position it works out which tokens could still
+continue a valid instance of the format, sets the probability of every other token to zero, and
+samples from what is left. After `{"customer_name": "Ana"` the only legal next characters are a
+comma or a closing brace, so no matter what the model preferred, that is what you get. An
+invalid document is not something it can emit, because the tokens that would have made one were
+never candidates.
+
+The names differ and so do the guarantees. OpenAI's JSON mode guarantees syntactically valid
+JSON but not your schema, while its structured outputs feature takes a JSON schema and enforces
+it. Google's Gemini API takes a response schema on the request. Anthropic's usual route is a
+tool schema, which is a typed parameter list you hand the model so it replies with arguments
+rather than prose, and which module 3 builds properly when tools are the subject. Local runtimes
+usually expose it as a grammar.
+
+What it costs follows from the same mechanism. You have to declare the schema up front, which is
+fine for extraction and awkward when the shape depends on what the model finds. Providers
+support a subset of JSON Schema rather than all of it, so recursive or exotic schemas get
+rejected.
+
+And the guarantee is about shape only, which is the part that bites. Suppose the email never
+mentions a quantity and `quantity` is a required integer. The tokens that would have expressed
+that, an apology, a null, a sentence explaining the field is not stated, are exactly the tokens
+the mask removes, because none of them continue a valid instance of your schema. What is left is
+digits. The model emits a number, and it emits it with the same confidence as one it read off
+the page. Constrained decoding converted a refusal into a fabrication, and it did so silently,
+because the output is perfectly valid.
+
+The mitigation is to make the honest answer expressible. A nullable field, or a required
+`confidence` enum, or an `unstated_fields` array gives the mask something true to allow. That is
+a schema design decision rather than a prompting one, and it is the main reason to write the
+schema yourself instead of generating it from your database model.
+
+### Validate, then retry
+
+Whatever the first two levels gave you, a program that consumes model output needs a checking
+step, because the interesting failures are semantic and no decoder catches those.
+
+```python
+data = extract_json(reply)     # get an object out of whatever came back
+validate(data, ORDER_SCHEMA)   # raise if it is not the shape you need
+```
+
+That is the pattern regardless of provider, and it is the one to build first. It is portable, it
+works when the provider has no structured mode, and it is the only level of the three that gives
+you a place to notice that the model made something up.
+
+| Level | Guarantees | Costs |
+| --- | --- | --- |
+| Prompt for a format | Nothing | A parser that tolerates surprises |
+| Constrained decoding | Syntax, and schema where offered | Schema up front, provider specific, shape only |
+| Validate then retry | Whatever you check | A round trip when it fires |
+
+These are layers, not alternatives. Use constrained decoding where you have it, and validate
+anyway.
+
+## What actually breaks
+
+The failures are boringly repetitive, which is good news, because it means a hundred lines of
+parsing handles almost all of them.
+
+Prose wrapped around the object is the common one: "Sure, here is the JSON you asked for" and a
+closing "Let me know if you need anything else". A fenced code block is next, with or without a
+language tag, and it appears more often the more the model has been trained to be helpful in
+chat. Then the syntax near misses, a trailing comma after the last field and single quotes
+instead of double. Then a field of the wrong type, usually a number sent as `"2"` because the
+source text said "two".
+
+The one that catches people is truncation. When generation hits the output limit the reply stops
+mid document, and what you get is a string that starts exactly like valid JSON and simply ends.
+The tell is in the response rather than the text, on the field
+[reading a completion](lesson:stage-0.reading-a-completion) introduced: a `finish_reason` of
+`length` means the model was cut off mid sentence rather than choosing to stop, and JSON is
+where that stops being a cosmetic problem.
+
+```python
+choice = response.choices[0]
+if choice.finish_reason == "length":
+    raise ExtractionError("the reply was cut off before the object closed")
+```
+
+Check that before you parse. A truncated document usually fails to parse anyway, but a truncated
+one that happens to close its braces parses into an object missing half its fields, and that is
+the version that reaches production.
+
+## Validation turns a soft failure into a hard one
+
+The point of a validator is not correctness for its own sake. It is that an unchecked model
+output fails softly, somewhere else, later.
+
+Without validation, a `quantity` that arrived as the string `"2"` gets written to your database
+and turns into a type error in a report three weeks later, and nothing in the traceback mentions
+the model. With validation the failure happens on the call that caused it, names the field, and
+can be retried while the conversation is still in memory.
+
+Which is why the validator should be strict about the things you will actually rely on. Required
+fields must be present. Types must match, and in Python that means remembering `bool` is a
+subclass of `int`, so `True` will satisfy a naive integer check. Enumerated fields must hold one
+of the allowed values, because a `status` of `"pending"` when your code branches on three states
+is a bug the model handed you for free. Fields you do not consume can be ignored.
+
+## The retry that feeds the error back
+
+When validation fails, the useful move is to tell the model what was wrong in the same
+conversation rather than starting again.
+
+Worth walking one all the way through. The reply comes back like this:
+
+```
+Here's the order data:
+{"customer_name": "Ana", "order_id": "A-1", "quantity": "two"}
+```
+
+`extract_json` handles the preamble and returns an object. `validate` then raises
+`quantity: expected integer, got str`, which is a soft failure caught early instead of a string
+where your code expected a number. Both messages go on the end of the conversation:
+
+```python
+messages.append({"role": "assistant", "content": raw})
+messages.append({
+    "role": "user",
+    "content": f"That reply was not usable: {error}. Return only corrected JSON.",
+})
+```
+
+and the second call sees three messages: the original request, its own bad reply, and the
+complaint. That is a different situation from the first call, which is the whole point. It is
+not a retry in the sense of doing the same thing again and hoping, because the input changed.
+
+Both appends do work. Without the assistant turn the model is being told a reply was wrong
+without being shown which reply, and it will often produce a different structure rather than
+correcting the field. Without the error the model knows only that something failed, and the
+most probable response to that is a rephrasing. With both, the correction is narrow: one field,
+named, with the offending value visible.
+
+Bound it. Count total attempts rather than retries after the first, because total attempts is
+what shows up on your bill and in your worst case latency, and a budget you have to do
+arithmetic on is a budget somebody gets wrong.
+
+Two or three is the usual setting, and the reasoning behind it is not that three is a lucky
+number. The first retry is the one that pays, because it converts the largest class of failure,
+a model that produced the right content in the wrong shape, into a success. A second retry
+catches a bit more. Beyond that you are asking a model that has now failed the same schema twice
+with the error in front of it, which is evidence that the schema, the prompt or the input is the
+problem rather than the sampling, and another round trip will not fix any of those. Fail loudly
+with the last error attached and let the caller decide.
+
+The tradeoff is worth stating plainly, because a retry loop is not free in either direction. Set
+the budget too low and you fail on a class of error the model would have fixed for the cost of
+one call. Set it too high and a systematic failure, a required field the source text never
+contains, costs you the full budget on every single request, turning a bug into a bill. Module 8
+formalises this loop as part of a typed output runtime, and the shape does not change.
+
+## Your exercise
+
+Build the extraction path: find a JSON object inside arbitrary text, get an object out of a reply
+however it was wrapped, validate it against a small schema, and drive the retry loop against a
+scripted client.
+
+The tests cover the wrappings from the section above, the truncated reply, and a `bool` offered
+where an integer was required. The parts people get wrong are the brace scanner, which has to
+ignore braces inside strings and escaped quotes rather than counting every one it sees, and the
+attempt budget, which is the total number of model calls rather than the number of retries.
