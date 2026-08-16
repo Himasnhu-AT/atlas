@@ -1,0 +1,227 @@
+---
+id: stage-3.the-react-loop
+title: The ReAct loop, from scratch
+summary: Thought, action, observation, repeat. Forty lines, exact message bookkeeping, and a stopping condition that raises rather than shrugging.
+order: 3
+estimatedMinutes: 60
+exercise:
+  id: react-loop
+  timeboxMinutes: 30
+---
+
+The loop has four beats. The model reasons about what it needs. It requests an action. Your
+code runs the action and hands back what happened. The model reasons again with that in front
+of it.
+
+The name comes from a 2022 paper, ReAct, short for reasoning and acting, which showed that
+interleaving the two beat either one alone on tasks needing outside information. At the time
+the loop was implemented by prompting a model to emit `Thought:`, `Action:` and
+`Observation:` lines and parsing them back out of the completion text with a regular
+expression. Providers then built the pattern into the API, which is what you are using here.
+The idea did not change. The parsing did, and parsing was where it broke.
+
+## The loop in full
+
+```python
+messages = [{"role": "user", "content": question}]
+
+for _ in range(max_steps):
+    response = client.chat.completions.create(
+        model="mock", messages=messages, tools=tools
+    )
+    choice = response.choices[0]
+
+    if choice.finish_reason != "tool_calls":
+        return choice.message.content or ""
+
+    messages.append(assistant_turn(choice))
+
+    for call in choice.message.tool_calls:
+        result = dispatch(registry, call.function.name, call.function.arguments)
+        messages.append(tool_result_turn(call.id, to_tool_content(result)))
+
+raise MaxStepsExceeded(max_steps, messages)
+```
+
+That is the whole thing, and everything else in this module and the next four is a refinement
+of it. The subtlety is not in the control flow, which is a `for` loop with two exits. It is in
+the bookkeeping, because `messages` is the only state the agent has. The provider stores
+nothing between calls. Whatever the model knows on step seven, it knows because it is in that
+list.
+
+## The same run, message by message
+
+Watching the list grow is worth more than any description of it. Here is a complete two step
+run against `mockllm`, scripted with one tool call and then an answer.
+
+On the first iteration, `messages` holds one thing, and that is the entire request:
+
+```python
+[{"role": "user", "content": "What is the population of Tokyo?"}]
+```
+
+The model replies with `finish_reason == "tool_calls"` and one call on it: id `call_1_0`, name
+`lookup_population`, arguments the string `'{"city": "Tokyo"}'`. Nothing has been appended
+yet. Two appends happen before the loop comes round, and by the end of the first iteration the
+list is this:
+
+```python
+[
+    {"role": "user", "content": "What is the population of Tokyo?"},
+    {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_1_0", "type": "function",
+         "function": {"name": "lookup_population",
+                      "arguments": '{"city": "Tokyo"}'}}]},
+    {"role": "tool", "tool_call_id": "call_1_0",
+     "content": '{"city": "Tokyo", "found": true, "population": 13960000}'},
+]
+```
+
+Read that against the code above and the rules are all visible at once. The assistant message
+is a record of what the model sent, so its `content` stays `None` rather than being helpfully
+turned into `""`, and its `arguments` is still the exact string the model produced. The tool
+message sits immediately after it and carries `call_1_0`, which is the only thing connecting
+it to the request. The tool returned a Python dict, and what went into `content` is JSON with
+sorted keys, not `{'city': 'Tokyo', 'found': True, ...}`, which is what `str()` would have
+given you.
+
+The second iteration sends all three of those messages, not just the last one. The model
+replies with `finish_reason == "stop"` and the content "Tokyo has about 14 million people",
+the loop returns it, and the fourth message is never built, because nothing appends the final
+answer to a list that is about to be thrown away.
+
+The exercise's tests assert exactly this, by reading `client.requests[1]["messages"]` and
+checking the sequence of roles is `["user", "assistant", "tool"]`. If you want to see it for
+yourself before writing anything, script a `MockClient`, run the reference loop, and print that
+list. Every bug in this lesson is visible in it.
+
+## Why that order, and why the id
+
+Two of the rules in that trace are the ones that generate 400s, and both are worth
+understanding rather than copying.
+
+The assistant message goes in before any result. When a model requests tools, the reply it
+produced is itself a message, one with `tool_calls` on it and usually no content at all. A
+tool message is defined as the answer to a request, so a loop that skips that append sends
+this instead:
+
+```python
+[
+    {"role": "user", "content": "What is the population of Tokyo?"},
+    {"role": "tool", "tool_call_id": "call_1_0",
+     "content": '{"city": "Tokyo", "found": true, "population": 13960000}'},
+]
+```
+
+Look at it as the provider does. There is a user turn, and then a message answering a request
+that is not in the conversation. `call_1_0` refers to nothing. The request comes back 400,
+and the complaint is, in substance, that a message with role `tool` must follow an assistant
+message carrying `tool_calls`. It is a message ordering error, and it is easy to misread as a
+problem with your tool definitions, which is where people go looking first.
+
+The reverse mistake is quieter. Append the assistant turn and then forget one of the results,
+and you have a request with no answer, which providers also reject. That one costs you in the
+next lesson, where one call in a batch fails and the temptation is to skip its result.
+
+The id is the only pairing there is. Not position, not the tool name. Watch what happens the
+first time a model asks for the same tool twice in one turn:
+
+```python
+{"role": "assistant", "content": None, "tool_calls": [
+    {"id": "call_1_0", "type": "function",
+     "function": {"name": "lookup_population", "arguments": '{"city": "Paris"}'}},
+    {"id": "call_1_1", "type": "function",
+     "function": {"name": "lookup_population", "arguments": '{"city": "Tokyo"}'}}]},
+{"role": "tool", "tool_call_id": "call_1_0",
+ "content": '{"city": "Paris", "found": true, "population": 2102650}'},
+{"role": "tool", "tool_call_id": "call_1_1",
+ "content": '{"city": "Tokyo", "found": true, "population": 13960000}'},
+```
+
+The two tool messages have the same role, answer the same tool, and differ in exactly two
+places: the id, and the content. Strip the ids and there is no information left that says
+which population belongs to which city. The tool name cannot do it, because it is the same
+name. Position cannot do it either, because nothing in the format says the results are in
+request order, which is the subject of the next lesson.
+
+So pair on `tool_call_id` from the beginning, even while every turn you are testing has
+exactly one call in it. Code that pairs by position passes every single-call test you write
+and produces a model confidently reporting Tokyo's population for Paris on the first turn that
+batches.
+
+One thing in the trace is your choice rather than the protocol's. Keeping `arguments` as the
+raw JSON string the model produced is not required by the format, and re-serializing it would
+still be accepted. It changes what the model sees itself as having sent, which quietly
+undermines any later reasoning it does about its own previous calls, and it costs nothing to
+get right.
+
+Tool results are strings. There is nowhere in the wire format for a dict, so something is
+going to serialize, and if you leave it to `str()` you will send the model Python's `repr`:
+single quotes, `True` where JSON says `true`, `None` where JSON says `null`. Use `json.dumps`
+with `sort_keys=True`, which costs nothing and makes two runs that computed the same thing
+produce byte identical prompts, which is a precondition for a provider's prompt cache doing
+anything for you.
+
+## Stopping, and why it must be loud
+
+The exit condition is `finish_reason`, and reading anything else is a bug you will not notice
+until production.
+
+| finish_reason | What it means | What the loop does |
+| --- | --- | --- |
+| `tool_calls` | The model wants tools run | Dispatch, append results, go round |
+| `stop` | The model finished its turn | Return the content |
+| `length` | Output limit hit mid sentence | Raise; this is not an answer |
+
+Deciding you are done because the text looks like an answer, or because it does not contain
+the word `Action`, is the pre-API version of this loop and it breaks the first time a model
+narrates its plan before calling a tool. The field exists; use it.
+
+`length` is worth its own branch. The content is the beginning of a sentence, and returning it
+as though it were finished produces a truncated answer that flows downstream looking exactly
+like a real one. Whether you raise, retry with a larger output budget, or ask the model to
+continue is your decision. Silently accepting it is not.
+
+Then the budget. `max_steps` counts model calls, not tool calls and not rounds, because model
+calls are what cost money and what a runaway loop consumes. Choose it by asking how many steps
+the task actually needs and adding room: two or three for a lookup and a reply, six to ten for
+something that has to gather from several places, more only when you have watched real
+transcripts and know why. A budget of fifty is not caution, it is fifty calls of nothing
+useful before anyone finds out.
+
+When the budget runs out, raise. Returning the last message, or an empty string, or a
+best-effort answer hands the caller a value indistinguishable from a real one, and the whole
+purpose of the budget was to make that distinguishable. Attach the transcript to the
+exception: the only useful thing about a runaway agent is which tool it kept reaching for and
+with what arguments, and a bare exception throws that away.
+
+## What a step costs
+
+Every iteration sends the whole conversation again. There is no session on the provider's
+side, so step seven pays for the question, seven assistant turns and every tool result so far.
+
+Input tokens per step grow roughly linearly with the number of steps, which makes the total
+cost of a run grow with the square of its length. This is why a loop that wanders for fifteen
+steps is not three times a five step run but closer to nine, and why the largest lever on
+agent cost is usually not the model you picked but how much text your tools return. A tool
+that hands back a whole document instead of the paragraph that mattered pays for that document
+on every remaining step of the run.
+
+Two things help and both are boring. Return the smallest useful result from each tool. Keep
+the stable part of the prompt, the system message and the tool schemas, at the front and
+unchanged, because that is what prompt caching can reuse.
+
+## Your exercise
+
+Write `to_tool_content`, `tool_result_turn`, `assistant_turn` and `run_agent`. The tools and
+`dispatch` are given. This is the most important exercise in the course, and the rest of it
+assumes you have done it by hand.
+
+The tests assert the exact sequence of roles the loop sends, that the ids requested match the
+ids answered in order, that a dict result arrives as JSON rather than as a Python repr, that
+the budget counts model calls, and that a truncated reply raises instead of being returned.
+
+The part people get wrong is the budget. `max_steps=3` means three model calls total, so a run
+that asks for a tool on the third call has no fourth call to report the answer in and must
+raise. Counting rounds, or decrementing in the wrong place, gives you a loop that makes one
+call more than you told it to, which nobody notices until the bill.

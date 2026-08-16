@@ -1,0 +1,140 @@
+---
+id: stage-4.what-frameworks-abstract
+title: What frameworks abstract
+summary: You already wrote the engine. A framework adds five things around it, in one of two shapes, and charges you in stack traces and in coupling. Knowing which five is what makes the choice a decision.
+order: 1
+estimatedMinutes: 25
+---
+
+[The loop you wrote in module 3](lesson:stage-3.the-react-loop) is the engine. Call the model,
+check `finish_reason`, run what it asked for, append the results, call again, stop when it stops
+asking. Every agent framework on the market runs that loop, and none of them run a different
+one, because there is no different one to run.
+
+So the question worth asking is not what a framework does. It is what is left over once the
+loop is written, because that leftover is the entire product.
+
+## What the loop does not do
+
+Here is the loop, near enough to what you wrote:
+
+```python
+def run(client, registry, system, question, max_steps=6):
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": question}]
+
+    for _ in range(max_steps):
+        response = client.chat.completions.create(
+            model="mock", messages=messages, tools=registry.schemas,
+        )
+        choice = response.choices[0]
+        if choice.finish_reason != "tool_calls":
+            return choice.message.content or ""
+
+        messages.append(assistant_turn(choice.message))
+        for call in choice.message.tool_calls:
+            result = registry.invoke(call.function.name, call.function.arguments)
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+
+    raise MaxStepsExceeded(max_steps)
+```
+
+That is correct and it is finished. Now try to use it twice.
+
+You want a second agent with a different prompt and two of the same tools, so you pass more
+arguments. You want to know what step four sent, so you add a print. You want the token count,
+so you thread an accumulator through. You want a retry when the provider returns a 503, so you
+wrap the call. You want the second agent to hand off to the first, so you return a sentinel and
+branch on it in the caller.
+
+None of those changes is hard. Each one is a parameter or three lines. After a dozen of them
+you have a function with fourteen arguments that three people are afraid to edit, and what you
+have built is a framework, badly, without deciding to.
+
+## The five things
+
+Every framework worth the name provides these, and the differences between frameworks are
+mostly differences in how they spell them.
+
+| | What it is | What you get without it |
+| --- | --- | --- |
+| Tool registry | Schemas derived from your functions, dispatch by name | The same tool defined in two places, drifting |
+| State that survives a step | Somewhere for the run's data other than the message list | Facts smuggled between steps inside prose |
+| Control flow | Branching, parallelism, cycles, resume | A `while` loop and a sentinel value |
+| Observability | A record per step, emitted by the runtime | A `print` you delete before committing |
+| Error and retry policy | One place that decides what a failure means | `try` blocks scattered down the loop |
+
+The second row is the one people miss, and it is what separates a toy from a system. In the loop
+above, the only thing that persists between steps is `messages`, so the only way for step two to
+tell step five something is to say it in text the model then has to read back out. A retrieved
+document, a customer id, a running total: all of it either
+lives in prose or lives in a variable you closed over. Frameworks give the run a typed place to
+put things that is not the transcript. That is what module 7's channels are, and it is why that
+module exists at all.
+
+Observability is the one that looks optional until the first time a run goes wrong on step four
+of six. You cannot reproduce it, because the model is not deterministic and the tool results
+have moved on. All you have is whatever you wrote down at the time, which is why lesson 3 of
+this module is about writing it down.
+
+## Two shapes
+
+Frameworks fall into two families, and the split is not marketing. It is a genuine
+disagreement about what an agent is.
+
+A graph runtime says an agent is a state machine. You declare nodes and edges, the runtime
+owns the scheduling, and your code never contains a loop at all. LangGraph is the one most
+people mean. What this buys is everything that follows from the runtime owning control flow:
+it can checkpoint between steps, so a run can be resumed or rewound; it can run independent
+branches in the same step; it can show you the graph. What it costs is that your logic is now
+distributed across node functions and edge declarations, and reading it means reading the
+topology rather than reading top to bottom.
+
+A conversational runtime says an agent is the loop you already have, plus a small number of
+opinions. You keep writing Python that reads in order. The OpenAI Agents SDK takes this shape,
+with agents that hand off to each other and guardrails that can stop a run. Pydantic AI takes
+it too, with a different opinion: that the interesting boundary is where untyped model output
+becomes a typed object. What this buys is that a new engineer can read one function and know
+what happens. What it costs is that durable resume and true parallel branching are yours to
+build, because there is no scheduler to hang them on.
+
+You will rebuild one of each. [Why a graph beats a loop](lesson:fw-1.why-a-graph-beats-a-loop)
+is the graph runtime, down to the scheduler and the checkpointer.
+[Two runtimes, one loop](lesson:fw-2.two-runtimes-one-loop) is the other family. This module is
+what makes both of those land as two answers to a question you already have rather than as two
+new things to learn.
+
+## What adopting one costs
+
+Three costs, and only the first is obvious.
+
+You lose a stack trace you can read. When your loop breaks, the traceback names your function
+and your line. When a framework's run breaks four layers inside its executor, the traceback
+names files you have never opened, and the actual mistake is usually a value you put in a
+config dict two hundred lines away. This is not a criticism of any particular library; it is
+what indirection does, and it is the price of the indirection being useful.
+
+You take a dependency you do not control. The library will change its interface, deprecate the
+decorator you used everywhere, and make a breaking release in the middle of your quarter. This
+part of the ecosystem moves fast, which is good for capability and bad for a codebase you
+intend to still run next year. Read a library's changelog before you read its tutorial. The
+tutorial tells you what it does today and the changelog tells you what working on it feels
+like.
+
+And you take an abstraction that fits until it does not. Every framework has a shape of problem
+it was built for, and inside that shape it is a genuine multiplier. The trouble arrives at the
+edge, when you need one behaviour the abstraction cannot express, and the options are to fight
+it, to reach past it into internals that are not part of its contract, or to leave. That moment
+is not a sign you chose badly. It is a normal event with a normal cost, and the only real
+mistake is not having priced it in.
+
+## What this module is for
+
+Four lessons, three of which carry an exercise, and by the end you will have built a small
+framework: a registry that derives schemas from your functions, an agent object, five hook
+points, a trace, and a way to express an agent as configuration instead of code.
+
+The purpose is not to convince you to build your own. Almost nobody should. It is that "should
+we use a framework" is unanswerable while the framework is a black box, and it becomes an
+ordinary engineering question the moment you know what is inside. You are building one so that
+you can read one, argue with one, and decide.

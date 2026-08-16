@@ -1,0 +1,33 @@
+{
+  "name": "learn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A hands-on course in AI agent engineering: a Next.js site to learn on and a Tauri desktop app to practice in.",
+  "packageManager": "pnpm@11.13.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "content": "pnpm --filter @learn/learning build",
+    "content:watch": "pnpm --filter @learn/learning watch",
+    "content:check": "pnpm --filter @learn/learning check",
+    "dev": "pnpm content && pnpm --filter @learn/web dev",
+    "dev:desktop": "pnpm content && pnpm --filter @learn/desktop dev",
+    "dev:desktop:web": "pnpm content && pnpm --filter @learn/desktop dev:web",
+    "build": "pnpm content && pnpm --filter @learn/web build",
+    "build:desktop": "pnpm content && pnpm --filter @learn/desktop tauri:build",
+    "start": "pnpm --filter @learn/web start",
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "test:rust": "cd apps/desktop/src-tauri && cargo test",
+    "lint:rust": "cd apps/desktop/src-tauri && cargo clippy --all-targets -- -D warnings",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "clean": "rm -rf apps/*/dist apps/web/.next packages/*/dist **/*.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "oxlint": "^1.78.0",
+    "typescript": "^7.0.2"
+  }
+}

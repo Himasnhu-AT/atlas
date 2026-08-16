@@ -1,0 +1,147 @@
+---
+id: fw-1.the-super-step
+title: The super step
+summary: Nodes eligible in the same step all read the same snapshot and their updates merge afterwards. That one rule is what makes fan out and fan in deterministic.
+order: 3
+estimatedMinutes: 60
+exercise:
+  id: super-step-engine
+  timeboxMinutes: 30
+---
+
+The scheduler has one rule, and everything people find surprising about graph runtimes follows
+from it.
+
+Find every eligible node. Take one snapshot of the state. Run all of them against that
+snapshot. Only once every one of them has returned, merge their updates through the reducers.
+That unit is a super-step, and the name comes from Pregel, Google's graph processing system
+from 2010, which is where LangGraph took the model from.
+
+## One snapshot per step
+
+Two nodes in the same super-step cannot see each other's work. Not "should not", cannot: they
+were both handed a copy of the values as they stood before the step began.
+
+```python
+snapshot = state.values()
+snapshot_versions = state.versions()
+
+# Every node in the step reads the same thing.
+outputs = [(name, self._nodes[name](dict(snapshot))) for name in eligible]
+
+# Nothing is written until every node has returned.
+updated = []
+for name, update in outputs:
+    if update:
+        updated.extend(state.apply(update))
+```
+
+Swap those two loops into one and the graph still works, still passes a casual test, and is
+now non-deterministic in a way that depends on dict ordering. The second node in the step sees
+the first one's write on Tuesday and not on Wednesday. Keeping them separate costs one list
+and buys a run you can reproduce.
+
+The merge order is the sorted node order, which is why `eligible_nodes` sorts. Two nodes
+appending to the same channel produce the same list every time, and a run that gave a bad
+answer gives the same bad answer while you debug it.
+
+## Edges are channels
+
+An edge is not a data structure the scheduler consults. It is a channel plus a subscription.
+
+When you call `add_edge("a", "b")`, the runtime makes sure there is a channel that node b
+subscribes to, conventionally named after b, and after a runs it writes a counter into that
+channel. The write bumps a version. The bumped version makes b eligible. Next super-step, b
+runs.
+
+```python
+def trigger_channel(node):
+    return f"to:{node}"
+
+# after node "a" has run
+triggers[trigger_channel("b")] = tick
+state.apply(triggers)
+```
+
+That is the whole implementation of edges, and it is worth sitting with, because it explains
+several things at once. It explains why the entry point is not special: triggering it is one
+ordinary write before the first step. It explains why a node can be woken either by an edge or
+by a channel it subscribes to, with no difference in the machinery. And it explains why
+resuming from a checkpoint works at all, which is lesson four: if edges were a queue of pending
+work, the queue would have to be persisted too, and getting the queue and the state consistent
+with each other is exactly the class of bug that durable execution is supposed to remove. There
+is no queue. There are versions.
+
+## Fan out, fan in
+
+Fan out is one node with two edges. Both targets become eligible in the same step, so both run
+in the same step.
+
+Fan in is not a feature. It is a node subscribed to a channel that both branches write. The
+branches run in step two, their writes merge through `append` at the end of step two, the
+channel's version moves once, and the node that subscribes to it is eligible in step three.
+You did not declare a join, and there is nothing to configure: a node runs when its inputs move,
+and both branches moving is one movement.
+
+The failure mode is subscribing the join node to a channel only one branch writes. It then runs
+as soon as that branch finishes, with half the data, and looks like a race condition. It is not
+a race, it is a subscription that says less than you meant.
+
+## Marking what a node has seen
+
+After the merge, each node that ran records the versions of its subscriptions. Which versions
+is the subtle part.
+
+Record the versions as they were at the start of the step, not as they are after the merge. If
+you record the post merge versions, a node that writes a channel it subscribes to has already
+seen its own write and can never wake itself, and the loop you were trying to build silently
+runs once. Recording the pre step versions makes a self subscribing node eligible again next
+step, which is precisely how "keep researching until the critic is satisfied" is expressed.
+
+That is also why the cycle in the exercise is a cycle. Ping's edge writes pong's channel,
+pong's edge writes ping's, neither has seen the other's latest version, and nothing about
+either node is wrong. Which is why the step budget is not optional.
+
+## Conditional edges
+
+A static edge always fires. A conditional edge asks a function.
+
+```python
+router = self._routers.get(name)
+if router is not None:
+    target = router(state.values())   # after the merge, deliberately
+```
+
+The router runs after the step's writes have been merged, so it can read what the node it
+belongs to just produced. Route on the pre step snapshot and you are deciding on stale data,
+which produces a graph that takes the right branch one step late and is genuinely unpleasant
+to debug.
+
+Returning `END` finishes the run. Returning a name that is not a node should raise, loudly, at
+the moment it happens. A router that returns `"reviewer"` when the node is called `"review"`
+would otherwise write to a channel nobody subscribes to, and the run would end quietly with no
+error and no explanation.
+
+## Two ways a run ends, and one way it does not
+
+A run ends when a step reaches `END`, and it ends when no node is eligible. Those are different
+outcomes and worth reporting separately. Quiescence usually means the graph did what it was
+told; occasionally it means an edge is missing and the run stopped four steps early, which is
+much easier to spot when the result says so.
+
+The third case is the step budget. Count super-steps, not nodes and not model calls: a fan out
+across five nodes is one super-step, and a budget that counts nodes gets tighter as the graph
+gets wider, which is the wrong direction. When the budget runs out, raise, and attach the step
+records collected so far. The shape of a runaway graph, which nodes kept waking each other, is
+the only useful thing about the failure, and a bare exception throws it away.
+
+## Your exercise
+
+Write `StateGraph`: nodes, edges, conditional edges, and `run`. The channel layer from the
+previous exercise is already in the file.
+
+The tests check the rule from the top of this lesson directly. Two nodes in a fan out both
+read the pre step value of a counter and both write to it, so a scheduler that merges as it
+goes gives a different answer from one that merges at the end. They also check that a node
+which does not subscribe to a channel is not woken when that channel changes, using a model
+client whose call count would go up if you got it wrong.

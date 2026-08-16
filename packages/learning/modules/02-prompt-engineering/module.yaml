@@ -1,0 +1,11 @@
+id: stage-2
+slug: prompt-engineering
+name: Prompt engineering
+summary: The parts of a working prompt, what examples teach that instructions cannot, how to get output a program can branch on, and how to measure a prompt change instead of guessing at it.
+version: 2.0.0
+track: base
+order: 2
+isActive: true
+prerequisites: [stage-1]
+difficulty: beginner
+estimatedHours: 3.5

@@ -1,0 +1,106 @@
+---
+id: fw-2.guardrails-that-can-stop-a-run
+title: Guardrails that can stop a run
+summary: A tripwire that fires before the first model call costs nothing and is the only check that can save you money. One that fires on the output is a different job with a different failure mode.
+order: 3
+estimatedMinutes: 40
+exercise:
+  id: guardrail-tripwire
+  timeboxMinutes: 25
+---
+
+A guardrail is a function that looks at a value and decides whether the run may continue. In
+the Agents SDK it is a decorated function returning an object with a `tripwire_triggered`
+flag, and a tripped guardrail raises rather than returns.
+
+```python
+# Illustration only. Needs the openai-agents package.
+from agents import Agent, GuardrailFunctionOutput, Runner, input_guardrail
+
+@input_guardrail
+async def not_a_homework_request(ctx, agent, user_input: str) -> GuardrailFunctionOutput:
+    verdict = await Runner.run(homework_classifier, user_input)
+    return GuardrailFunctionOutput(
+        output_info=verdict.final_output,
+        tripwire_triggered=verdict.final_output.is_homework,
+    )
+
+support = Agent(name="Support", instructions="...", input_guardrails=[not_a_homework_request])
+```
+
+Two things there are worth stealing and one is worth arguing with. Steal the raise: a caller
+who has to remember to check a flag will forget on the day it matters, so a tripwire that
+stops the run is a control flow event, not a return value. Steal the info payload: the check
+knows why it refused, and something upstream has to explain that to a user or an operator.
+
+The thing to argue with is where the check runs, and it is worth being precise about it.
+
+## The two positions are different jobs
+
+An input guardrail runs against what the user sent. Run it first and it costs one function
+call and no tokens. That is the only check in your system that can actually reduce the bill,
+because everything downstream of the first model call has already been paid for.
+
+An output guardrail runs against what your agent produced. By definition the run has
+happened, the tokens are spent, and possibly a tool has already written to a database. It
+protects the user from your agent, not your budget from the user.
+
+That difference decides what you do when one fires. An input trip means someone asked for
+something you refuse, and the answer is a polite refusal. An output trip means your own
+system produced something you refuse, and the answer is a fallback response plus an alert,
+because a system that regularly generates output it then has to suppress has a prompt
+problem that suppression is not fixing.
+
+Real runtimes complicate the input case deliberately. The Agents SDK runs input guardrails
+concurrently with the agent's first turn so the latency overlaps, and cancels the run when
+one trips. That saves wall clock and gives back some of the savings, since tokens already in
+flight are billed. Running them strictly first, as you will, is simpler and strictly cheaper,
+and costs you the guardrail's latency on every request. Both choices are defensible. What is
+not defensible is not knowing which one your framework made, then wondering why a blocked
+request still shows up on the invoice.
+
+## Failing closed, and failing honestly
+
+A guardrail that raises `ValueError` because someone's regex does not compile is not a policy
+decision. It is a bug, and it has to surface as one.
+
+The tempting shortcut is a `try` around the check that turns any exception into a trip. It
+looks like defence in depth and it is the opposite: every broken check now silently refuses
+every request, and the dashboard shows a policy working perfectly. Let the exception
+propagate. The run fails loudly, someone fixes the check, and the failure mode is one you can
+see.
+
+Order matters for the same reason. Evaluate guardrails in the order they were declared and
+stop at the first trip. Running the rest costs money for information you are not going to
+act on, and the trail you hand to the exception should end at the check that made the
+decision so the log says what stopped the run rather than everything that had an opinion.
+
+## What guardrails are not
+
+They are not authorisation. If the model must not refund more than fifty pounds, the check
+belongs inside the refund tool where it holds regardless of what any prompt says. A guardrail
+sits on the text going in and coming out, and text is the wrong place to enforce a rule that
+has a real subject and object.
+
+They are not a substitute for scoping. The strongest control available is not giving an agent
+the tool. A guardrail that scans for attempts to use a capability the agent should never have
+had is a worse version of removing the capability.
+
+And a guardrail that calls a model is a model call, with a model's latency, cost, and failure
+modes. A cheap classifier in front of an expensive agent is a good trade. A classifier as
+expensive as the agent it guards is not.
+
+## Your exercise
+
+The runner from the last exercise is given to you complete. Write the layer around it: the
+`guardrail` decorator, the `TripwireTriggered` exception, and `guarded_run`.
+
+The assertion that matters most is one line: when an input guardrail trips,
+`client.call_count` is zero. That is the entire argument for input guardrails, and any
+implementation that runs the agent first passes every other test in the file while failing
+this one.
+
+Watch the decorator's convention. A guardrail returns True when the tripwire fires, which
+reads backwards the first time: the function answers "did this trip", not "is this fine".
+The real SDKs do it this way, and getting the polarity wrong produces a system that blocks
+everything acceptable and permits everything else.

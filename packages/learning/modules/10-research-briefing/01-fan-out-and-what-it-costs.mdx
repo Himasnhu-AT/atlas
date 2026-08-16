@@ -1,0 +1,160 @@
+---
+id: proj-2.fan-out-and-what-it-costs
+title: Fan out, and what it costs
+summary: Parallel workers buy coverage and charge roughly fifteen times the tokens for it. Build the orchestrator with the meter attached so the bill is visible while you design.
+order: 1
+estimatedMinutes: 60
+exercise:
+  id: fan-out-orchestrator
+  timeboxMinutes: 30
+---
+
+The thing you are building over these three lessons takes a research question, reads a corpus,
+and returns a brief in which every factual sentence names the source it came from and has been
+checked against that source. It is the shape behind every "deep research" feature shipping
+today, and it is four moving parts:
+
+```
+question ─▶ plan ─▶ worker  ─┐
+                  ─▶ worker  ─┼─▶ supervisor ─▶ verifier ─▶ brief
+                  ─▶ worker  ─┘
+```
+
+This lesson builds the left half: the planner that splits a question, the workers that read,
+and the meter that records what all of it cost.
+
+## Why not one long prompt
+
+You could put the whole corpus and the whole question in one call. Sometimes you should. Fan
+out earns its keep when the sub questions are genuinely independent and each one needs its own
+pile of retrieved text.
+
+The reason is context, not parallelism. A worker that has read only the four documents relevant
+to its own sub question is working in a clean context. It cannot cite a document it never saw,
+it cannot be dragged off topic by a paragraph that belongs to somebody else's question, and its
+failures stay local. Give one model everything and every irrelevant paragraph is a chance to
+lose the thread, which is why long context windows did not delete this pattern.
+
+Isolation is a property you have to actually maintain. The moment a worker's prompt contains
+another worker's documents, you are paying four times for one long prompt in a costume. That is
+the property `run_worker` is graded on.
+
+## The bill
+
+Anthropic's write-up of their own multi-agent research system put it at roughly fifteen times
+the tokens of a single chat exchange. That number is not a scandal, it is arithmetic:
+
+```
+one call:      1 prompt with the corpus                        ~1 unit
+fan out:       1 planning call
+             + 4 worker calls, each carrying its own documents
+             + 1 synthesis call carrying every note
+             + 1 verification call per cited claim              ~15 units
+```
+
+Every stage is a full prompt. Nothing is shared between the workers, which is exactly the point
+of the design and exactly why it costs what it does.
+
+So the meter is not an afterthought you bolt on before launch. It is a parameter of the design,
+and the way to keep it that way is to make it visible while you are still choosing how many
+workers to run:
+
+```python
+@dataclass
+class Budget:
+    limit: int
+    spent: int = 0
+    by_stage: dict[str, int] = field(default_factory=dict)
+
+    def charge(self, stage: str, usage) -> None:
+        self.spent += usage.total_tokens
+        self.by_stage[stage] = self.by_stage.get(stage, 0) + usage.total_tokens
+        if self.spent > self.limit:
+            raise BudgetExceeded(f"budget of {self.limit} exceeded at {stage!r}")
+```
+
+Two decisions in there are worth stating. The spend is recorded before the exception is raised,
+because the call did happen and you were billed for it whatever your code does next. And
+`by_stage` is what turns "this run cost too much" into "the workers cost eleven times what the
+planner did, and there were four of them", which is the sentence you can act on.
+
+The other half of not losing money is not losing work. When a worker trips the limit, the notes
+the earlier workers already paid for are attached to the exception rather than discarded with
+it. Re-running a fan out from scratch because the fourth worker overspent is the most expensive
+kind of tidiness.
+
+## Planning is where the cost is decided
+
+The planner makes one call and every sub question it returns becomes another call. Three copies
+of the same sub question, phrased slightly differently, is a third of your budget spent on one
+answer. So the plan gets cleaned before it gets spent: strip blanks, drop duplicates keeping the
+first, then truncate to the cap.
+
+Order matters there. Truncating first and deduplicating after means the duplicates were already
+inside the cap, and you have run three workers to learn one thing.
+
+An empty plan is the interesting case. The model returned nothing usable, and the tempting
+answer is to return an empty list and let the caller deal with it. Then the caller has an empty
+brief and no error. Falling back to one worker on the original question is the honest floor: the
+same work a single call would have done, at a single call's price.
+
+## What a worker is allowed to say
+
+A worker is handed a sub question, the documents its own search returned, and a tool that
+records quotes. When it comes back with a note citing a document it was never given, that note
+is fabricated. Not "probably wrong", fabricated: the text was not in front of it.
+
+You know the set it saw, so this check is a set membership test and it costs nothing:
+
+```python
+allowed = {doc.id for doc in documents}
+
+notes, dropped = [], 0
+for note in raw_notes:
+    if note["doc_id"] not in allowed:
+        dropped += 1
+        continue
+    notes.append(note)
+```
+
+The one-line comprehension that filter wants to be is the version to resist, and the reason is
+the `dropped` counter rather than the loop. This function is the last place in the system that
+knows a note was invented. Filter without counting and the number is gone: the notes that
+survived look exactly the same either way, and no amount of downstream analysis reconstructs
+what was thrown out. `dropped` is your fabrication rate, per worker, and a jump in it is the
+earliest warning that a prompt change went wrong.
+
+Every check you can do this way is a check you are not paying a model to do. That idea runs
+through the whole module, and the third lesson is built entirely on it.
+
+## Frameworks do this, and it is worth seeing how
+
+LangGraph expresses fan out with a `Send` from one node to many, and a reducer that merges what
+comes back. Illustration only, since it needs a pip install and this exercise does not:
+
+```python
+# Illustration. LangGraph, not runnable here.
+class State(TypedDict):
+    question: str
+    notes: Annotated[list[Note], operator.add]   # the reducer that merges workers
+
+def fan_out(state: State):
+    return [Send("worker", {"sub_query": q}) for q in state["sub_queries"]]
+```
+
+The `Annotated[list, operator.add]` is the whole trick: concurrent nodes returning lists,
+combined by a reducer instead of overwriting each other. Your `orchestrate` does the same thing
+with `notes.extend(...)` in a loop. Knowing that is what makes the framework version readable
+rather than magic, and it is why nothing here needs the framework to teach the idea.
+
+## Your exercise
+
+Build `make_search`, `Budget`, `plan`, `run_worker` and `orchestrate`. The tests script the
+planner and the workers, then check what each worker was actually sent.
+
+The isolation assertion is the one to read first, because it fails for a subtle reason: a worker
+prompt built from the whole corpus passes every other test in the file.
+
+The `Research` you hand back is the input to the next lesson, so it carries two things the run
+would otherwise forget. The corpus, because a note holds a document id and a brief needs a
+title. And the dropped count, because `run_worker` is where that number stops existing.

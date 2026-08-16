@@ -1,0 +1,44 @@
+/* Self-hosted variable fonts. The app must render identically with no
+   network, so nothing is fetched from a font CDN. */
+@import "@fontsource-variable/literata";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@import "@learn/ui/styles.css";
+
+/* Tailwind's automatic source detection is anchored to the stylesheet that
+   pulls in the framework — which lives in packages/ui. These two directives
+   register this app's own markup so classes used here are never tree-shaken. */
+@source "./";
+@source "../index.html";
+
+@layer base {
+  /* The desktop window is the viewport: the frame owns every scroll container,
+     so the document itself must never scroll or rubber-band. */
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* Chrome (toolbars, rails, split handles) is not text — dragging a divider
+     should never leave a smear of selected labels behind. Editors, terminals
+     and lesson prose opt back in below. */
+  #root {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .selectable,
+  .prose-learn,
+  .xterm,
+  .cm-editor {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}

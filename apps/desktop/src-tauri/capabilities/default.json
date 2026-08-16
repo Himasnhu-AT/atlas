@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimum surface the main window needs: window controls, the event bus that carries `pty:output`, path/app metadata, and the folder picker. The app's own commands (pty_*, workspace_*, project_*, run_tests, preflight) are registered through `invoke_handler` and are not plugin commands, so they are not listed here. The dialog plugin is limited to opening a folder: it is how a student grants the app access to their own repository, and it is the ONLY way a path outside the sandbox is ever established. No filesystem, shell or http plugin is enabled.",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:app:default",
+    "core:event:default",
+    "core:path:default",
+    "core:resources:default",
+    "core:webview:default",
+    "core:window:default",
+    "dialog:allow-open"
+  ]
+}

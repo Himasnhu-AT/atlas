@@ -1,0 +1,182 @@
+---
+id: stage-5.embeddings-and-similarity
+title: Embeddings and similarity
+summary: What a vector actually is, why cosine similarity is a dot product, what the hashed embeddings in this course can and cannot do, and why a retriever has to be allowed to return nothing.
+order: 3
+estimatedMinutes: 40
+exercise:
+  id: vector-search
+  timeboxMinutes: 35
+---
+
+Retrieval needs a way to decide that a question and a document are about the same thing, without
+requiring that either one contains the other's words. That is what embeddings are for, and the
+machinery underneath is smaller than the mystique around it.
+
+## What an embedding is
+
+An embedding model is a function from text to a fixed length list of floats. The same model maps
+a three word query and a three hundred word document to vectors of exactly the same size, which
+is the property that lets you compare them at all.
+
+The vectors are not arbitrary. The model is trained so that texts people treat as related end up
+close together and everything else ends up far apart, and position in the space carries meaning
+as a side effect of that objective. That is the whole of "distance means meaning": not a property
+of vectors, a property this particular training produced.
+
+Two consequences matter. Individual dimensions mean nothing, there is no "refunds" axis, so the
+only sensible operation is comparing one vector to another. And a vector is comparable only to
+vectors from the same model, which is why the query is embedded with the same client as the
+documents, and why changing embedding model means re-embedding the whole corpus.
+
+## Why cosine, and why it is a dot product
+
+Cosine similarity measures the angle between two vectors and ignores how long they are.
+
+```python
+def cosine_similarity(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
+```
+
+Ignoring length is the entire point. Magnitude mostly tracks how much text there was rather than
+what it was about, so a long document and a short one on the same subject should not be pushed
+apart for that reason alone.
+
+Most embedding APIs return vectors already normalised to length one, and `mockllm.embed_text`
+does the same. For unit vectors both square roots are 1, so the computation collapses to the dot
+product. Keep the division anyway: it costs nothing and it keeps the function correct if you ever
+hand it vectors from somewhere that does not normalise.
+
+Euclidean distance is the obvious alternative and on unit vectors it ranks identically, because
+the two are related by a fixed formula when every vector has the same length. The choice only
+matters when your vectors are not normalised, and then cosine is usually what you want.
+
+Cosine runs from -1 to 1 and is not a percentage: 0.7 does not mean 70 percent relevant, it means
+an angle, and the only meaningful comparison is against other scores from the same query.
+
+## What these embeddings can and cannot do
+
+The embeddings in this course are real vectors, so every ranking you see is produced by
+arithmetic on text rather than by a fixture. They are also not a trained model, and it is worth
+knowing exactly where the line is.
+
+`embed_text` uses the hashing trick: lowercase, split into words, hash each word into one of 256
+buckets, count, normalise. Two texts score highly when they share words. That is all it knows.
+
+Everything structural about retrieval survives that. Ranking, thresholds, top `k`, the shape of
+the code, and every design decision in this module work identically against a trained embedding
+API.
+
+What does not survive is paraphrase. Watch it fail on the corpus in the exercise, where
+`billing-refunds` says refunds are issued within ten business days:
+
+```
+query: "how long until I get my money back"
+   auth-sessions        0.2372
+   billing-refunds      0.0000
+   billing-refunds-eu   0.0000
+```
+
+The document that answers the question scores exactly zero, because "money back" and "refunds"
+share no words. Meanwhile a document about session expiry scores 0.24 on the strength of "you",
+"will" and "I". A trained model would put the refund document near the top, because it has seen
+the two phrasings used in the same contexts a great many times.
+
+What is worth learning from that is not the miss, it is what the code does about it. Swap in a
+real embedding API and the miss goes away; the need for the floor does not, because there is
+always some query your corpus cannot answer.
+
+## A for loop, and what a vector store adds
+
+Searching an index is one pass:
+
+```python
+query_vector = client.embeddings.create(input=query).data[0].embedding
+scored = [
+    (cosine_similarity(query_vector, vector), position, document)
+    for position, (vector, document) in enumerate(zip(index.vectors, index.documents))
+]
+scored.sort(key=lambda item: (-item[0], item[1]))
+```
+
+That is brute force, it is exactly correct, and it is fast enough for thousands or tens of
+thousands of chunks. Reaching for a database before you need one is the most common overbuild in
+this whole area.
+
+The sort key is not decoration. Scores descending, position ascending as the tie break. Near
+duplicate documents are ordinary, and a retriever that orders ties differently between runs makes
+every test above it flaky.
+
+A vector store earns its place on four things: it persists the vectors, it supports updates and
+deletes, it filters on metadata so you can search only this customer's documents, which is a
+security boundary rather than a feature, and it offers approximate nearest neighbour search when
+linear scanning becomes the bottleneck.
+
+Approximate is the word to notice. Structures like HNSW graphs and IVF partitions examine a
+fraction of the vectors, trading exactness for speed, so they can miss a genuine nearest
+neighbour, and the miss looks exactly like a document that was never ingested. Worth taking on at
+a scale where brute force is too slow, and a strange thing to take on before then.
+
+## k, the floor, and admitting it is too close to call
+
+Three separate decisions get collapsed into one by most retrieval code, and separating them is
+most of what the exercise is about.
+
+`k` is how many results you take, and it is a budget decision: how much context you can afford in
+the prompt. Raising it raises recall, the share of questions whose answer came back at all, and
+lowers precision, the share of what came back that was worth having.
+
+The threshold is what counts as a match. It is a quality decision, it moves precision and recall
+the other way, and it is what lets retrieval return nothing:
+
+```
+query: "how do I reset my password"        query: "how long until I get my money back"
+   auth-reset       0.3273                    auth-sessions     0.2372
+   auth-sessions    0.1021                    billing-refunds   0.0000
+```
+
+Both queries have a top result and only one of them has a good one. Without a floor there is no
+difference between the two situations, because there is always a least bad document, and handing
+it to a model is how an unanswerable question becomes a confident wrong answer. At a floor of
+0.25 the first query returns one document and the second returns none; drop the floor to 0.1 and
+the second confidently returns a document about session expiry to a question about refunds.
+
+There is no universal value. It depends on your embedding model, your corpus and what a wrong
+answer costs you. Start somewhere, look at what it drops, and move it deliberately.
+
+The third decision is the one most retrievers skip: saying out loud that the top results are too
+close to call. Consider a question about invoices against the same corpus:
+
+```
+query: "invoices business days"
+   billing-refunds      0.3086
+   billing-refunds-eu   0.2981
+   billing-invoices     0.2649
+```
+
+Three documents mention business days, the two refund documents beat the invoice document on
+shared words alone, and the gap between first and second is 0.0105. The retriever has found
+candidates and cannot choose between them, and the document the question was actually about is
+third.
+
+Comparing that gap to a minimum margin turns an invisible coin flip into a label the caller can
+act on. Ambiguity is not a failure, and near duplicates are normal: two documents that both
+answer the question is a fine outcome. The failure is picking one at random and presenting it as
+the answer, which is what code without a margin check does on every ambiguous query, silently.
+
+## Your exercise
+
+Build the retrieval layer: `build_index`, `search`, `search_above`, and `assess`, returning a
+`Verdict` labelled `CONFIDENT`, `AMBIGUOUS` or `NO_MATCH`.
+
+The tests use the corpus above, so the numbers in this lesson are the numbers you will see. They
+check that the whole corpus is embedded in one request rather than one per document, that ties
+resolve toward the document added first, that a hit exactly on the threshold survives, and that
+the paraphrased refund question reports `NO_MATCH` rather than answering from the session
+document.
+
+Two things catch people. `search` ranks and does not judge, so the threshold belongs only in
+`search_above`; applying it in both makes `k` meaningless. And the margin is `None` for a single
+hit rather than `0.0`, because a margin of zero reads as a dead heat and would report every
+single-result query as ambiguous.

@@ -1,0 +1,10 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# pnpm >=11 blocks postinstall scripts unless a package is listed here.
+allowBuilds:
+  esbuild: true
+  '@tailwindcss/oxide': true
+  '@parcel/watcher': true
+  unrs-resolver: true

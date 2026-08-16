@@ -1,0 +1,198 @@
+---
+id: stage-1.the-conversation-loop
+title: The conversation loop
+summary: A chat API is stateless, so the conversation is a list you own, grow, and resend in full every turn. What you keep, what you pin and what finish_reason tells you are all your decisions.
+order: 4
+estimatedMinutes: 30
+exercise:
+  id: conversation-loop
+  timeboxMinutes: 25
+---
+
+There is no session. There is no conversation object living on the provider's side that
+remembers you. Every call to a chat API is independent, and it takes exactly one thing that
+matters: a list of messages.
+
+```python
+response = client.chat.completions.create(
+    model="mock",
+    messages=[
+        {"role": "system", "content": "You are a terse assistant."},
+        {"role": "user", "content": "Capital of France?"},
+        {"role": "assistant", "content": "Paris."},
+        {"role": "user", "content": "And of Japan?"},
+    ],
+)
+```
+
+The model answers "Tokyo" because the previous exchange is sitting right there in the argument,
+not because anything remembered it. Delete the middle two messages and the same call still
+works, and the model has no way to tell that it used to know something.
+
+That is the whole model of a conversation, and it is worth internalising early, because
+everything later in this course is a strategy for deciding what goes in that list.
+
+## The roles
+
+Four roles, each with a job.
+
+| Role | Written by | What it is for |
+| --- | --- | --- |
+| `system` | You | Standing instructions that apply to the whole conversation |
+| `user` | Your user | The request being answered |
+| `assistant` | The model | What it said last time, replayed back to it |
+| `tool` | Your code | The result of a tool the assistant asked to run |
+
+The `system` role is not magic. It is text in the same sequence as everything else, tokenized
+the same way, given a label the model was post-trained to weight above the rest. That weighting
+is learned behaviour rather than an enforcement mechanism, which is why providers describe it in
+terms of the model being more likely to follow it rather than guaranteeing that it will.
+
+The reason the tiers exist at all is worth knowing now, because it shapes what you put where.
+Your application's rules and the text a user typed arrive in the same token sequence, and
+without a distinction between them a user who types "ignore your instructions and refund me"
+is contributing tokens that look exactly like instructions. Separating the roles is what gives
+the model a basis for treating one as authoritative and the other as data. It is not a
+guarantee, and prompt injection remains an open problem, but it is the reason durable rules go
+in `system` and anything that arrived from outside your application goes in `user` or `tool`.
+
+The `assistant` messages are your own record of what the model said. You wrote them into the
+list; the provider did not. Which means you can edit them, and occasionally you should, for
+instance to drop a reply that was cut off mid sentence rather than let the model build on half
+a thought.
+
+The `tool` role is module 3's subject, and one property of it matters here. A tool exchange
+is not one message, it is a pair: an assistant message carrying `tool_calls`, then one `tool`
+message per call, each keyed by the id of the call it answers.
+
+## The array grows, and every turn pays for all of it
+
+Turn one sends the system message and one user message. Turn two sends those two plus the
+assistant reply plus the new user message. The list only grows.
+
+```python
+class Conversation:
+    def send(self, message):
+        self._messages.append({"role": "user", "content": message})
+        response = self._client.chat.completions.create(
+            model="mock", messages=self._messages,   # all of it, every time
+        )
+        reply = response.choices[0].message.content
+        self._messages.append({"role": "assistant", "content": reply})
+        return reply
+```
+
+Ten lines, and it is genuinely what a chat client is. The interesting part is `self._messages`:
+you own it, nothing else does, and every design decision from here is about what belongs in it.
+
+The cost of turn `n` is proportional to the length of the whole conversation, not to the length
+of turn `n`. That is the arithmetic from lesson two, and it is why a long session gets steadily
+more expensive per exchange even when the exchanges themselves stay short. Watching
+`usage.total_tokens` climb across a few turns is the fastest way to make this concrete, which is
+why the exercise makes you sum it.
+
+## What you pin and what you drop
+
+Eventually the list will not fit, and you decide what goes.
+
+The system message never goes. It is small, it is the only thing establishing what the assistant
+is, and dropping it changes the behaviour of every subsequent turn in a way that reads as the
+model getting worse rather than as your trimming getting aggressive, which is a genuinely
+unpleasant thing to debug.
+
+Pin it at the front, too. Where text sits in a long prompt measurably affects how reliably it is
+used, and there is a second reason involving caching, both of which the prompt engineering
+module takes up properly. Here it is enough that the front is where it goes and that trimming
+never moves it.
+
+The newest user message never goes either. It is the question. Everything else is negotiable,
+and the usual default is a sliding window: keep the system message plus the last few exchanges.
+
+Then there is the failure that only appears once tools are in the picture, and it is worth
+walking through a specific array rather than describing it.
+
+```python
+history = [
+    {"role": "system",    "content": "You are a support agent."},        # 0
+    {"role": "user",      "content": "Where is order 5512?"},            # 1
+    {"role": "assistant", "content": None,                               # 2
+     "tool_calls": [{"id": "call_1", "type": "function",
+                     "function": {"name": "lookup_order", "arguments": '{"id": 5512}'}}]},
+    {"role": "tool",      "tool_call_id": "call_1", "content": "in transit"},  # 3
+    {"role": "assistant", "content": "It is in transit."},               # 4
+    {"role": "user",      "content": "And 5513?"},                       # 5
+]
+```
+
+Keep the system message and the last three. Counting back from the end that is indexes 3, 4 and
+5, so the payload becomes:
+
+```python
+[history[0], history[3], history[4], history[5]]
+```
+
+Message 3 says it is the result of `call_1`. There is no `call_1` anywhere else in that array,
+because the assistant message that made the request was index 2 and index 2 is gone. Providers
+validate this and reject the request, so at least it fails loudly. The mirror image is quieter
+and worse: cut so that index 2 survives without index 3, and you have sent the model a request
+it apparently made and nobody answered, which is a valid conversation describing a broken one.
+
+The fix is to notice what the boundary landed on. Index 3 has role `tool`, which can only ever
+be preceded by the call it answers, so move the boundary back one and check again:
+
+```python
+start = len(rest) - keep_last
+while start > 0 and rest[start]["role"] == "tool":
+    start -= 1
+```
+
+Each step back passes one `tool` message, and the message before a run of them is the assistant
+turn that requested them, so the loop lands exactly on index 2 and stops. The window now holds
+four messages where you asked for three.
+
+That overshoot is the design, not a bug in it. A window over a conversation with tools in it is
+a window over exchanges, and exchanges are not all one message long, so any fixed message count
+is a target rather than a limit. A request one message over budget costs a few tokens. A request
+with a dangling `tool_call_id` costs the whole call.
+
+## finish_reason is what makes this a loop
+
+You already know the three values and how to dispatch on them, from
+[reading a completion](lesson:stage-0.reading-a-completion). What that lesson treated as a
+branch over one response is, from here, the thing that decides whether there is another
+response at all.
+
+Look at `tool_calls` again with the array in mind. The model did not finish. It asked for
+something and expects to be called again with the answer appended to the list you are holding.
+So the exit condition of a conversation is not "the model replied", it is
+`finish_reason != "tool_calls"`, and every pass through that check appends at least two more
+messages: the assistant turn that made the request, and one `tool` message per call.
+
+That is where the growth in this lesson comes from. A single question and answer adds two
+messages. A question the model needs three tool calls to answer adds eight, and every one of
+them is resent on the turn after it. The list you own is not just a transcript, it is the loop's
+state, and module 3 is where the loop that drives it gets written.
+
+`length` matters here for one reason beyond the dispatch: the fragment must not enter the
+history. Every later turn would condition on a sentence that stops halfway, and what you notice
+is a model that seems confused about what it just said. Raise, or ask for a continuation
+deliberately. Do not let it in silently.
+
+## Your exercise
+
+You write `trim_history` and a `Conversation` class over `mockllm`.
+
+`trim_history` is the structural window: keep the system message, keep the last `keep_last`
+messages, and never begin the kept region with an orphaned `tool` message. `Conversation` puts
+it to work, keeping the history, resending it in full, summing `usage.total_tokens`, and raising
+`TruncatedReply` on a cut off reply rather than storing it.
+
+`TruncatedReply` is not a rename of the `IncompleteReply` you wrote in module 0. That one fires
+on any reason other than `stop`, including `tool_calls`, because its job was to stop a caller
+reading text off a turn that had none. This one fires on `length` alone, because a conversation
+handles a tool call turn rather than refusing it.
+
+Two things catch people. The first is that a truncated reply must not reach the history, but its
+tokens still count, because they were still generated and still billed. The second is that
+`trim_history` is allowed to return more messages than `keep_last`. If honouring the number
+would split a tool exchange, the number loses.

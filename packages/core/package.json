@@ -1,0 +1,26 @@
+{
+  "name": "@learn/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared types, auth client, supabase bindings and progress store for the learn platform.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "react": "^19.2.8",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
+  }
+}

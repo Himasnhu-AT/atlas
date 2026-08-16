@@ -1,0 +1,225 @@
+---
+id: stage-1.sampling
+title: Sampling
+summary: The model returns a distribution and the sampler turns it into a token. Temperature, top-p and top-k are three ways of reshaping that distribution, and none of them make a wrong answer right.
+order: 3
+estimatedMinutes: 30
+exercise:
+  id: sampling-controls
+  timeboxMinutes: 35
+---
+
+The model's job ends with a vector of logits. Turning that vector into one token is a separate
+piece of code with its own parameters, and it is the only reason the same prompt can give you
+two different answers.
+
+That separation matters more than it sounds. Temperature and top-p are not model settings. They
+are arguments to a small, entirely ordinary function that you are about to write.
+
+## From logits to probabilities
+
+A logit is a raw score. It has no scale and no meaning on its own; only the differences between
+logits matter. Softmax exponentiates them and normalises:
+
+```python
+def softmax(logits):
+    ceiling = max(logits)                       # subtract the max first
+    weights = [math.exp(x - ceiling) for x in logits]
+    total = sum(weights)
+    return [w / total for w in weights]
+```
+
+Subtracting the maximum before exponentiating is not an optimisation, and the reason is worth
+following because it is the same reason every real implementation does it.
+
+The shift is free. Softmax is a ratio, and multiplying the numerator and the denominator by the
+same `exp(-c)` cancels:
+
+```
+exp(x - c) / sum(exp(xi - c))  ==  exp(x) / sum(exp(xi))
+```
+
+The shift also removes a failure mode entirely. `math.exp` overflows above roughly 709 in
+double precision, and models compute their logits in reduced precision where the ceiling is far
+lower, so the naive version has a range beyond which it does not return a bad answer, it raises.
+After subtracting the maximum the largest exponent is exactly 0, so the largest weight is
+exactly 1.0 and every other weight lands between 0 and 1. Overflow becomes impossible rather
+than unlikely, which is why the exercise tests you with a logit of 1000.
+
+Because only differences matter, the gap between two logits is what sets their probability
+ratio. A gap of 2 means the higher token is about seven times more likely than the lower one.
+Widen every gap and the distribution concentrates; narrow every gap and it spreads out. That is
+the entire idea behind temperature.
+
+## Greedy decoding and temperature
+
+The simplest sampler ignores the probabilities and takes the argmax. That is greedy decoding,
+and it is deterministic given the same logits.
+
+Temperature divides the logits before the softmax:
+
+```python
+def apply_temperature(logits, temperature):
+    return [x / temperature for x in logits]
+```
+
+Dividing by a number below one multiplies every gap, so the leading token pulls further ahead.
+Dividing by a number above one shrinks every gap, so the tail gets a real share of the mass. At
+temperature 1 you sample from the distribution as trained.
+
+Take four tokens with logits `[3.0, 2.0, 1.0, 0.0]` and watch what happens:
+
+| Temperature | Resulting probabilities |
+| --- | --- |
+| 0 | 1.00, 0.00, 0.00, 0.00 |
+| 0.7 | 0.76, 0.18, 0.04, 0.01 |
+| 1.0 | 0.64, 0.24, 0.09, 0.03 |
+| 1.5 | 0.52, 0.27, 0.14, 0.07 |
+
+Temperature 0 is a special case, because dividing by zero is not a thing. It is defined as the
+limit: as the temperature approaches zero the distribution collapses onto the argmax, so
+temperature 0 means greedy decoding. Implementations handle it as a branch rather than as
+arithmetic, which is exactly what you will do.
+
+At 1.5 the fourth token, which had three percent of the mass, now has seven. Nothing has become
+more creative. The sampler is reaching further down a list that was ranked by how well each
+token fits the context, so reaching further down means preferring worse fits by definition.
+
+Two things make that worse in a real vocabulary than it looks in a table of four. The real
+ranking has a hundred thousand entries and a very long tail, so the tokens gaining mass are
+mostly not the interesting fourth-best word, they are the thousands of near-zero entries between
+which the redistributed probability is spread. And generation is autoregressive, so a
+badly fitting token is not a local blemish: it becomes context for every token after it, and
+the model will continue coherently from it. That is the actual mechanism behind text that
+"wanders" at high temperature. It is not the model losing the plot, it is the model following
+a plot the sampler chose.
+
+## Truncating the tail
+
+A vocabulary has around a hundred thousand entries and almost all of them are wrong at any
+given position. Even at temperature 1 the combined tail carries real mass, and over a few
+hundred tokens a rare bad draw becomes likely. Both remaining controls delete the tail before
+sampling.
+
+Top-k keeps the k highest probability tokens, zeroes the rest, and divides the survivors by
+their own total so the result is a distribution again. Top-p, also called nucleus sampling,
+walks the tokens from most to least likely, accumulating, and keeps everything it walked over
+once the running total reaches p.
+
+The difference between them only shows up when you run both against a model in two different
+states, so here they are, at two positions in the same generation. On the left the model is
+sure what comes next. On the right it has five reasonable options.
+
+| | Confident position | Uncertain position |
+| --- | --- | --- |
+| The distribution | 0.90, 0.05, 0.03, 0.01, 0.01 | 0.25, 0.22, 0.20, 0.18, 0.15 |
+| Running total | 0.90, 0.95, 0.98, 0.99, 1.00 | 0.25, 0.47, 0.67, 0.85, 1.00 |
+| Top-k, k of 2 | keeps 2 | keeps 2 |
+| Top-p, p of 0.9 | keeps 1 | keeps 5 |
+
+Follow the second row and the rule falls out. Top-p keeps one token on the left because the
+first token already covers 0.9 on its own, and all five on the right because it takes all five
+to get there. The same p produced a nucleus of one and a nucleus of five, without being told
+anything about the model's confidence, because the running total already encodes it.
+
+Top-k cannot do that. It keeps two either way. On the left that second token had a probability
+of 0.05, and renormalising promotes it to 0.053, so a token the model had all but ruled out is
+now the outcome one time in nineteen. On the right, cutting at two throws away three
+continuations the model considered nearly as good as the ones it kept. A fixed k is wrong in
+both directions, which is the argument for top-p being the more common default.
+
+The renormalisation is not cosmetic, incidentally. After top-k with k of 2 on the left you hold
+0.90 and 0.05, which sum to 0.95, and sampling from those without rescaling leaves 0.05 of the
+draw range pointing at nothing.
+
+They compose, in a fixed order. Temperature is applied to the logits, then softmax, then the
+truncations filter the resulting probabilities:
+
+```python
+probs = softmax(apply_temperature(logits, temperature))
+probs = top_k_filter(probs, k)
+probs = top_p_filter(probs, p)
+token = sample(probs, rng)
+```
+
+The order is a convention rather than a law, and providers document their own. What is not
+optional is that temperature comes first: it is what decides how much mass the tail had before
+the truncation looked at it.
+
+Turning two dials at once is the usual mistake. If temperature 1.2 with top-p 0.8 beats your
+default, you have learned nothing reusable, because you do not know which change did it. Move
+one at a time.
+
+## Determinism, honestly
+
+Temperature 0 makes the sampler deterministic. It does not make the system deterministic, and
+the gap between those two statements has cost people real debugging time.
+
+The sampler picks the argmax of the logits. Those logits come out of floating point arithmetic
+on a GPU, where addition is not associative, so summing the same numbers in a different order
+can change the last bits of the result. Hosted inference batches your request with other
+people's, and the batch size affects the order those sums happen in. When the top two tokens
+are close, the last bits decide the ranking, the ranking decides the token, and the rest of the
+response follows that token somewhere else.
+
+Seed parameters help and are documented as best effort rather than as a guarantee. Model
+versions also change under a stable alias. Temperature 0 buys a strong tendency toward the same
+output, not a promise of it.
+
+This is why every exercise here runs against `mockllm`, whose output is genuinely fixed: a
+failing test is your bug and never the weather. On a live provider, assume your suite has become
+slightly flaky and move your assertions from exact strings to structure, which tool was called
+and whether the JSON parses and whether the required fields are present. That trade is real in
+both directions. Structural assertions survive a reworded answer, and they will also pass a
+reworded answer that is wrong, so you are buying a suite that stays green at the cost of one
+that catches less.
+
+## Choosing a setting
+
+For extraction, classification, tool arguments and anything with a schema, a low temperature is
+right. There is one correct output and sampling the tail can only move you away from it. Top-p
+at 1.0 and let the temperature do the work, rather than tightening both and having two
+interacting parameters to reason about.
+
+Turning it to 0 everywhere is not automatically right, though, and there are two reasons.
+
+Greedy decoding optimises each token independently, and a sequence of locally best choices is
+not a globally best sequence. The failure this produces is a loop: the model reaches a state
+whose single most likely continuation leads back to that same state, and with no randomness
+there is nothing to break the cycle, so it emits the same clause until it hits the output limit.
+Some models are much more prone to this than others, which is why the advice is not universal.
+
+The second reason is that temperature 0 forecloses sampling several candidates and choosing
+among them, whether that is self consistency voting, generating three options for a user, or
+best-of-n against a scorer. All of those need the draws to differ, and greedy decoding gives
+you the same answer n times at n times the price.
+
+A small temperature, something like 0.2, keeps nearly all the consistency and avoids both. What
+it costs you is the ability to say the output was determined by the input alone, which matters
+if you are trying to reproduce a specific past run.
+
+For open ended writing, temperature around 0.7 to 1.0 with top-p around 0.9 is a common
+starting point rather than a recommendation. This is genuinely contested and model specific, so
+treat published defaults as a place to begin measuring.
+
+What no setting does is make the output more accurate. A lower temperature makes a wrong answer
+into a reliably wrong answer. If the output is wrong at temperature 0, the fix is in the
+context: better instructions, better examples, or retrieving the fact instead of hoping the
+weights carry it. That is the next two modules.
+
+## Your exercise
+
+You implement the sampler: `softmax`, `apply_temperature`, `top_k_filter`, `top_p_filter`,
+`sample`, and `decode_step` composing all five. Standard library only, over a fixed list of
+logits.
+
+The tests assert on the distributions rather than on a sampled token, so you cannot pass by
+luck. They check that softmax survives logits of 1000, that temperature 0 gives an exact
+one-hot with ties broken toward the lower index, that both filters renormalise to sum to one,
+and that `decode_step` at temperature 0 returns the argmax whatever the random number generator
+does.
+
+The part people get wrong is the top-p boundary. You keep the token that crosses p, not the
+tokens strictly below it, which means the mass you keep is at least p and never less. Getting
+that backwards makes p of 0.5 discard a token holding sixty percent of the probability, and the
+distribution you sample from is then empty.

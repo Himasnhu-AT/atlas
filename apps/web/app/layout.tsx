@@ -1,0 +1,36 @@
+import type { Metadata } from 'next'
+import type { ReactNode } from 'react'
+
+import './globals.css'
+
+export const metadata: Metadata = {
+  title: {
+    default: 'Learn to build AI agents',
+    template: '%s · Learn AI',
+  },
+  description:
+    'A workbook for agent engineering. Write the loop, run the tests, no API key required.',
+}
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    /*
+     * `data-scroll-behavior` stops Next warning about the smooth scrolling set
+     * in globals.css during route transitions.
+     *
+     * There is no theme script here any more. The product has one theme, so
+     * there is nothing to restore before paint and no flash to prevent.
+     */
+    <html lang="en" data-scroll-behavior="smooth">
+      <body className="min-h-screen bg-paper text-ink">
+        <a
+          href="#main"
+          className="sr-only rounded-field bg-ink px-5 text-caption font-medium text-paper focus:inline-flex focus:min-h-11 focus:items-center focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"
+        >
+          Skip to content
+        </a>
+        {children}
+      </body>
+    </html>
+  )
+}

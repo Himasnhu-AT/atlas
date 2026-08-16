@@ -1,0 +1,11 @@
+id: fw-2
+slug: handoffs-and-typed-output
+name: Handoffs, guardrails, and typed output
+summary: The runtime style frameworks, rebuilt small. A handoff is a tool call that reassigns one variable, a guardrail is a function that can raise before the model is ever called, and structured output is a validator wired back into the prompt.
+version: 1.0.2
+track: frameworks
+order: 8
+isActive: true
+prerequisites: [fw-1]
+difficulty: intermediate
+estimatedHours: 4

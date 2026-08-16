@@ -1,0 +1,140 @@
+---
+id: stage-5.chunking
+title: Chunking
+summary: The chunk is the unit you retrieve and the unit you paste into a prompt, so where the boundaries land decides what the model gets to read. Strategies, overlap, and the argument about size.
+order: 2
+estimatedMinutes: 40
+exercise:
+  id: chunking
+  timeboxMinutes: 30
+---
+
+Documents get split because the chunk is the retrieval unit, and the retrieval unit is what
+ends up in the prompt. Retrieve whole documents and a question about one sentence costs you a
+forty page manual, most of which is noise the model has to read past. Retrieve single sentences
+and you get a precise match to a fragment that means nothing without the paragraph around it.
+
+Somewhere between those is a size that is small enough to be specific and large enough to be
+self contained. Finding it is not a solved problem, and most of what makes retrieval good or
+bad is decided here rather than in the choice of embedding model.
+
+## Four ways to cut
+
+| Strategy | Boundary | Preserves | Destroys |
+| --- | --- | --- | --- |
+| Fixed size | A character or token count | Nothing in particular | Sentences, paragraphs, tables, code blocks |
+| Sentence or paragraph | Punctuation or a blank line | Complete thoughts | Anything spanning a paragraph, and produces wildly uneven sizes |
+| Structural | Markdown headings, HTML elements, function definitions | The author's own organisation | Nothing, where the structure exists |
+| Recursive | The coarsest separator that fits | Structure where there is any, degrades gracefully where there is not | Less than the others, which is why it is the default in most stacks |
+
+Fixed size is worth writing once, because it is the baseline everything else is measured
+against and because on genuinely unstructured text, a wall of scanned OCR with no paragraph
+breaks, it is not much worse than anything cleverer.
+
+Structural splitting is the best option when the structure is real. A Markdown document split
+on headings gives chunks that correspond to what a human would call a section, and the heading
+comes along for free as metadata. The catch is that it only works on documents that have
+structure, and half of any real corpus does not.
+
+Recursive splitting is the compromise that most stacks land on. Try to split on blank lines. If
+a piece is still too big, split that piece on single newlines. Still too big, split on sentence
+ends. Still too big, split on spaces. The important detail is in what you pass down:
+
+```python
+if len(piece) > max_size:
+    chunks.extend(split_recursive(piece, max_size, rest))
+```
+
+`rest`, not the full separator list. Each level of the recursion has strictly fewer separators
+to try, which is what makes it terminate. Pass the whole list down and a piece that the current
+separator failed to break gets handed the same separator again, forever.
+
+The other detail is the greedy rejoin. After splitting on blank lines you walk the pieces and
+join consecutive ones back together while they still fit. Skip that step and a document of
+short paragraphs becomes a list of one-line chunks, each too small to carry its own meaning,
+and your index fills up with fragments that match queries and answer nothing.
+
+## Overlap, and what it costs
+
+Overlap repeats the tail of one chunk at the head of the next. It exists because a boundary
+placed in the wrong spot loses the answer to both sides: the first chunk has the setup, the
+second has the conclusion, and neither one matches a query for the whole thing.
+
+```python
+step = size - overlap
+for start in range(0, len(text), step):
+    windows.append(text[start : start + size])
+```
+
+The cost is not subtle. Ten percent overlap is ten percent more vectors, ten percent more
+storage, and ten percent more of everything the index does. It also produces near duplicate
+hits: a query that matches the overlapping region retrieves two chunks that are largely the
+same text, which wastes part of your context budget on a repeat. If you are returning the top
+three chunks and two of them are the same paragraph, you are effectively returning two.
+
+Overlap matters most with fixed size splitting, because that is where boundaries land in
+arbitrary places. With structure aware splitting the boundaries are already where a human would
+have put them, and the case for overlap gets much weaker.
+
+## The size argument
+
+You will find "512 tokens" and "1000 characters with 200 overlap" quoted everywhere as though
+they were settled. They are not settled, they are starting points, and the people quoting them
+measured on a corpus that is not yours.
+
+What is actually true is the direction of the tradeoff. Smaller chunks give more precise
+matches and lose context, so the retrieved text is on topic and may not contain enough around
+it to answer. Larger chunks carry their context and dilute the match, because a single vector
+now has to represent several ideas at once and ends up representing none of them strongly.
+Larger chunks also spend more of the prompt budget per hit, so top three at 2000 characters is a
+different prompt from top three at 400.
+
+The only way to settle it is to measure on your own queries. Write down twenty questions people
+actually ask, note which document should answer each one, and check how often it comes back in
+the top three at different chunk sizes. That is a morning of work and it will tell you more
+than any blog post. It is also the same evaluation you will need later for everything else, so
+it is not throwaway effort.
+
+One practical asymmetry: it is easier to recover from chunks that are slightly too small than
+slightly too large. A small chunk can be expanded at retrieval time by pulling its neighbours
+from the document, since you know the index of each chunk. There is no equivalent trick for a
+chunk that is too big.
+
+## Metadata is what makes a citation possible
+
+A chunk that does not know where it came from can be retrieved and put in a prompt. It cannot
+be cited, and an answer you cannot trace is an answer nobody can check. So every chunk carries
+its source document, its position, and whatever headings sat above it.
+
+The headings do a second job. Chunk four of a pricing page might read, in full, "It costs $49
+per month." Embedded on its own it matches queries about $49 and nothing about pricing, because
+the words that would have matched are in a heading two hundred characters earlier. Prefixing
+the headings before you embed fixes that, and it is the cheapest retrieval improvement
+available:
+
+```python
+def with_context(self) -> str:
+    parts = [p for p in (self.metadata.get("title"), self.metadata.get("section")) if p]
+    if not parts:
+        return self.text
+    return f"{' > '.join(parts)}\n\n{self.text}"
+```
+
+Note that you embed the contextualised text and you display the raw text. Those are different
+strings for a reason: the prefix is there to help the vector match, not to be quoted back at a
+user as though the document said it.
+
+## Your exercise
+
+Write `split_fixed`, `split_recursive`, and `chunk_document`, plus the two methods on `Chunk`
+that turn a piece of text into something citable.
+
+The tests check the size limit, the greedy rejoin, that a chunk boundary does not land inside
+the price sentence when a blank line was available, and that no text is lost. They also check
+the fixed splitter against the same document to show you the boundary landing in the wrong
+place, which is the failure this whole lesson is about.
+
+Two things catch people. The first is passing the full separator list into the recursive call
+instead of the remaining one, which does not error, it hangs. The second is the overlap loop:
+once a window reaches the end of the text you have to stop, because every later start produces
+a suffix of a window you already emitted.

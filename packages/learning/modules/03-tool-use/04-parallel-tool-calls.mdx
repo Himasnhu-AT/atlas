@@ -1,0 +1,158 @@
+---
+id: stage-3.parallel-tool-calls
+title: When one turn asks for four tools
+summary: A single assistant message can carry several calls. You owe the model a result for every one of them, including the two that failed, and the batch has to stay in order while it runs out of order.
+order: 4
+estimatedMinutes: 40
+exercise:
+  id: parallel-dispatch
+  timeboxMinutes: 30
+---
+
+The loop you just wrote already handles this, if you wrote the inner loop over
+`choice.message.tool_calls` rather than reaching for `tool_calls[0]`. What it does not handle
+is what happens when one of those calls fails, or how long the turn takes when there are four
+of them and each is a network round trip.
+
+Both are the same question. A batch is not four calls, it is one unit of work with four parts
+that can each fail independently and finish in any order, and the conversation you hand back
+has to look identical whichever way that goes.
+
+## Models batch when the calls do not depend on each other
+
+Ask for the population of three cities and a capable model will request three lookups in one
+turn. Ask for the population of the largest city in a country and it will not, because it
+cannot fill in the second call's arguments until it has the first call's answer.
+
+That is the whole rule, and it is worth stating plainly because it is the one thing you cannot
+change by prompting. Independence is a property of the task. A model that batches dependent
+calls is guessing at the argument it does not have yet, which is worse than being slow.
+
+Providers expose a switch. On OpenAI, `parallel_tool_calls: false` forces one call per turn.
+Turning it off is occasionally right, usually when your tools have side effects and you want
+the model to see the result of one write before it decides on the next. It costs a round trip
+per call, so it is a real trade rather than a safety setting to leave on.
+
+## What a batch changes about the message list
+
+The protocol is the one from the previous lesson, and the only thing a batch changes is a
+count. Three calls in a turn still produce one assistant message, not three, and that message
+carries all three calls. Then three tool messages instead of one.
+
+```python
+{"role": "assistant", "content": None, "tool_calls": [
+    {"id": "call_a", "type": "function", "function": {"name": "lookup_population", ...}},
+    {"id": "call_b", "type": "function", "function": {"name": "lookup_population", ...}},
+    {"id": "call_c", "type": "function", "function": {"name": "lookup_timezone", ...}},
+]},
+{"role": "tool", "tool_call_id": "call_a", "content": '{"city": "Paris", ...}'},
+{"role": "tool", "tool_call_id": "call_b", "content": "error: LookupError: ..."},
+{"role": "tool", "tool_call_id": "call_c", "content": "Asia/Tokyo"},
+```
+
+That count is where the new failure lives. With one call per turn, answering the request and
+answering all of the requests are the same act, so a loop that forgets one is a loop that
+forgets everything and you find out immediately. With three, you can answer two and move on,
+and what you have then is a conversation the provider refuses for a reason that names a call
+id you have never looked at.
+
+Ordering inside the block is the question people ask next. Pairing is `tool_call_id`, so the
+order of the three tool messages relative to each other is not what makes the block valid. The
+format requires that they follow the assistant message that requested them and that all of
+them are present.
+
+Send them in request order anyway, and the reason is not the provider. It is that your own
+alternative is to append each result as it arrives, and completion order is the network's
+opinion: the same input produces a different message list on every run, your tests go flaky,
+and two transcripts of the same bug no longer diff against each other. Request order costs
+nothing and is stable by construction.
+
+## Two succeed, one raises, you still owe three results
+
+This is the real content of the lesson. Three calls go out. The first returns, the second
+raises `LookupError`, the third returns.
+
+The instinct from ordinary Python is to let the exception propagate and deal with it above.
+Here that instinct produces the worst available outcome: an assistant message requesting three
+calls, one or two tool messages, and a conversation the provider refuses. You lose the two
+results that worked along with the one that did not, and the model never learns which of the
+three was the problem.
+
+So the failure has to become a result. Catch per call, put the error text in that call's
+content, and mark it so your own code can tell the difference:
+
+```python
+try:
+    result = fn(**arguments)
+except Exception as error:
+    return ToolResult(call.id, name, f"error: {type(error).__name__}: {error}", ok=False)
+```
+
+The `ok` flag is not for the model, which only ever sees the content string. It is for your
+metrics, your logs, and the retry logic in the next lesson. Losing it means your only record
+of a failed tool call is a string that happens to start with the word error.
+
+Include the exception type as well as its message. `LookupError: no population on file for
+'Atlantis'` tells the model to try a different city. `ConnectionError: timed out` tells it to
+stop trying. The message alone loses that distinction, and the type alone tells it nothing
+actionable.
+
+## Running them at once without losing the order
+
+Tool calls are almost always waiting: an HTTP request, a database query, a file read. Three
+sequential calls at 400ms each is 1.2 seconds of a user watching nothing happen, for work that
+could have taken 400ms.
+
+Threads are the right tool for waiting, and `ThreadPoolExecutor` is enough:
+
+```python
+with ThreadPoolExecutor(max_workers=max_workers) as pool:
+    futures = [pool.submit(run_one, registry, call) for call in calls]
+    return [future.result() for future in futures]
+```
+
+Submit in request order, read the futures back in that same order. The results come out
+ordered by request no matter what order they completed in, because a future's position in the
+list was fixed when it was submitted.
+
+The tempting alternative is `as_completed`, which hands you each result the moment it lands.
+It is the right tool when you want to stream progress, and the wrong one here, because
+appending in completion order sorts your messages by latency. That produces a conversation
+that differs between runs of identical input, which makes every test you write flaky and every
+transcript diff useless.
+
+If your tools are genuinely CPU bound, threads buy you less and a process pool is the honest
+answer. That is rare in agent work. Almost everything a tool does is wait for something else.
+
+## When parallel is the wrong shape
+
+Two cases, and both are about dependency.
+
+The first is the obvious one: call two needs call one's answer. No amount of concurrency
+helps, and the model will not batch them anyway unless something in your schemas has misled it
+about what the tools return.
+
+The second is shared state. Two tools that write to the same record, or increment the same
+counter, are not independent just because the model believes they are, and running them at
+once turns a model's optimistic batching into a race in your own system. If a tool has side
+effects, either make it safe to run concurrently or keep the batch serialized for that tool
+specifically. The model has no idea what your database does, and it is not the model's job to
+know.
+
+## Your exercise
+
+Extend the loop to handle a whole batch. You write `run_one` to turn one call into a captured
+result, `dispatch_all` to run a turn's calls concurrently while preserving request order,
+`format_tool_messages` to pair results back to calls by id, and `run_agent` to put them
+together.
+
+The tests assert the exact message sequence for a three call turn, including the partial
+failure case where the middle call fails and its error has to land in the middle slot. One
+test uses two tools where the first waits on something only the second can do, so a
+`dispatch_all` that runs the calls one after another in request order sits for two seconds and
+then comes back with the wrong first result. It is the one test that takes a noticeable moment
+to fail, and the pause is the diagnosis.
+
+The part people get wrong is pairing by position. Zipping calls and results works perfectly
+until something reorders one of the two lists, and by then the symptom is a model confidently
+reasoning about the wrong tool's output.

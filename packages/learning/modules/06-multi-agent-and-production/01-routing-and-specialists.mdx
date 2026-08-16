@@ -1,0 +1,223 @@
+---
+id: stage-6.routing-and-specialists
+title: Routing and specialists
+summary: Split one agent into several when its prompt has stopped agreeing with itself, route by classifying, and decide in advance what happens to the requests the classifier cannot place.
+order: 1
+estimatedMinutes: 35
+exercise:
+  id: intent-router
+  timeboxMinutes: 40
+---
+
+You have one agent. Its system prompt is nine hundred words, and somewhere in the middle it
+says to confirm before issuing a refund and also to resolve billing questions in a single turn.
+It has nineteen tools. Nobody on the team can list them from memory, and neither, in effect,
+can the model.
+
+That is what a splittable agent looks like from the inside, and both symptoms are worth naming
+separately because they have different causes.
+
+## The prompt that stopped agreeing with itself
+
+Contradictory instructions do not arrive as contradictions. They arrive one incident at a time.
+Somebody adds a line because an agent refunded too eagerly, somebody else adds a line because
+it took four turns to answer a question about an invoice, and each line was correct on the day
+it was written. Read them together and the model has to pick one, which it does, differently on
+different requests.
+
+The tool list has the same shape. Every tool you add is an entry in a menu the model reads on
+every call, and the ones irrelevant to this request are not free: they are plausible wrong
+answers sitting next to the right one. The mechanism is discrimination, not counting. Twenty
+tools that do obviously different things are easier to pick from than six where three are
+`get_order`, `get_order_status` and `lookup_order`, because the model is choosing by matching
+the request against the descriptions, and three descriptions that overlap give it three near
+equal matches. So the number is the wrong thing to watch. Watch how separable the descriptions
+are, and measure the error rate on your own traffic, because where it starts to hurt moves with
+every model release.
+
+Splitting fixes both. Each specialist gets the instructions that apply to it and the handful of
+tools it needs, and neither has to be reconciled with anything else.
+
+Now the counter case, which is real. A second agent is a second thing that can be wrong, and a
+routing hop is a model call you pay for before any work happens. A router right 95 percent of
+the time in front of a specialist right 95 percent of the time is right about 90 percent of the
+time, assuming the two failures are independent, which is roughly true when the router fails on
+ambiguity and the specialist fails on hard cases. The failure it added is the worst kind: a
+request sent to the wrong specialist gets a confident answer from an agent that was never given
+what it needed to answer it.
+
+So splitting is a response to evidence. A prompt you cannot edit without breaking something
+else, or a tool selection error rate you have measured, is evidence. An architecture diagram is
+not.
+
+## Routing is classification
+
+Strip the vocabulary away and a router is a classifier with a dispatch table attached. One
+input, one label from a closed set, one handler per label.
+
+```python
+@dataclass(frozen=True)
+class Route:
+    name: str
+    description: str
+    handler: Callable[[Handoff], str]
+    keywords: tuple[str, ...] = ()
+```
+
+The description is the part people treat as documentation and it is not. When the classifier is
+a model, the descriptions are the entire specification it classifies against, for the same
+reason the tool list matters: the model is matching the request text against the description
+text. A route described as "billing" gives it one word and whatever that word already means to
+it. A route described as "invoices, refunds, card charges and plan changes" gives it four
+concrete surfaces to match "my card was charged twice" against. When the classifier is a rule,
+the description is what stops the next person from adding a route that overlaps an existing one.
+
+## Three ways to do it
+
+```
+rules            score keywords or patterns, pick the best
+label            one model call that returns a route name
+tool call        give the model the routes as tools and let it call one
+```
+
+| approach | cost | latency | accuracy | fails when |
+| --- | --- | --- | --- | --- |
+| rules | none | none | good on vocabulary you predicted | the user phrases it in a way you did not |
+| label | one small call | one round trip | good on ambiguous natural language | the label is unstable across near-identical inputs |
+| tool call | one call, larger prompt | one round trip | good, and the routing decision can carry arguments | the model calls two routes, or none |
+
+The third is the one frameworks push you toward. A tool per specialist means the routing
+decision and the first call are the same call, which saves a hop and lets the model pass
+structured arguments rather than forwarding text. It also means the model can decline to call
+anything, or call two, and your code has to handle both, which is why the shape of that version
+is a loop rather than a lookup.
+
+The instability in the second row is worth being precise about, because people assume
+temperature zero removes it. It does not, quite. Providers do not guarantee bit-identical
+output across calls even at temperature zero: inference runs batched, floating point addition
+is not associative, and which requests share your batch is not something you control. The
+practical effect is small and it concentrates exactly where you do not want it, on the inputs
+that were already borderline. A request the model would label billing at 0.55 is the request
+that comes back tech on the retry. This is one more reason the floor matters more than the
+label.
+
+In practice the useful arrangement is rules first and a model on whatever is left. The rules
+settle the requests that were never ambiguous, at no cost, and the model call is spent only
+where it might change the answer. Measure what fraction the rules cover before you decide the
+model pass is expensive.
+
+### What the round trip actually looks like
+
+Two messages out, one JSON object back. The catalogue goes in the system message, built from
+the route descriptions, and the request goes last and alone, because a request buried above a
+wall of instructions is a request the model reads as part of the instructions.
+
+```python
+messages = [
+    {"role": "system", "content": (
+        "Classify the user's request into exactly one route.\n"
+        "Routes:\n"
+        "billing: invoices, refunds, card charges and plan changes\n"
+        "tech: crashes, errors and anything that stopped working\n"
+        "general: anything that does not clearly belong elsewhere\n"
+        'Answer with JSON only: {"route": "<name>", "confidence": <0.0-1.0>}'
+    )},
+    {"role": "user", "content": "my card was charged twice after the app crashed"},
+]
+```
+
+That request is deliberately ambiguous, and here are four replies you will actually get back
+from it. Each one needs different code.
+
+```
+{"route": "billing", "confidence": 0.91}      usable
+{"route": "billing", "confidence": 0.55}      under a floor of 0.6
+{"route": "refunds", "confidence": 0.93}      a route you never offered
+Probably billing, though it mentions a crash.  not JSON at all
+```
+
+The second is the threshold case and the third is the one people forget. A model asked for a
+label from a set will sometimes produce a label that is not in the set, usually a plausible
+sibling of one that is, and it will be confident about it because confidence is about the
+classification and not about whether the name exists. Checking membership costs a set lookup
+and turns a `KeyError` in your dispatch table into a fallback.
+
+There is a fifth shape, and it is the one that catches people who tested against one prompt and
+shipped:
+
+````
+```json
+{"route": "billing", "confidence": 0.91}
+```
+````
+
+Correct JSON inside a fenced code block, from a prompt that said JSON only. It happens because
+fenced blocks around JSON are overwhelmingly what the training data looks like, and no amount
+of instruction reliably beats that. Retrying costs a call and often produces the fence again.
+Stripping the fence costs three lines:
+
+```python
+if stripped.startswith("```"):
+    stripped = stripped.split("\n", 1)[-1]
+    stripped = stripped.rsplit("```", 1)[0].strip()
+```
+
+Providers do offer structured output modes that constrain generation to a schema, and where one
+is available it is the better answer, because it removes the failure rather than repairing it.
+Which modes exist and what they are called differs per provider, and both this and the fence
+strip are worth having: the strip is what runs when you are pointed at a provider or a model
+that does not support the mode.
+
+## A router that cannot say it does not know
+
+Ask a model to pick one of four labels and it will pick one of four labels. There is no reply
+that means "this is not any of these", unless you put one there.
+
+This is the failure that hurts, because the requests a classifier cannot place are exactly the
+unusual ones, and an unusual request routed confidently to the wrong specialist produces a
+fluent wrong answer rather than an error anyone notices.
+
+Two things fix it, and you want both. Add a confidence to the reply and a floor it has to
+clear. Add a route that means "I could not place this" and give it a real handler.
+
+Confidence needs a caveat. A number a model reports about its own answer is not a calibrated
+probability, and 0.8 from a model does not mean it is right four times in five. What it is
+reasonably good at is ordering: the requests it labels 0.9 are, in aggregate, cleaner than the
+ones it labels 0.5. That makes it usable as a threshold you tune against your own traffic, and
+not as a number you can reason about.
+
+The fallback route matters more than the threshold. A fallback that returns an error teaches
+users the product does not work. A fallback to a generalist that answers what it can and hands
+over what it cannot is a route. And the decision records why it fell back, because
+"fell back 40 percent of the time" is a mood, while "fell back on low confidence, average 0.41,
+against a floor of 0.6" tells you to move the floor.
+
+## What the specialist has to be given
+
+The router's last job is the handoff, and the common bug is passing only the message that was
+classified.
+
+```python
+handoff = Handoff(request=request, history=tuple(history), reason=decision.reason)
+```
+
+A customer types "I have two invoices open", the agent asks which one, the customer types
+"refund the second one". That last message is what gets routed, and a billing specialist
+handed only that string cannot resolve "the second one" and will either ask again or guess.
+Carry the earlier turns. Carry the original request too when a previous hop rewrote it, because
+the specialist needs to know what was asked and not only what the last component decided to say
+about it.
+
+## Your exercise
+
+Build the router. `normalise` and `parse_label` first, then `rule_route`, then `model_route`,
+then the `Router` that puts rules in front of the model and a fallback behind both.
+
+The tests check the three ways a model classification is not to be trusted, which are a label
+you never offered, a confidence under the floor, and a reply that is not JSON at all. They also
+check that a rule decision costs zero model calls, and that the handler receives the history it
+was given.
+
+The one that catches people is the tie. When two routes match the same number of keywords, the
+rule pass returns None rather than taking the first one, because breaking the tie on list order
+turns an ambiguity into a confident mistake and hides it behind a plausible answer.

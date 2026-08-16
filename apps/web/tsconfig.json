@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node", "react", "react-dom"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "allowJs": true,
+    "incremental": true,
+    "paths": {
+      "@/*": ["./*"],
+      "@learn/core": ["../../packages/core/src/index.ts"],
+      "@learn/ui": ["../../packages/ui/src/index.ts"],
+      "@learn/learning": ["../../packages/learning/src/index.ts"],
+      "@learn/learning/manifest": ["../../packages/learning/dist/manifest.json"]
+    },
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -1,0 +1,186 @@
+---
+id: stage-1.what-a-model-does
+title: What a model does
+summary: A model scores every token in its vocabulary and something else picks one. The confident wrong answers, the missing memory and the cost of an agent loop all fall out of that single fact.
+order: 1
+estimatedMinutes: 25
+---
+
+A language model takes a sequence of tokens and produces a score for every token in its
+vocabulary. Something downstream picks one of those tokens, appends it to the sequence, and
+runs the model again. That is the whole mechanism.
+
+Everything the rest of this course builds, the prompts, the tool loops, the retrieval, the
+state graphs, is scaffolding around that one operation. Most of the behaviour people find
+surprising later stops being surprising once you know exactly what the machine computes, so it
+is worth being precise about it now.
+
+## One forward pass, one distribution
+
+Hand the model a sequence of tokens. It runs one forward pass and returns a vector of raw
+scores called logits, one per vocabulary entry. Vocabularies for current models run to roughly
+a hundred thousand entries, so that vector is long. A softmax turns the scores into a
+probability distribution that sums to one, and a sampler picks a single token from it.
+
+```python
+logits = model(tokens)       # one float per vocabulary entry
+probs = softmax(logits)      # sums to 1.0
+next_token = pick(probs)     # not the model's job
+```
+
+Notice where the boundary sits. The model produces a distribution. It does not choose. The
+choosing is a separate step with its own settings, and lesson three is about writing it
+yourself.
+
+The distribution is over what plausibly comes next in text like the text it was trained on,
+then shaped further by post-training so that helpful, instruction-following continuations score
+higher than unhelpful ones. It is not a distribution over true statements. Nothing in the
+architecture has a slot for truth.
+
+## Autoregression, and the output becoming the input
+
+To produce a sentence, the model runs once per token. Sample a token, append it to the
+sequence, run again on the longer sequence, sample again. Stop when a stop token comes up or
+you hit the output limit.
+
+```python
+tokens = tokenize(prompt)
+for _ in range(max_new_tokens):
+    token = pick(softmax(model(tokens)))
+    if token == STOP:
+        break
+    tokens.append(token)
+```
+
+Two things follow, and both show up in what you observe from the outside.
+
+The first is that your prompt and the response are processed differently. Every token of the
+prompt is already known, so they go through the model together in one pass. Every token of the
+response has to exist before the next one can be computed, so they go through one at a time.
+That is the whole reason a response arrives as a pause followed by a steady drip: the pause is
+the prompt being read, and it scales with prompt length, while the drip rate is roughly
+constant.
+
+The second is that the model conditions on its own previous output with no marker separating
+what you wrote from what it wrote. A wrong token early in a response is context for every token
+after it, and the model will build a coherent argument on top of it, because a coherent
+continuation of a wrong premise is exactly what it was trained to produce.
+
+Running the model again on a sequence one token longer sounds like it should redo all the work,
+and it does not. Under causal attention each token's contribution depends only on itself and the
+tokens before it, so those values never change once computed. Serving stacks keep them in what
+is called the KV cache, and each new pass computes one token's share and attends to the stored
+rest. The sequence really does grow by one every time. Only the arithmetic is reused, and the
+same idea reappears in the next lesson as a discount on resent prompts.
+
+## Confident and wrong
+
+A model that produces a fluent citation to a paper that does not exist is not lying, and
+calling it lying will send you looking for the wrong fix.
+
+The probability the model assigns to a token measures how well that token fits the patterns in
+its training data, given everything before it. That is fluency, not truth, and two properties of
+the mechanism turn that gap into a fabrication that looks like an answer.
+
+Softmax normalises. Whatever the logits are, dividing by their total forces the probabilities to
+sum to 1. There is no leftover mass and no bucket labelled "nothing here fits", so the model
+cannot decline to produce a distribution. It can only produce a distribution whose shape you
+have no direct way to read.
+
+And the unit of prediction is the next token, which is mostly determined by the form of what
+came before rather than by whether the content is grounded. Once
+`Smith et al. (` is on the page, a four digit year starting with 19 or 20 is overwhelmingly the
+best continuation, and the model will be genuinely, correctly confident about that, because it
+is a fact about citation formatting and not a fact about any paper. The sharpness you see is
+sharpness about form. Nothing in the forward pass ever asked whether the paper exists.
+
+This is why "just tell it not to make things up" underperforms. Instructions shift the
+distribution and they cannot install a fact the weights do not carry. The fixes that work are
+structural. Put the real text in the context so the right answer is the one that fits best,
+which is retrieval. Give the model a tool that can look up the answer. Or check the output
+against something you control, which for a citation is as cheap as a regular expression over
+ids you actually sent.
+
+## Training and inference are different things
+
+Training adjusts weights. Inference does not. When you send a request, the weights are frozen
+and the entire influence you have over the answer is the token sequence you send.
+
+That distinction explains a confusion worth working all the way through, because it is the
+difference between two things that look identical from the outside.
+
+Correct a model and it apologises and does better. Here is the correction landing, written out
+as the three calls it actually is:
+
+```python
+# Call 1. Wrong answer.
+messages = [{"role": "user", "content": "Who wrote Dune?"}]
+reply = ask(messages)                     # "Isaac Asimov."
+
+# Call 2. Same session, so the correction is in the array.
+messages += [
+    {"role": "assistant", "content": reply},
+    {"role": "user", "content": "No, Frank Herbert. Who wrote Dune?"},
+]
+ask(messages)                             # "Frank Herbert." Looks like learning.
+
+# Call 3. New session. Nothing carried over but the weights, which never moved.
+ask([{"role": "user", "content": "Who wrote Dune?"}])   # "Isaac Asimov." again.
+```
+
+Call two got the right answer for the same reason call one got the wrong one: it is the best
+continuation of the tokens it was given, and this time those tokens contained the answer. Call
+three proves where the improvement lived. Nothing about the model changed between call two and
+call three. What changed is that you stopped sending the array.
+
+| | Where it lives | Persists across calls |
+| --- | --- | --- |
+| Training and fine tuning | The weights | Yes |
+| Everything in your request | The token sequence | No |
+
+So "the model remembers" is always something you built, and the only lever you have at
+inference is which tokens go in the array. Every technique in the rest of this course, few shot
+examples, retrieved documents, tool results, summarised history, is a different answer to that
+one question.
+
+## What reasoning models changed
+
+A reasoning model is trained to spend output tokens working before it commits to an answer.
+Given a hard problem it will generate a long stretch of intermediate tokens, considering
+approaches and checking itself, and only then produce the response you asked for. On problems
+with verifiable answers, mathematics and code most clearly, this works well enough that it is
+now a standard product tier rather than a prompting trick.
+
+The mechanism did not change. Those intermediate tokens are sampled from a distribution one at
+a time, exactly like every other token. What changed is the training: rather than rewarding
+text that looks like good reasoning, these models are trained with reinforcement learning
+against whether the final answer checks out, which leaves the model free to find whatever
+intermediate tokens actually lead somewhere correct.
+
+Why that helps is the autoregression from two sections ago. Everything the model emits becomes
+input to the next forward pass, so a model that writes out a wrong intermediate result can
+condition on having seen it and go a different way. A model answering immediately has one
+forward pass per output token and no opportunity to use its own work, because there is no own
+work yet. Extra tokens are extra passes, and extra passes are where the correction happens.
+
+For you that is mostly a budgeting fact. Reasoning tokens are output tokens: they consume the
+output limit, they take wall clock time, and providers generally bill them. Providers differ in
+whether you get to see them, with some returning the full trace, some a summary, and some
+nothing at all. So a reasoning model is slower and more expensive per call, and worth it
+exactly when the task has a right answer that extra work can find. It does nothing for a task
+whose difficulty is that the model does not know the fact.
+
+## The consequence that matters here
+
+The model has no memory between calls. Not a small memory, none. Each request is a fresh
+sequence, scored by frozen weights, and when it returns the model retains nothing.
+
+So a conversation is a list you own and resend in full on every turn. Turn ten sends turns one
+through nine again. An agent loop that calls a tool eight times sends the whole growing
+transcript eight times. Some APIs will store the transcript for you and let you reference it by
+id, and providers cache repeated prefixes so you are not charged full price for the resend, but
+neither changes the shape: the model sees the whole sequence every time, and the sequence grows.
+
+That is the constraint the next lesson measures. Once you can count what a turn costs, the
+reason agent loops get expensive faster than people expect stops being a mystery and becomes
+arithmetic.

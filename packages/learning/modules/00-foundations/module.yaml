@@ -1,0 +1,11 @@
+id: stage-0
+slug: foundations
+name: Foundations
+summary: "How the course works and what it is pointing at, what the toolchain is and how an exercise is graded, and the completion object every later module reaches into: choices, finish_reason, tool calls and usage."
+version: 2.0.0
+track: base
+order: 0
+isActive: true
+prerequisites: []
+difficulty: beginner
+estimatedHours: 1.5

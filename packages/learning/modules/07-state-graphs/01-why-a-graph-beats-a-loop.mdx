@@ -1,0 +1,144 @@
+---
+id: fw-1.why-a-graph-beats-a-loop
+title: Why a graph beats a loop
+summary: Where the graph runtime sits underneath the higher level harnesses, what branching and durability buy, and when the graph is just ceremony around a while loop.
+order: 1
+estimatedMinutes: 25
+---
+
+Stage 4 said LangGraph models an agent as a state graph and left it there. This module opens
+the box. By the end of it you will have written a graph runtime: channels with reducers, a
+scheduler that runs nodes in super-steps, and a checkpointer that makes resume, replay and
+forking fall out of one record.
+
+Not a toy version of a different idea. The same mechanism, with the same names, small enough
+to hold in your head.
+
+## Where the graph sits
+
+Every agent framework worth reading has two layers, and people conflate them constantly.
+
+The top layer is the harness: prebuilt ReAct agents, role based crews, handoffs between
+specialists. It is what the quickstart shows you and it is genuinely the fastest way to get
+something running. It is also the layer that stops fitting first, because it has opinions
+about your problem.
+
+The bottom layer is the runtime: how state is stored, how it is merged when two things write
+to it at once, what runs next, and what is persisted so the whole thing survives the process
+dying. LangGraph's prebuilt `create_react_agent` is a thin wrapper over a runtime that is doing
+all the work. CrewAI's crews and the OpenAI Agents SDK's handoffs are the same shape: a harness
+over a scheduler.
+
+The runtime is the part you cannot avoid understanding, because it is the part that produces
+the confusing behaviour. A node that ran twice, a value that got overwritten instead of
+appended, a resumed run that replayed a paid API call: those are all runtime questions, and
+none of them make sense until you know what a channel and a version are.
+
+## What a while loop cannot express
+
+The ReAct loop you wrote in stage 3 is a good agent. It has one shape:
+
+```python
+while not done:
+    choice = call_model(messages).choices[0]
+    if choice.finish_reason != "tool_calls":
+        return choice.message.content
+    messages += run_tools(choice)
+```
+
+State is one growing list. Control flow is one cycle. That covers a surprising amount, and
+when it covers your problem you should stop reading and use it.
+
+Here is what it does not cover. Two research branches running against the same question and
+merging their findings, where "merging" means something specific and you have to say what.
+A run that pauses for a human to approve a refund and comes back three days later, in a
+different process. An agent that has looped seventeen times where you need to know what it
+believed at loop nine. A crash on the fourth of five expensive steps, where restarting from
+scratch costs real money.
+
+You can bolt each of these onto the while loop. People do. The result is a loop with a
+mutable dict of intermediate state, a hand rolled dispatch table, and a save function that
+gets called in most of the right places. That is a graph runtime, built by accident, missing
+the parts that only matter under load.
+
+## The runtime in one paragraph
+
+State lives in named channels rather than in a list. Each channel has a reducer that decides
+how a write combines with what is there, and a version number that goes up on every write.
+Each node declares which channels it subscribes to. The scheduler repeatedly finds every node
+whose subscriptions have moved since that node last read them, runs all of them against one
+snapshot of the state, and merges their writes only after every one of them has returned.
+That unit is a super-step. After each super-step, the whole state goes into a checkpoint.
+
+Three lessons, one per idea. The channels are next, the scheduler after that, the checkpointer
+last.
+
+## What this looks like in the real thing
+
+Illustration only. LangGraph is not installed here and you cannot run this, but you will
+recognise every line of it by the end of the module.
+
+```python
+from typing import Annotated, TypedDict
+import operator
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.checkpoint.memory import InMemorySaver
+
+
+class State(TypedDict):
+    # The annotation IS the reducer. Without it, a write to findings overwrites.
+    findings: Annotated[list[str], operator.add]
+    question: str
+    verdict: str
+
+
+builder = StateGraph(State)
+builder.add_node("search", search)
+builder.add_node("critique", critique)
+builder.add_edge(START, "search")
+builder.add_conditional_edges("critique", route)   # returns "search" or END
+
+graph = builder.compile(checkpointer=InMemorySaver())
+graph.invoke(
+    {"question": "did the deploy break checkout?"},
+    config={"configurable": {"thread_id": "incident-4181"}},
+)
+```
+
+The `Annotated` on `findings` is a channel with a reducer. The `thread_id` is which
+conversation this run belongs to, and the checkpointer is what makes that thread resumable.
+Both of those are things you are about to build.
+
+## When the graph is ceremony
+
+A graph is more machinery than a loop, and machinery has a cost. State that could be three
+local variables is now three channel declarations. A stack trace goes through a scheduler.
+The thing you wrote in twenty lines takes forty.
+
+Stay with the loop when the agent is one model call, some tools, and an answer. Stay with it
+when the whole run finishes in ten seconds and losing one costs nothing. Stay with it when
+there is exactly one path through the work, because an edge from a to b to c is a graph
+drawing of a function that calls three functions.
+
+Reach for the runtime when the answer to "what happens if this dies halfway" is not "run it
+again", when two things genuinely run at once and their results have to combine, or when
+somebody is going to ask what the agent believed four steps ago and you need to be able to
+show them.
+
+The honest middle case is the common one: you are not sure yet. Building the runtime once,
+here, is the cheapest way to find out, because afterwards the question stops being an
+architecture debate and becomes a small technical judgement about state and durability.
+
+## What you are building
+
+Three exercises that stack into one runtime.
+
+The channel layer: reducers, versions, and the eligibility rule that decides who runs next.
+The scheduler: super-steps, fan out, fan in, conditional edges, and a step budget. The
+checkpointer: one record written per super-step, and the resume, replay and fork that come
+free with it.
+
+By the end you will have around three hundred lines that behave like the thing LangGraph
+behaves like. That is not a claim that you should ship yours. It is a claim that you will read
+theirs and know what you are looking at.

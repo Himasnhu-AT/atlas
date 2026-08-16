@@ -1,0 +1,189 @@
+---
+id: stage-3.tool-schemas
+title: Describing tools so the model picks the right one
+summary: The schema is a prompt. The model sees a name, a description and your parameter descriptions, and nothing else, so most wrong-tool bugs are writing bugs.
+order: 2
+estimatedMinutes: 35
+exercise:
+  id: tool-schemas
+  timeboxMinutes: 40
+---
+
+The model never sees your function. It sees a name, a sentence, and a list of parameters with
+their own sentences. Everything it decides about when to call your code and what to put in the
+arguments comes out of that, and out of the conversation it is in.
+
+So a tool schema is not configuration. It is a prompt with a rigid shape, and it should be
+written with the same care as a system prompt, by someone who has read what the model does
+wrong.
+
+## Two things that must not be confused
+
+There is the schema, which the model reads and never runs. There is the function, which runs
+and which the model never reads. They are connected only by a name and a dispatch table you
+control.
+
+```python
+{
+  "type": "function",
+  "function": {
+    "name": "lookup_order",
+    "description": "Look up one order by its id.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "order_id": {"type": "string", "description": "The order id, like ORD-4821."},
+      },
+      "required": ["order_id"],
+      "additionalProperties": False,
+    },
+  },
+}
+```
+
+This shape is the OpenAI chat completions form, which most providers now mirror and which
+`mockllm` follows. Anthropic's Messages API uses the same JSON Schema under a slightly
+different envelope, with `input_schema` instead of a nested `parameters`. The interesting part,
+the schema itself, is the same in both.
+
+Keeping the two apart buys you things. The schema can describe a narrower contract than the
+function accepts, so the model is never offered an argument you support but do not want it
+using. More importantly, the arguments the model produces are untrusted input arriving as a
+JSON string, so something has to check them against the schema before your function runs. That
+checking is your code, not the provider's.
+
+## The subset that survives
+
+JSON Schema is a large specification. The part you can rely on for tool calls is small:
+`type`, `properties`, `required`, `enum`, `description`, `items` for arrays, and nesting
+objects inside objects.
+
+Everything else is a gamble that varies by provider. Keywords like `minimum`, `maxLength`,
+`pattern` and `format` are sometimes accepted and passed to the model as part of the prompt,
+sometimes accepted and ignored, and sometimes rejected outright when a provider is validating
+your schema strictly. None of those outcomes is validation. Even where a constraint reaches
+the model, it is a hint that a sampled token sequence tends to respect, not a guarantee your
+runtime enforces.
+
+The reliable version of that rule is to express what you can in the supported subset, write
+the rest in the description, and validate everything yourself on the way in. A `pattern` that
+the provider silently drops is worse than no pattern at all, because you believed it.
+
+One provider detail is worth knowing rather than guessing. OpenAI's strict function calling
+mode requires `additionalProperties: false` and requires every property to appear in
+`required`, so an optional argument is expressed as a union with `null` rather than by being
+left out. That null union is the one union the mode both requires and supports, which is why it
+is the exception to the paragraph above rather than a contradiction of it.
+
+In exchange, constrained decoding makes a malformed argument object something the sampler
+cannot produce, rather than something it is merely unlikely to. That is a guarantee about
+generation, not about every response you receive: a reply cut off by the output limit is still
+incomplete JSON, and it arrives with a `finish_reason` of `length` rather than as a parse error
+you can catch. Lesson 3 gives that case its own branch for exactly this reason. The rules here
+move, so check the current documentation for your provider rather than trusting this paragraph
+in a year.
+
+## Write the description for the model, not the changelog
+
+Here is a schema that looks fine and generates wrong calls all day.
+
+```python
+{"name": "search", "description": "Search.",
+ "parameters": {"type": "object",
+                "properties": {"q": {"type": "string", "description": "Query"},
+                               "n": {"type": "integer", "description": "Number"}},
+                "required": ["q"]}}
+```
+
+Nothing here tells the model what is being searched, so it gets called for questions about the
+weather. Nothing says what `n` counts, so the model puts the page number in it. `q` gives no
+hint about form, so the model sends a whole sentence to something that wants keywords.
+
+The same tool, written for its reader:
+
+```python
+{"name": "search_help_articles",
+ "description": "Search the customer help centre for articles about billing, shipping and "
+                "returns. Use this before answering any question about company policy. It "
+                "does not know about a specific customer's orders.",
+ "parameters": {"type": "object",
+                "properties": {
+                    "query": {"type": "string",
+                              "description": "Two to six keywords, not a sentence. "
+                                             "For example: refund window international."},
+                    "limit": {"type": "integer",
+                              "description": "How many articles to return, 1 to 10. "
+                                             "Default 3."}},
+                "required": ["query"]}}
+```
+
+Three things changed. The name says what is searched. The description says when to reach for
+it and, just as usefully, when not to: naming what a tool does not cover is the cheapest way
+to stop it being called for the wrong job. The parameter descriptions give a form and an
+example, which is what turns "Query" into something the model can fill correctly on the first
+try.
+
+Parameter names are part of the prompt too. `q` and `n` carry no meaning; `query` and `limit`
+do, and the model has seen a million lines of code using them that way.
+
+## Required, optional, and the vaguest sentence in your codebase
+
+A required parameter is one the model must produce. An optional one is a choice it has to
+make, and every choice is a chance to make it badly.
+
+An optional parameter with a vague description is the single most common cause of a malformed
+call. The model reads "Filters" or "Options" and, having no idea whether it should be filling
+this in, either invents a plausible value or omits something it needed. If a parameter is
+optional, its description should say what happens when it is omitted, because the default is a
+fact the model cannot see.
+
+Enums are the cheapest constraint available and they are underused. Any parameter whose value
+comes from a fixed set should be an enum, and then it is not a writing problem at all:
+
+```python
+"status": {"type": "string",
+           "enum": ["pending", "shipped", "delivered", "cancelled"],
+           "description": "Order status to filter by. Omit for all statuses."}
+```
+
+A free text `status` invites `"in transit"`, `"Shipped"`, and `"on its way"`, and now you are
+normalizing values a model imagined. Under constrained decoding an enum is enforced during
+sampling rather than merely requested, and even without it the failure rate drops.
+
+## How many tools before it degrades
+
+There is no fixed number, and anyone quoting one is quoting their own workload. What is
+consistent is the order in which things go wrong as the list grows.
+
+Selection accuracy degrades first, and it degrades between similar tools rather than across
+the whole set. Twenty tools that do obviously different things behave better than six where
+three of them search something. The first fix is almost never fewer tools; it is descriptions
+that say what each one is not for.
+
+Cost degrades next and quietly. Every schema goes out on every model call in the loop, so a
+large tool list is a tax on each of ten steps, not a one-off.
+
+The last thing to go is instruction following in the rest of the prompt, as the tool block
+crowds out everything else in the model's attention.
+
+When a set of tools gets big, the move that helps most is filtering the list per turn rather
+than trimming it globally: pass the tools relevant to what is happening, and keep the rest out
+of that request. Routing between smaller specialists is the same idea one level up, and
+module 6 builds it.
+
+## Your exercise
+
+You build the schema layer end to end: `split_docstring` to pull descriptions out of an `Args:`
+block, `build_schema` to turn a function into a schema, `build_registry` to index a list of
+functions by name, `validate_arguments` to check a call against its schema, and `dispatch` to
+compose them into the boundary the model's proposals have to cross.
+
+The tests check that parameter descriptions actually reach the schema, that an enum for a
+parameter that does not exist fails loudly rather than vanishing, and that validation happens
+before your function is reached.
+
+Two things catch people. The file starts with `from __future__ import annotations`, so every
+annotation is a string and a naive type lookup silently makes everything a string; the
+docstring tells you the fix. And `isinstance(True, int)` is `True` in Python, so an integer
+check written the obvious way accepts `true` from the model and hands your function a bool
+where it wanted a count.
