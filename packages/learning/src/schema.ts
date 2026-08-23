@@ -79,6 +79,17 @@ export const ExerciseSpec = z.object({
    * useful; grinding is not.
    */
   timeboxMinutes: z.number().int().positive().max(240).default(20),
+  /**
+   * Whether this can be graded in a browser, and why not when it cannot.
+   *
+   * Not authored. The build derives it from the exercise's own imports and
+   * writes it into the manifest, so a lesson page knows before it loads a
+   * WebAssembly runtime whether there is any point. See `src/browser.ts` for
+   * what is unsupported and how that was measured.
+   */
+  browser: z
+    .object({ runnable: z.boolean(), reason: z.string().optional() })
+    .optional(),
 })
 export type ExerciseSpec = z.infer<typeof ExerciseSpec>
 

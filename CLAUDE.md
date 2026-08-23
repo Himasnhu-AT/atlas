@@ -44,6 +44,14 @@ deliberate, confirmed, recorded action. This is pedagogy, not decoration.
 **Every exercise runs against `mockllm`, and the platform has no AI in it.** No tutor, no
 generated hints, no model calls at runtime. Exercises need no API key and no network.
 
+**Exercises grade in two places and must mean the same thing in both.** The desktop runs a
+real interpreter; the web runs CPython on WebAssembly in a worker. Both post to
+`/api/attempts`, which decides what the attempt was worth, so nothing about the runner may
+affect the reward. Whether an exercise can run in a browser is derived by the content build
+from its own imports, never authored, and `packages/learning/src/browser.ts` records what is
+unsupported and how that was measured. Do not make it a runtime attempt: `parallel-dispatch`
+does not error under the browser runtime, it silently fails 15 of its 24 tests.
+
 **Tailwind v4 only.** `@import "tailwindcss"` plus `@theme` in `packages/ui/src/styles.css`.
 There is no `tailwind.config.js` and there never should be.
 
@@ -125,6 +133,7 @@ thing rather than announcing it. State tradeoffs plainly instead of selling.
 pnpm content        # validate the courses
 pnpm typecheck      # TypeScript, every package
 pnpm test:core      # the game engine, which is pure and worth over-testing
+pnpm test:content   # the content package's own units
 pnpm test:rust      # Rust suite
 pnpm lint:rust      # clippy, warnings as errors
 ```

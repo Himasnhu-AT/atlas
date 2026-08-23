@@ -25,14 +25,14 @@ why there are two courses and not twelve.
 
 Two places it diverges, recorded here rather than quietly forgotten.
 
-**"In browser and locally" is only locally.** Nothing executes code in the
-browser. A reader on the web gets the lesson, the scaffold, and a button that
-says open this in the desktop app, so trying a single exercise costs a download.
-That is a deliberate consequence of D3 and D11, which bought offline determinism
-and no API keys, and it is also the top of the funnel. The two are not actually
-in conflict: CPython compiled to WebAssembly runs the same `unittest` against the
-same `mockllm` with no server and no key, so the decision that produced this is
-worth revisiting on its merits rather than treated as settled.
+**"In browser and locally" was only locally, and now is both.** For most of the
+build a reader on the web got the lesson, the scaffold, and a button saying open
+this in the desktop app, so trying one exercise cost an install. CPython on
+WebAssembly closed it without touching D3 or D11: same interpreter, same
+`unittest`, same course library, no server and no key. 54 of the 55 exercises
+grade in a browser. The one that does not imports `threading`, and the browser
+never offers to run it, because it does not error there, it silently fails 15 of
+its 24 tests.
 
 **"One underserved developer domain" became two, led by a well-served one.** The
 card named platform engineering, Rust and data engineering. Data engineering

@@ -42,6 +42,7 @@ import { unified } from 'unified'
 import matter from 'gray-matter'
 import { parse as parseYaml } from 'yaml'
 
+import { browserSupportFor } from '../src/browser'
 import { CONTENT_TOKENS } from '../src/links'
 import {
   type CourseEntry,
@@ -480,6 +481,11 @@ async function buildModule(
             if (name === '__pycache__') continue
             exerciseFiles[name] = await readFile(path.join(exerciseDir, name), 'utf8')
           }
+
+          // Derived, never authored, so it cannot drift from what the exercise
+          // actually imports. A lesson page reads this before deciding whether
+          // to load a WebAssembly runtime at all.
+          spec.browser = browserSupportFor(exerciseFiles)
         }
       }
     }

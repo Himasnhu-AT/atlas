@@ -105,6 +105,7 @@ export default async function LessonPage({ params }: { params: Params }) {
                 exerciseId={lesson.exercise.id}
                 timeboxMinutes={lesson.exercise.timeboxMinutes}
                 files={compiled.exerciseFiles}
+                browser={lesson.exercise.browser}
               />
             )}
 
