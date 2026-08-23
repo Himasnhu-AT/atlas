@@ -12,13 +12,13 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { cookies } from 'next/headers'
 
-import type { User } from '@learn/core'
+import type { User } from '@atlas/core'
 
 import { store, userId as deriveUserId, type StoredUser } from './store'
 
 const scrypt = promisify(scryptCallback)
 
-const COOKIE = 'learn_session'
+const COOKIE = 'atlas_session'
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 /**

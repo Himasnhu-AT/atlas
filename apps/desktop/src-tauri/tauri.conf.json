@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Learn AI Practice",
-  "mainBinaryName": "Learn AI Practice",
+  "productName": "Atlas Practice",
+  "mainBinaryName": "Atlas Practice",
   "version": "0.1.0",
-  "identifier": "dev.learnai.practice",
+  "identifier": "dev.atlas.practice",
   "build": {
     "beforeDevCommand": "pnpm dev:web",
     "beforeBuildCommand": "pnpm build",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Learn AI Practice",
+        "title": "Atlas Practice",
         "width": 1400,
         "height": 900,
         "minWidth": 900,
@@ -62,7 +62,7 @@
     "category": "Education",
     "shortDescription": "Learn to build agentic AI systems",
     "longDescription": "An offline-first course platform for building agentic AI systems, with an embedded terminal and a sandboxed practice workspace.",
-    "copyright": "Learn AI Practice",
+    "copyright": "Atlas Practice",
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

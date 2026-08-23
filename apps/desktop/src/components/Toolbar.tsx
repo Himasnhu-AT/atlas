@@ -6,7 +6,7 @@ import {
   Play,
   RotateCcw,
 } from 'lucide-react'
-import { Button, cn } from '@learn/ui'
+import { Button, cn } from '@atlas/ui'
 
 export interface ToolbarProps {
   /** Disabled with `runDisabledReason` shown as the tooltip when false. */

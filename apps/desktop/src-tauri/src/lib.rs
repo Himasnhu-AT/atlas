@@ -1,4 +1,4 @@
-//! Rust backend for the Learn AI Practice desktop shell.
+//! Rust backend for the Atlas Practice desktop shell.
 //!
 //! Two capabilities are exposed to the frontend, and nothing else:
 //!
@@ -101,7 +101,7 @@ pub fn run() {
             run_exercise,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running the Learn AI Practice desktop app");
+        .expect("error while running the Atlas Practice desktop app");
 }
 
 #[cfg(test)]

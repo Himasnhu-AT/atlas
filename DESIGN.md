@@ -1,6 +1,6 @@
 # Design
 
-The visual system for Learn AI. It exists so a page nobody has built yet already looks
+The visual system for Atlas. It exists so a page nobody has built yet already looks
 like it belongs.
 
 **The one rule: this is a workbook, not a dashboard.** Paper, ink, hairline rules where a
@@ -213,7 +213,7 @@ token, and this product has one theme.
 ## Adding a page
 
 1. `apps/web/app/<name>/page.tsx`, exporting `metadata` with a title and description. The
-   title template appends the product name, so pass `"Curriculum"`, not `"Curriculum · Learn AI"`.
+   title template appends the product name, so pass `"Curriculum"`, not `"Curriculum · Atlas"`.
 2. Open with `<main id="main" className="pt-20 pb-28 sm:pt-24">` and a `Wrap`.
 3. Build the page from the components above. If it needs a shape that does not exist,
    add it to `layout.tsx` and document it here in the same commit, so the next page

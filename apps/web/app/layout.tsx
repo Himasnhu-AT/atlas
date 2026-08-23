@@ -5,11 +5,11 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: {
-    default: 'Learn to build AI agents',
-    template: '%s · Learn AI',
+    default: 'Atlas',
+    template: '%s · Atlas',
   },
   description:
-    'A workbook for agent engineering. Write the loop, run the tests, no API key required.',
+    'A workbook for engineers. Read the lesson, write the code, run the tests. No API key required.',
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -1,8 +1,8 @@
 [package]
-name = "learn-desktop"
+name = "atlas-desktop"
 version = "0.1.0"
-description = "Tauri v2 desktop shell for the Learn AI Practice course platform"
-authors = ["Learn AI Practice"]
+description = "Tauri v2 desktop shell for the Atlas Practice course platform"
+authors = ["Atlas Practice"]
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"
@@ -15,7 +15,7 @@ publish = false
 [lib]
 # `_lib` suffix keeps the library from colliding with the binary target on
 # Windows, and is what tauri's mobile entry point expects.
-name = "learn_desktop_lib"
+name = "atlas_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

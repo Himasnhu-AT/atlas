@@ -1,5 +1,5 @@
 import { CircleAlert, CircleCheck, Cloud, FolderOpen, HardDrive, Loader2 } from 'lucide-react'
-import { cn } from '@learn/ui'
+import { cn } from '@atlas/ui'
 
 export type StatusTone = 'info' | 'success' | 'error' | 'busy'
 

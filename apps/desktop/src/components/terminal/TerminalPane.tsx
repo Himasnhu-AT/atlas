@@ -2,8 +2,8 @@ import { useEffect, useImperativeHandle, useRef, type Ref } from 'react'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { isDesktop } from '@learn/core'
-import { cn } from '@learn/ui'
+import { isDesktop } from '@atlas/core'
+import { cn } from '@atlas/ui'
 import {
   onPtyExit,
   onPtyOutput,
@@ -153,7 +153,7 @@ export function TerminalPane({
       drawBoldTextInBrightColors: true,
       // A literal stack (not `var(--font-mono)`): xterm measures cell size with
       // this string, and a CSS variable does not resolve in that measurement.
-      // Kept in step with the `--font-mono` token in @learn/ui.
+      // Kept in step with the `--font-mono` token in @atlas/ui.
       fontFamily:
         '"JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
@@ -246,7 +246,7 @@ export function TerminalPane({
       // Browser preview (`pnpm dev:web`): no Tauri, so no pty. Say so instead of
       // failing invisibly, and never touch `invoke`.
       term.writeln('\x1b[33mThe embedded terminal only runs in the desktop app.\x1b[0m')
-      term.writeln('Start it with \x1b[1mpnpm --filter @learn/desktop dev\x1b[0m.')
+      term.writeln('Start it with \x1b[1mpnpm --filter @atlas/desktop dev\x1b[0m.')
     } else {
       void (async () => {
         try {

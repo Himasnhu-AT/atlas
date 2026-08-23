@@ -71,6 +71,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "parking_lot",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "uuid",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1702,21 +1717,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-
-[[package]]
-name = "learn-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "parking_lot",
- "portable-pty",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "uuid",
-]
 
 [[package]]
 name = "libappindicator"

@@ -8,7 +8,7 @@ import { json, preflight, route } from '@/lib/server/respond'
  *
  * Modules stay flat in the response and carry their `courseId`, because the
  * client's question is only ever "which of these moved". `staleModules` in
- * `@learn/learning` compares by module id and version, so nesting them by course
+ * `@atlas/learning` compares by module id and version, so nesting them by course
  * here would make every caller unnest them again.
  */
 export const GET = route(async () =>

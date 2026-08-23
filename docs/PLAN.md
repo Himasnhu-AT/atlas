@@ -97,7 +97,7 @@ file grades both the student's attempt and the reference solution.
 
 ### The build is a gate
 
-`pnpm --filter @learn/learning build` exits non-zero on a schema violation, a duplicate id or
+`pnpm --filter @atlas/learning build` exits non-zero on a schema violation, a duplicate id or
 order, a prerequisite naming a module that does not exist, a prerequisite cycle, a lesson
 declaring an exercise whose files are missing, a cross-lesson link pointing nowhere, or an
 exercise whose reference solution fails its own test.

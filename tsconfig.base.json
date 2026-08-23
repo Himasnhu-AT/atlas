@@ -26,10 +26,10 @@
     // TypeScript 7 removed `baseUrl`. Path mappings are resolved relative to the
     // config file that declares them — i.e. this file, at the repo root.
     "paths": {
-      "@learn/core": ["./packages/core/src/index.ts"],
-      "@learn/ui": ["./packages/ui/src/index.ts"],
-      "@learn/learning": ["./packages/learning/src/index.ts"],
-      "@learn/learning/schema": ["./packages/learning/src/schema.ts"]
+      "@atlas/core": ["./packages/core/src/index.ts"],
+      "@atlas/ui": ["./packages/ui/src/index.ts"],
+      "@atlas/learning": ["./packages/learning/src/index.ts"],
+      "@atlas/learning/schema": ["./packages/learning/src/schema.ts"]
     }
   },
   "exclude": ["node_modules", "dist", "target", ".tmp-legacy"]

@@ -11,8 +11,8 @@ import {
 import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
 import { python } from '@codemirror/lang-python'
-import type { ExerciseLanguage as Language } from '@learn/learning'
-import { cn } from '@learn/ui'
+import type { ExerciseLanguage as Language } from '@atlas/learning'
+import { cn } from '@atlas/ui'
 
 /**
  * Width of one indentation step, in spaces.

@@ -1,9 +1,9 @@
-// Public surface of @learn/ui.
+// Public surface of @atlas/ui.
 //
 // Source-only package: consumers (apps/web, apps/desktop) compile these files
 // through their own Vite pipeline, and must also import the stylesheet once:
 //
-//   import '@learn/ui/styles.css'
+//   import '@atlas/ui/styles.css'
 
 /* ------------------------------------------------------------------ utils */
 export { cn } from './lib/cn'

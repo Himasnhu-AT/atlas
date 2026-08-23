@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { isDesktop } from '@learn/core'
+import { isDesktop } from '@atlas/core'
 import { FolderOpen, Play, RotateCw } from 'lucide-react'
 
 import { CodeEditor } from '../components/editor'

@@ -28,7 +28,7 @@ export const DEFAULT_LAYOUT: LayoutState = {
   terminalCollapsed: false,
 }
 
-const STORAGE_KEY = 'learn.desktop.layout'
+const STORAGE_KEY = 'atlas.desktop.layout'
 const MIN_FRACTION = 0.12
 const MAX_FRACTION = 0.88
 /** Pointer drags fire far faster than localStorage should be written. */

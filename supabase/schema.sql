@@ -1,4 +1,4 @@
--- Learn AI: schema.
+-- Atlas: schema.
 --
 -- Content bodies are never stored here. Lessons and exercises live in
 -- packages/learning and ship inside both apps. `modules` is a registry, not

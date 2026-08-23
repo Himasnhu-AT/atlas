@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
-import { isDesktop } from '@learn/core'
+import { isDesktop } from '@atlas/core'
 
 import { AppHeader } from '../components/AppHeader'
 import { BrowserBanner } from '../components/BrowserBanner'

@@ -15,7 +15,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { isDesktop } from '@learn/core'
+import { isDesktop } from '@atlas/core'
 
 /* -------------------------------------------------------------------- types */
 

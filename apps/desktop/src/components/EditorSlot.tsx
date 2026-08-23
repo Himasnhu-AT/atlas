@@ -1,6 +1,6 @@
 import { FileCode2 } from 'lucide-react'
-import type { ExerciseLanguage as Language } from '@learn/learning'
-import { Badge } from '@learn/ui'
+import type { ExerciseLanguage as Language } from '@atlas/learning'
+import { Badge } from '@atlas/ui'
 import { CodeEditor } from './editor'
 
 export interface EditorSlotProps {

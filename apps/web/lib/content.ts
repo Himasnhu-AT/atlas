@@ -15,8 +15,8 @@ import {
   type CourseEntry,
   type Manifest,
   type ModuleEntry,
-} from '@learn/learning'
-import rawManifest from '@learn/learning/manifest'
+} from '@atlas/learning'
+import rawManifest from '@atlas/learning/manifest'
 
 /**
  * Reading the built content from the server.
@@ -26,7 +26,7 @@ import rawManifest from '@learn/learning/manifest'
  * compiled document into the server bundle would be wasteful when a request
  * needs exactly one.
  *
- * The navigation itself lives in `@learn/learning` and is only bound to this
+ * The navigation itself lives in `@atlas/learning` and is only bound to this
  * manifest here. It used to be reimplemented in this file, which is how the web
  * and the desktop app were able to disagree about reading order.
  */

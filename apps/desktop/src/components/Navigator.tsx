@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import { LessonSidebar, cn } from '@learn/ui'
+import { LessonSidebar, cn } from '@atlas/ui'
 import { courses, findLessonRefById, modulesOf, type LessonRef } from '../lib/content'
 
 export interface NavigatorProps {

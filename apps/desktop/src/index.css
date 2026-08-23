@@ -4,7 +4,7 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
-@import "@learn/ui/styles.css";
+@import "@atlas/ui/styles.css";
 
 /* Tailwind's automatic source detection is anchored to the stylesheet that
    pulls in the framework — which lives in packages/ui. These two directives

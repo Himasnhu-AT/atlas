@@ -1,4 +1,4 @@
-import { SaveExerciseCode } from '@learn/core'
+import { SaveExerciseCode } from '@atlas/core'
 
 import { BadRequestError, json, parseBody, preflight, route } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'

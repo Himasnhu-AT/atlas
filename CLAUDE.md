@@ -1,14 +1,15 @@
 # Working in this repo
 
-A course platform for AI agent engineering: a Next.js site to read on, a Tauri desktop app to
-practice in, and the course itself as a versioned package both consume.
+A code-first learning platform: a Next.js site to read on, a Tauri desktop app to practice in,
+and the courses themselves as a versioned package both consume. The first course is AI agent
+engineering; the architecture assumes there will be others.
 
 ## Layout
 
 ```
 apps/web/          Next.js 16, App Router. The site and the API for both clients.
 apps/desktop/      Tauri 2 + Vite. The three-pane practice IDE.
-packages/learning/ The course: MDX lessons, Python exercises, and the build that validates them.
+packages/learning/ The courses: MDX lessons, Python exercises, and the build that validates them.
 packages/core/     Domain types, zod schemas, the typed API client.
 packages/ui/       Shared React components and the Tailwind v4 theme.
 ```
@@ -17,6 +18,17 @@ packages/ui/       Shared React components and the Tailwind v4 theme.
 
 **Content lives in `packages/learning`, never in app code.** Both apps read the built
 manifest. A lesson hard-coded into a component is a bug.
+
+**A course owns its own vocabulary.** `courses/<id>/course.yaml` declares that course's
+tracks, and a module's `track` must name one of them. There is no global track enum and there
+should never be one again: the old `base | cli | agent | frameworks | projects` was the AI
+course's outline promoted to a type, and every later course would have had to either misuse a
+word or widen a union nobody else needed. The same goes for `lib/`: a course ships what its
+exercises import, and no other course knows about it.
+
+**Nothing crosses a course boundary.** A prerequisite may only name a module in its own
+course, and the build refuses one that does not. A course that cannot be started on its own is
+a later chapter of another one.
 
 **Run `pnpm content` after touching content.** The apps import `dist/`, which is gitignored,
 so a fresh checkout has no lessons until the content build runs. `pnpm dev` does this for you.

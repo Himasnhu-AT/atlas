@@ -1,9 +1,9 @@
-import type { CourseEntry, LessonEntry, Manifest, ModuleEntry } from '@learn/learning'
-import manifest from '@learn/learning/manifest'
+import type { CourseEntry, LessonEntry, Manifest, ModuleEntry } from '@atlas/learning'
+import manifest from '@atlas/learning/manifest'
 
 /**
  * Every read of the course catalogue goes through here, so the surface this app
- * depends on from @learn/learning stays narrow.
+ * depends on from @atlas/learning stays narrow.
  *
  * The manifest is bundled, so the app opens and works with no network. A newer
  * copy can be fetched from the API later without changing anything below.
@@ -18,7 +18,7 @@ const catalogue = manifest as unknown as Manifest
 if (!catalogue || !Array.isArray(catalogue.courses)) {
   throw new Error(
     'The course manifest is missing or malformed. Run `pnpm content`, and check that ' +
-      '@learn/learning is listed in optimizeDeps.exclude in vite.config.ts.',
+      '@atlas/learning is listed in optimizeDeps.exclude in vite.config.ts.',
   )
 }
 

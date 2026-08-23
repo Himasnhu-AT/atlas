@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 /**
  * The domain model shared by the web app, the desktop app, and the API between
- * them. Content types live in @learn/learning; these describe users and their
+ * them. Content types live in @atlas/learning; these describe users and their
  * progress through it.
  */
 
