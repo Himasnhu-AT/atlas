@@ -1,6 +1,16 @@
 import { UpdateLessonProgress, currentStreak, type ProgressSnapshot } from '@atlas/core'
-import { everyModule } from '@/lib/content'
-import { BadRequestError, json, parseBody, preflight, route } from '@/lib/server/respond'
+import { courseOfModule } from '@atlas/learning'
+
+import { everyModule, manifest } from '@/lib/content'
+import { accessFor, canOpen } from '@/lib/server/access'
+import {
+  BadRequestError,
+  ForbiddenError,
+  json,
+  parseBody,
+  preflight,
+  route,
+} from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
 import {
@@ -30,6 +40,15 @@ export const PUT = route(async (request) => {
   const lesson = module?.lessons.find((l) => l.id === body.lessonId)
   if (!module || !lesson) {
     throw new BadRequestError(`unknown lesson: ${body.lessonId}`)
+  }
+
+  // The gate applies to progress, not only to the body. Hiding the button is UI
+  // and the endpoint is the boundary: without this a free account can mark a
+  // members-only lesson complete and be paid for content it was never sent.
+  const course = courseOfModule(manifest, module.id)
+  const access = await accessFor(user.id)
+  if (course && !canOpen(access, course, module)) {
+    throw new ForbiddenError(`${module.name} is not included in your plan`)
   }
 
   const now = new Date().toISOString()
