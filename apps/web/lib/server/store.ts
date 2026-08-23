@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import type {
@@ -177,11 +177,34 @@ const DATA_FILE = path.join(DATA_DIR, 'store.json')
 
 class LocalStore implements Store {
   private cache: LocalData | null = null
+  /**
+   * Modification time of the file the cache was built from.
+   *
+   * The cache used to have no invalidation at all, which is wrong for a reason
+   * that is invisible until something reads and something else writes: Next
+   * builds route handlers and pages into separate module graphs, so each gets
+   * its own `LocalStore` and its own copy of this cache. Whichever one did not
+   * perform a write went on serving its first read forever. The symptom was a
+   * page insisting a learner had not joined the leaderboard while the API,
+   * asked directly, said they had.
+   *
+   * Supabase has never had this problem because it holds no state here. The
+   * zero-config local path is the documented default, so it cannot be the one
+   * that quietly lies.
+   */
+  private cachedAt = 0
   /** Serializes writes so two concurrent requests cannot clobber each other. */
   private queue: Promise<unknown> = Promise.resolve()
 
   private async read(): Promise<LocalData> {
-    if (this.cache) return this.cache
+    let mtime = 0
+    try {
+      mtime = (await stat(DATA_FILE)).mtimeMs
+    } catch {
+      // No file yet. A cache built from nothing is still valid.
+    }
+
+    if (this.cache && mtime === this.cachedAt) return this.cache
 
     let loaded: LocalData
     try {
@@ -193,6 +216,7 @@ class LocalStore implements Store {
     }
 
     this.cache = loaded
+    this.cachedAt = mtime
     return loaded
   }
 
@@ -202,6 +226,13 @@ class LocalStore implements Store {
       const result = mutate(data)
       await mkdir(DATA_DIR, { recursive: true })
       await writeFile(DATA_FILE, JSON.stringify(data, null, 2))
+      // Adopt the file we just wrote, so this instance does not immediately
+      // discard the object it has been mutating and re-read its own write.
+      try {
+        this.cachedAt = (await stat(DATA_FILE)).mtimeMs
+      } catch {
+        this.cachedAt = 0
+      }
       return result
     })
     // Keep the chain alive even if this write threw.
