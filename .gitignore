@@ -59,3 +59,6 @@ __pycache__/
 # directory. It is ~1.5GB and shares no code with the platform. Untracked here
 # rather than deleted; move it out or give it its own repo.
 video-pilot/
+
+# Copied out of node_modules by apps/web/scripts/copy-pyodide.mjs.
+apps/web/public/pyodide/

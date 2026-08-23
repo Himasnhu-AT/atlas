@@ -14,6 +14,7 @@
 
 import type { CourseEntry, LessonEntry, Manifest, ModuleEntry, TrackMeta } from './schema'
 
+export * from './browser'
 export * from './schema'
 
 /** Courses a student can see, in display order. */
