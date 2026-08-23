@@ -5,6 +5,8 @@ import {
   DEFAULT_TARGET,
   MAX_TARGET,
   MIN_TARGET,
+  DAILY_BOARD_CAP,
+  boardScore,
   clampTarget,
   weekStartOf,
   weeklyProgress,
@@ -143,5 +145,32 @@ describe('weeklyProgress', () => {
 
   it('clamps the target it was handed', () => {
     assert.equal(weeklyProgress([], SUNDAY, 99).target, MAX_TARGET)
+  })
+})
+
+describe('boardScore', () => {
+  it('passes an ordinary week through untouched', () => {
+    assert.equal(boardScore({ '2026-08-17': 180, '2026-08-19': 420, '2026-08-22': 96 }), 696)
+  })
+
+  it('clamps a single impossible day', () => {
+    // Every exercise in the catalogue posted as a pass in one afternoon.
+    assert.equal(boardScore({ '2026-08-17': 60_000 }), DAILY_BOARD_CAP)
+  })
+
+  it('clamps per day, so the same total cannot be spread around it', () => {
+    const spread = { '2026-08-17': 60_000, '2026-08-18': 60_000, '2026-08-19': 60_000 }
+    assert.equal(boardScore(spread), DAILY_BOARD_CAP * 3)
+  })
+
+  it('still lets a genuinely heavy day outscore a light one', () => {
+    assert.ok(
+      boardScore({ '2026-08-17': 1_500 }) > boardScore({ '2026-08-17': 200 }),
+      'the cap must not flatten honest effort',
+    )
+  })
+
+  it('ignores a negative, which no award can be anyway', () => {
+    assert.equal(boardScore({ '2026-08-17': -50, '2026-08-18': 20 }), 20)
   })
 })

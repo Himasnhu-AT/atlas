@@ -128,3 +128,36 @@ export function weeklyProgress(
     bestWeeks: best,
   }
 }
+
+/**
+ * The most one day can contribute to a week's board score.
+ *
+ * Sized from the content: the heaviest module in the catalogue is worth about
+ * 735 xp end to end, so this is roughly three of them in a single day. Nobody
+ * reaches it by studying. It exists because grading is client-side and has to
+ * stay that way, so a determined person can post a pass for every exercise in
+ * the catalogue in a few seconds, and a public board is the one place that
+ * makes doing so visible and demoralising to everyone else.
+ */
+export const DAILY_BOARD_CAP = 2200
+
+/**
+ * A week's board score, with each day clamped.
+ *
+ * The clamp is on the board, not on the ledger. Withholding xp somebody
+ * genuinely earned would punish the rare learner who really did clear three
+ * modules on a Saturday, and they are far more common than the griefer. Their
+ * level, their seals and their own totals are all untouched; only their
+ * standing in one week's ranking is bounded.
+ *
+ * `byDay` maps a day (`YYYY-MM-DD`) to the xp awarded on it, keyed on when the
+ * award was received rather than when it was earned, so an offline backlog
+ * drained on Monday cannot retroactively win last week.
+ */
+export function boardScore(byDay: Record<string, number>, cap = DAILY_BOARD_CAP): number {
+  let total = 0
+  for (const points of Object.values(byDay)) {
+    total += Math.min(Math.max(0, points), cap)
+  }
+  return total
+}
