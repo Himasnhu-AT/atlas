@@ -1,5 +1,5 @@
 ---
-id: stage-6.orchestrator-and-workers
+id: ai-multi-agent-and-production.orchestrator-and-workers
 title: Orchestrator and workers
 summary: One component owns the plan and the others own a bounded task. The hard parts are writing subtasks that are genuinely independent and deciding what to believe when two workers disagree.
 order: 2
@@ -183,7 +183,7 @@ model_calls=1 + len(subtasks)
 
 It is on the report rather than in a log because it is a design parameter, not telemetry. You
 want to see it while you are deciding whether a plan may have six subtasks, not afterwards.
-[The research briefing project](lesson:proj-2.fan-out-and-what-it-costs) measures what this
+[The research briefing project](lesson:ai-research-briefing.fan-out-and-what-it-costs) measures what this
 costs against a real corpus, and the ratio is larger than the call count suggests, because
 worker prompts carry retrieved documents and the synthesis prompt carries every note.
 

@@ -106,7 +106,7 @@ are intermediate. They are different tracks, and a student on the agent track fi
 Lesson ids are `<module-id>.<slug>`. Exercise ids are directory names under the module's
 `exercises/`.
 
-### 0. Foundations (`stage-0`, base)
+### 0. Foundations (`ai-foundations`, base)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -117,7 +117,7 @@ Lesson ids are `<module-id>.<slug>`. Exercise ids are directory names under the 
 The third lesson is the on-ramp. A student who can read a `Completion`, branch on
 `finish_reason` and find `usage` has met every object the rest of the course uses.
 
-### 1. LLM fundamentals (`stage-1`, base)
+### 1. LLM fundamentals (`ai-llm-fundamentals`, base)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -129,7 +129,7 @@ The third lesson is the on-ramp. A student who can read a `Completion`, branch o
 Sampling is built rather than described. A student who has written `softmax`, temperature
 scaling and a nucleus filter does not have to take temperature on faith.
 
-### 2. Prompt engineering (`stage-2`, base)
+### 2. Prompt engineering (`ai-prompt-engineering`, base)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -142,7 +142,7 @@ The fourth lesson is what separates this module from the genre. A prompt change 
 measurement is a guess, and the harness built here is the direct ancestor of the agent harness
 in module 6 and the persona harness in module 9.
 
-### 3. Tool use and building an agent (`stage-3`, agent)
+### 3. Tool use and building an agent (`ai-tool-use`, agent)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -154,7 +154,7 @@ in module 6 and the persona harness in module 9.
 
 The spine of the course. `react-loop` is the exercise everything after it assumes.
 
-### 4. Agent frameworks (`stage-4`, agent)
+### 4. Agent frameworks (`ai-agent-frameworks`, agent)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -168,7 +168,7 @@ and the conversational runtime land as two answers to a question the student alr
 rather than as new material. It names real frameworks and attaches every claim to an
 abstraction rather than to a version number, because that is what stays true.
 
-### 5. Memory and RAG (`stage-5`, agent)
+### 5. Memory and RAG (`ai-memory-and-rag`, agent)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -186,7 +186,7 @@ The embeddings in `mockllm` are the hashing trick, so they match on shared words
 match synonyms. Lessons say so rather than hiding it. Everything built here works the same way
 against a real embedding API and simply gets better at paraphrase.
 
-### 6. Multi-agent systems and production (`stage-6`, agent)
+### 6. Multi-agent systems and production (`ai-multi-agent-and-production`, agent)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -199,7 +199,7 @@ The last module before the projects, so it is where "does it work" and "what did
 become first class. Evaluating an agent is treated as harder than evaluating a prompt, because
 there is a trajectory and not just an output.
 
-### 7. State graphs and durable execution (`fw-1`, frameworks)
+### 7. State graphs and durable execution (`ai-state-graphs`, frameworks)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -208,7 +208,7 @@ there is a trajectory and not just an output.
 | 3 | The super-step | `super-step-engine` |
 | 4 | Checkpoints, resume and time travel | `checkpoint-saver` |
 
-### 8. Handoffs, guardrails, and typed output (`fw-2`, frameworks)
+### 8. Handoffs, guardrails, and typed output (`ai-handoffs-and-typed-output`, frameworks)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -217,7 +217,7 @@ there is a trajectory and not just an output.
 | 3 | Guardrails that can stop a run | `guardrail-tripwire` |
 | 4 | Typed output and the retry loop | `validated-output` |
 
-### 9. Support triage that knows when to escalate (`proj-1`, projects)
+### 9. Support triage that knows when to escalate (`ai-support-triage`, projects)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -226,7 +226,7 @@ there is a trajectory and not just an output.
 | 3 | When to hand over | `escalation-contract` |
 | 4 | Grading the behaviour | `persona-harness` |
 
-### 10. Research briefing with verified citations (`proj-2`, projects)
+### 10. Research briefing with verified citations (`ai-research-briefing`, projects)
 
 | # | Lesson | Exercise |
 |---|---|---|

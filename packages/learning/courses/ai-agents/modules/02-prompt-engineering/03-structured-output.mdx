@@ -1,5 +1,5 @@
 ---
-id: stage-2.structured-output
+id: ai-prompt-engineering.structured-output
 title: Structured output
 summary: Three ways to get machine readable output and what each costs. The parse failures that actually happen, validation as the thing that makes failure visible, and the retry that feeds the error back.
 order: 3
@@ -116,7 +116,7 @@ source text said "two".
 The one that catches people is truncation. When generation hits the output limit the reply stops
 mid document, and what you get is a string that starts exactly like valid JSON and simply ends.
 The tell is in the response rather than the text, on the field
-[reading a completion](lesson:stage-0.reading-a-completion) introduced: a `finish_reason` of
+[reading a completion](lesson:ai-foundations.reading-a-completion) introduced: a `finish_reason` of
 `length` means the model was cut off mid sentence rather than choosing to stop, and JSON is
 where that stops being a cosmetic problem.
 

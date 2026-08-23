@@ -1,5 +1,5 @@
 ---
-id: stage-1.tokens-and-context
+id: ai-llm-fundamentals.tokens-and-context
 title: Tokens and the context window
 summary: The model reads subword tokens, not words or characters, and everything you send plus everything you get back has to fit one shared budget. In an agent loop that budget is what breaks first.
 order: 2
@@ -122,7 +122,7 @@ step budgets exist, and why an agent that fails to terminate is a billing incide
 a hang.
 
 Prompt caching changes the price of this and not the arithmetic, and it is the reason the
-`prompt_tokens` you met in [reading a completion](lesson:stage-0.reading-a-completion) are not
+`prompt_tokens` you met in [reading a completion](lesson:ai-foundations.reading-a-completion) are not
 all billed at the same rate. The mechanism is the KV cache from the previous lesson, kept
 between requests: the provider stores the computed attention state for a prefix it has seen,
 and when your next request starts with exactly those tokens it reuses the state instead of

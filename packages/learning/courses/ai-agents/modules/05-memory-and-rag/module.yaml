@@ -1,4 +1,4 @@
-id: stage-5
+id: ai-memory-and-rag
 slug: memory-and-rag
 name: Memory and RAG
 summary: Give an agent knowledge it was never trained on. Chunking, embeddings, a retriever allowed to return nothing, the pipeline that grounds an answer in what it found, and the separate problem of remembering the conversation.
@@ -6,6 +6,6 @@ version: 2.0.0
 track: agent
 order: 5
 isActive: true
-prerequisites: [stage-4]
+prerequisites: [ai-agent-frameworks]
 difficulty: intermediate
 estimatedHours: 5.5

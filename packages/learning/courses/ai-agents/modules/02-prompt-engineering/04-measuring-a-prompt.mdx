@@ -1,5 +1,5 @@
 ---
-id: stage-2.measuring-a-prompt
+id: ai-prompt-engineering.measuring-a-prompt
 title: Measuring a prompt
 summary: A prompt change you did not measure is a guess. Ten honest cases, graders that are deterministic, pass rate as a comparison between two versions, and regression as the alert worth having.
 order: 4
@@ -31,7 +31,7 @@ SYSTEM_V2 = SYSTEM_V1 + "\nA chargeback is always an escalation."
 ```
 
 The reported case is now correct. The mechanism that fixed it is the one from
-[anatomy of a prompt](lesson:stage-2.anatomy-of-a-prompt):
+[anatomy of a prompt](lesson:ai-prompt-engineering.anatomy-of-a-prompt):
 the token `escalation` is now in the prefix of every call, and a label that appears in the
 instructions is more probable than one that does not. That mechanism does not know which ticket
 you were thinking of. The ticket about being charged twice reads as urgent and mentions money,

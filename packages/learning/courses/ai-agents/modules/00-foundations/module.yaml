@@ -1,4 +1,4 @@
-id: stage-0
+id: ai-foundations
 slug: foundations
 name: Foundations
 summary: "How the course works and what it is pointing at, what the toolchain is and how an exercise is graded, and the completion object every later module reaches into: choices, finish_reason, tool calls and usage."

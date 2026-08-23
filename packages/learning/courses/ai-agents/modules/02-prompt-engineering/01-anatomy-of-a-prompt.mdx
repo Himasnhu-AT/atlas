@@ -1,5 +1,5 @@
 ---
-id: stage-2.anatomy-of-a-prompt
+id: ai-prompt-engineering.anatomy-of-a-prompt
 title: Anatomy of a prompt
 summary: A working prompt has five parts, each doing a different job to the distribution. Where they go, how specific to be, and which of the famous tricks are load bearing.
 order: 1
@@ -87,7 +87,7 @@ calls rather than reprocessing it, so a system message that is byte identical fr
 the next is cheaper and faster than one that is not. That makes an innocent looking line
 expensive: interpolate a timestamp, a request id, or today's date into the system message and
 the prefix differs on every call, the reuse never happens, and nothing in the response tells
-you. [Tokens and context](lesson:stage-1.tokens-and-context) covers the mechanism that makes
+you. [Tokens and context](lesson:ai-llm-fundamentals.tokens-and-context) covers the mechanism that makes
 this possible.
 
 ## A vague prompt fails predictably
@@ -180,7 +180,7 @@ the middle of a long context is worse than recall of material at the start or th
 documented across model families since 2023 and reduced but not eliminated in current models.
 
 Which means a context window is not uniform storage.
-[Tokens and context](lesson:stage-1.tokens-and-context) is about how much fits and what it
+[Tokens and context](lesson:ai-llm-fundamentals.tokens-and-context) is about how much fits and what it
 costs. This is about the fact that where a thing sits inside what fits changes how reliably the
 model uses it. Both matter, and only one of them shows up on the invoice.
 
@@ -198,7 +198,7 @@ messages = [
 
 Repeating a short version of the instruction at both ends is a legitimate trick and costs a few
 tokens. It is also the sort of thing you should check rather than assume, which is what
-[measuring a prompt](lesson:stage-2.measuring-a-prompt) is for.
+[measuring a prompt](lesson:ai-prompt-engineering.measuring-a-prompt) is for.
 
 ## Load bearing, and cargo cult
 
