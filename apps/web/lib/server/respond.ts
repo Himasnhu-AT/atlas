@@ -76,6 +76,13 @@ export class BadRequestError extends Error {
   }
 }
 
+export class ForbiddenError extends Error {
+  constructor(detail = 'not allowed') {
+    super(detail)
+    this.name = 'ForbiddenError'
+  }
+}
+
 export class NotFoundError extends Error {
   constructor(detail = 'not found') {
     super(detail)
@@ -126,6 +133,8 @@ export function route(
       if (error instanceof UnauthorizedError) return withCors(fail(401, 'unauthorized'))
       if (error instanceof BadRequestError)
         return withCors(fail(400, 'bad_request', error.message))
+      if (error instanceof ForbiddenError)
+        return withCors(fail(403, 'forbidden', error.message))
       if (error instanceof NotFoundError) return withCors(fail(404, 'not_found', error.message))
       if (error instanceof ZodError) {
         const first = error.issues[0]

@@ -109,13 +109,15 @@ export default async function LessonPage({ params }: { params: Params }) {
             )}
 
             <div className="mt-16 border-t border-rule pt-8">
-              {user ? (
+              {/* No completing what you cannot read. The endpoint refuses it
+                  too; this is so nobody is offered a button that will fail. */}
+              {user && unlocked ? (
                 <CompleteButton
                   lessonId={lesson.id}
                   moduleId={module.id}
                   initiallyComplete={completed}
                 />
-              ) : (
+              ) : user ? null : (
                 <Link
                   href={`/login?next=/learn/${course.slug}/${module.slug}/${lesson.slug}`}
                   className="inline-flex min-h-11 items-center rounded-field border border-rule-strong px-5 text-caption font-medium text-ink transition-colors duration-200 ease-paper hover:bg-paper-raised"

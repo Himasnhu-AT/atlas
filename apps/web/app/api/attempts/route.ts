@@ -1,7 +1,16 @@
 import { NewAttempt } from '@atlas/core'
 
-import { exerciseIndex } from '@/lib/content'
-import { BadRequestError, parseBody, preflight, route } from '@/lib/server/respond'
+import { courseOfModule } from '@atlas/learning'
+
+import { everyModule, exerciseIndex, manifest } from '@/lib/content'
+import { accessFor, canOpen } from '@/lib/server/access'
+import {
+  BadRequestError,
+  ForbiddenError,
+  parseBody,
+  preflight,
+  route,
+} from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
 import { awardsForAttempt, evaluateSeals, evaluateWeek, grant } from '@/lib/server/xp'
@@ -20,8 +29,19 @@ export const POST = route(async (request) => {
   // against the manifest. `/api/progress` has always done this for lessons and
   // this route did it for nothing: any string was a valid exercise, which wrote
   // rows nobody could trace back to content and which will be worth XP shortly.
-  if (!exerciseIndex().has(body.exerciseId)) {
+  const located = exerciseIndex().get(body.exerciseId)
+  if (!located) {
     throw new BadRequestError(`unknown exercise: ${body.exerciseId}`)
+  }
+
+  // Same gate as `/api/progress`. The desktop app bundles every exercise so it
+  // can grade offline, which means this refuses the report rather than the work
+  // — the honest limit of a gate on a client that already has the content.
+  const module = everyModule().find((m) => m.id === located.moduleId)
+  const course = module && courseOfModule(manifest, module.id)
+  const access = await accessFor(user.id)
+  if (module && course && !canOpen(access, course, module)) {
+    throw new ForbiddenError(`${module.name} is not included in your plan`)
   }
 
   await store().recordAttempt(user.id, {
