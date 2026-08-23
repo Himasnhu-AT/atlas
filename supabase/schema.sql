@@ -117,11 +117,111 @@ create table if not exists exercise_attempts (
   tests_total  integer not null default 0,
   duration_ms  integer not null default 0,
   stdout_tail  text,
+  -- Client-generated id for one run, so replaying an offline outbox does not
+  -- duplicate the log. Award keys dedupe the XP; they do not dedupe history, and
+  -- "how many tries did this take" is the only reason this table exists.
+  client_event_id text,
   created_at   timestamptz not null default now()
 );
 
+create unique index if not exists exercise_attempts_client_event_idx
+  on exercise_attempts (user_id, client_event_id)
+  where client_event_id is not null;
+
 create index if not exists exercise_attempts_user_idx
   on exercise_attempts (user_id, exercise_id, created_at desc);
+
+-- The game -------------------------------------------------------------
+--
+-- `xp_awards` is the ledger and the only authority on a total. Everything else
+-- the game shows -- level, rank, streak, quest progress, seal eligibility -- is
+-- derived from it and from the progress tables, so there is no second number to
+-- reconcile and nothing to migrate when a weight changes.
+
+create table if not exists xp_awards (
+  user_id       text not null references users (id) on delete cascade,
+  -- The idempotency key: a function of the user, the kind, and a natural key for
+  -- the thing rewarded. Never a timestamp. `lesson:<id>:<completedAt>` looks
+  -- right, passes every test where the learner completes once, and double-pays
+  -- on the third toggle.
+  award_key     text not null,
+  kind          text not null check (kind in ('lesson','exercise','module','quest','streak','seal')),
+  points        integer not null check (points > 0),
+  -- Which version of the weights produced `points`, so a total can be explained
+  -- later rather than only trusted.
+  rules_version integer not null default 1,
+  course_id     text,
+  device_id     uuid,
+  -- Client time, clamped server-side. Evidence, not authority.
+  occurred_at   timestamptz not null default now(),
+  -- Server receipt time. The leaderboard scores on this, so an offline backlog
+  -- drained on Monday cannot retroactively win last week.
+  awarded_at    timestamptz not null default now(),
+  primary key (user_id, award_key)
+);
+
+create index if not exists xp_awards_user_awarded_idx on xp_awards (user_id, awarded_at desc);
+
+create table if not exists user_game (
+  user_id            text primary key references users (id) on delete cascade,
+  -- A cache of sum(points). `xp_awards` is authoritative; this exists so a
+  -- leaderboard does not aggregate the ledger per row.
+  total_xp           integer not null default 0,
+  longest_streak     integer not null default 0,
+  leaderboard_opt_in boolean not null default false,
+  -- IANA zone, captured at signup. The server assigns the day a piece of
+  -- activity belongs to, so a client clock cannot decide what day it is.
+  timezone           text not null default 'UTC',
+  updated_at         timestamptz not null default now()
+);
+
+create table if not exists user_seals (
+  user_id   text not null references users (id) on delete cascade,
+  seal_id   text not null,
+  course_id text,
+  earned_at timestamptz not null default now(),
+  primary key (user_id, seal_id)
+);
+
+-- Awards and the cached total move together or not at all.
+--
+-- The insert dedupes on the primary key; an unconditional `update ... set
+-- total_xp = total_xp + n` beside it would not, so a double-click pays once into
+-- the ledger and twice into the cache. Gating the update on the insert having
+-- happened is the whole point of doing this in one statement.
+create or replace function award_xp(
+  p_user_id       text,
+  p_award_key     text,
+  p_kind          text,
+  p_points        integer,
+  p_course_id     text,
+  p_rules_version integer,
+  p_occurred_at   timestamptz
+) returns integer
+language plpgsql
+as $$
+declare
+  v_inserted integer;
+begin
+  insert into xp_awards (user_id, award_key, kind, points, course_id, rules_version, occurred_at)
+  values (p_user_id, p_award_key, p_kind, p_points, p_course_id, p_rules_version,
+          coalesce(p_occurred_at, now()))
+  on conflict (user_id, award_key) do nothing;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
+    return 0;
+  end if;
+
+  insert into user_game (user_id, total_xp)
+  values (p_user_id, p_points)
+  on conflict (user_id) do update
+    set total_xp = user_game.total_xp + excluded.total_xp,
+        updated_at = now();
+
+  return p_points;
+end;
+$$;
 
 create table if not exists devices (
   id           uuid primary key default gen_random_uuid(),
@@ -166,6 +266,9 @@ $$;
 -- client connects directly.
 
 alter table courses           enable row level security;
+alter table xp_awards         enable row level security;
+alter table user_game         enable row level security;
+alter table user_seals        enable row level security;
 alter table users             enable row level security;
 alter table module_progress   enable row level security;
 alter table lesson_progress   enable row level security;
@@ -181,7 +284,8 @@ declare
 begin
   foreach t in array array[
     'module_progress', 'lesson_progress', 'exercise_state',
-    'exercise_attempts', 'devices', 'activity_days'
+    'exercise_attempts', 'devices', 'activity_days',
+    'xp_awards', 'user_game', 'user_seals'
   ] loop
     execute format(
       'create policy %I on %I for all using (user_id = auth.uid()::text) '
