@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 
@@ -94,6 +95,20 @@ export default async function LedgerPage() {
               <div className="mt-6">
                 <WeeklyTargetPicker target={game.week.target} chosen={game.week.chosen} />
               </div>
+            </Reveal>
+
+            <Reveal delay={0.18}>
+              <p className="mt-6 text-caption text-muted">
+                <Link
+                  href="/ledger/league"
+                  className="text-accent-deep underline underline-offset-2"
+                >
+                  {game.leaderboardOptIn ? "This week's board" : 'There is a weekly board'}
+                </Link>{' '}
+                {game.leaderboardOptIn
+                  ? '· thirty people, resets on Monday.'
+                  : '· off unless you join it.'}
+              </p>
             </Reveal>
           </section>
 
