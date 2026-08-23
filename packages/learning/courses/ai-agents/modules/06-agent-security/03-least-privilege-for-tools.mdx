@@ -1,0 +1,110 @@
+---
+id: ai-agent-security.least-privilege-for-tools
+title: Least privilege for tools
+summary: The model choosing which tool to call is not an authorisation decision, because the model is the part the attacker can reach. Authority belongs to the state the agent is in, not the sentence it just read.
+order: 3
+estimatedMinutes: 30
+exercise:
+  id: tool-permissions
+  timeboxMinutes: 30
+---
+
+In [tool schemas](lesson:ai-tool-use.tool-schemas) you built a registry: a dict of every tool
+the agent has, passed whole to every call. That is the right starting point and it is also a
+design where every tool is available on every turn, to whatever the model has just been
+convinced of.
+
+## Availability is a decision you are already making
+
+You are choosing what goes in the `tools` array on every request. Right now the choice is
+"everything", which is a choice.
+
+The alternative is that the set depends on where the run is:
+
+```python
+def tools_for(state):
+    if state.phase == "gathering":
+        return [search_docs, lookup_order]        # read only
+    if state.phase == "acting" and state.approved:
+        return [search_docs, lookup_order, refund_order]
+    return [search_docs, lookup_order]
+```
+
+Now the sentence in the wiki page has nothing to work with. It can persuade the model as
+thoroughly as it likes that a refund is pre-approved, and `refund_order` is not in the array,
+so there is no tool call to emit. The persuasion succeeded and produced nothing, which is what
+a control looks like.
+
+This is the same idea as the sandbox boundary in the desktop app you are reading this in: the
+answer to "could a bug here reach the filesystem" is not "the code is careful", it is "the
+capability is not granted".
+
+## The states worth having
+
+You do not need a general policy engine. Three distinctions cover most agents.
+
+**Read versus write.** Tools that only observe versus tools that change something or cost
+money. If nothing else, split on this.
+
+**Before versus after confirmation.** A write tool becomes available only once a human, or a
+deterministic check, has approved this specific action. Not once the model has decided it is
+approved.
+
+**Inside versus outside the blast radius.** `refund_order(order_id)` where `order_id` must be
+one the current user owns is a different tool from one that takes any id. The constraint lives
+in the argument, and the next section is about that.
+
+## Constrain the arguments, not just the name
+
+Allowing `refund_order` and stopping there gives the model a free choice of order id. An
+injection that gets a refund tool call emitted can usually also choose what it refunds.
+
+So the check is on the call, with the arguments, against state the model did not supply:
+
+```python
+def check(call, session):
+    if call.name != "refund_order":
+        return Allow()
+    order = session.orders.get(call.arguments["order_id"])
+    if order is None:
+        return Deny("that order is not in this session")
+    if order.total > session.limits.auto_refund:
+        return Deny("over the automatic limit")
+    return Allow()
+```
+
+`session.orders` came from your authentication, not from the conversation. That is the whole
+point: **the values the decision reads are values the attacker cannot write.**
+
+Notice what this also fixes. It is a defence against an injection and equally a defence against
+the model simply being wrong, which is far more common and gets no press. A tool call that
+refunds the wrong order because the model confused two ids in a long context is stopped by the
+same check, and you will hit that bug long before anyone attacks you.
+
+## Deny is a result, not an exception
+
+When a check denies a call, the run does not crash. It gets an observation, exactly like the
+failed tools in [when tools fail](lesson:ai-tool-use.when-tools-fail):
+
+```
+{"role": "tool", "content": "refund_order was not permitted: over the automatic limit"}
+```
+
+The agent can then do something sensible, like explain that this needs a person. That keeps the
+loop shape you already have and it means a denial is recoverable rather than terminal.
+
+One caution, and it is a real trap. The denial message goes into the context, so it is a
+channel the attacker can now observe. Do not put anything in it you would not show the user:
+*"denied, the automatic limit for this account tier is £500 and manager override code is..."* is
+a denial message that has taught the attacker more than the allow would have.
+
+## What the exercise asks
+
+A permission table mapping states to tool sets, a checker that runs on the call with its
+arguments against session state, and the loop change that turns a denial into an observation
+rather than a crash.
+
+The test that matters runs the injected document from the last lesson through an agent whose
+permissions are set correctly, and asserts that the refund never happened even though the model
+tried. The injection still works, in the sense that the model was persuaded. It just does not
+matter any more.

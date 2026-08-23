@@ -1,0 +1,113 @@
+---
+id: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+title: A guardrail that cannot be talked out of
+summary: A check that reads the same context it is guarding shares the context's compromise. The useful ones run on the action, outside the conversation, on values the attacker never touched.
+order: 4
+estimatedMinutes: 30
+exercise:
+  id: out-of-band-check
+  timeboxMinutes: 30
+---
+
+You will build guardrails properly in
+[guardrails that can stop a run](lesson:ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run).
+This lesson is about one property of them that decides whether they are worth anything under
+attack: **what the guardrail reads.**
+
+## The guardrail that shares the compromise
+
+The natural way to write one is to ask a model.
+
+```python
+verdict = client.chat.completions.create(
+    model="mock",
+    messages=[
+        {"role": "system", "content": "Is the following action safe? Answer SAFE or UNSAFE."},
+        {"role": "user", "content": f"The agent wants to: {proposed_action}\n\nContext:\n{transcript}"},
+    ],
+)
+```
+
+Read what that sends. The transcript. Which contains the document. Which contains the
+injection.
+
+You have built a second model that can be persuaded by the same sentence that persuaded the
+first, and given it the job of checking the first. When the attack succeeds it succeeds twice,
+and you now have a `SAFE` verdict on the record making the whole thing look reviewed.
+
+This is worse than no guardrail, because the failure is silent and the audit log says a check
+passed.
+
+## Out of band
+
+A check is only independent if its inputs are.
+
+```python
+def check_refund(call, session):
+    order = session.orders[call.arguments["order_id"]]
+    return order.total <= session.limits.auto_refund and order.state == "delivered"
+```
+
+No transcript. No document. No model. It reads the proposed call and facts from the session,
+and the attacker can write neither.
+
+That is the definition worth carrying: **an out-of-band check reads only values the untrusted
+input could not have influenced.** Everything else is advisory.
+
+Most useful checks turn out to be small and boring once you apply that test. Is the amount
+under the limit. Does this order belong to this session. Has this tool already been called
+three times this run. Is the recipient address one we have seen before. None of them need a
+model, all of them are testable, and none of them can be argued with.
+
+## Where a model-based check is still fine
+
+Not never. It is fine where being wrong is cheap and where it is a filter rather than a
+control.
+
+Tone and policy on **outbound text** is the usual good case: checking the final answer for
+something you would not want said is a task with no attacker-controlled advantage, because the
+attacker's goal is usually an action rather than a rude sentence.
+
+Ranking or triaging for a human is fine too, because the human is the control.
+
+What a model-based check should never be is the only thing standing between a persuaded agent
+and an irreversible action.
+
+## Belt and braces, in the right order
+
+A real agent has several layers, and the order matters because it decides what runs when
+something has already gone wrong:
+
+**Constrain what is reachable.** The permission table from the last lesson. Cheapest, strongest,
+and it works even when everything else fails.
+
+**Check the action deterministically.** The out-of-band check above, on arguments and session
+state.
+
+**Then, optionally, a model-based filter** on the outbound text.
+
+**And log the whole thing.** Every denied call, with the arguments and the reason, to somewhere
+the agent cannot write. This is what tells you an attack was attempted, and it is the only one
+of the four that has any value after the fact. `run_ledger` from
+[observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost) is the
+right shape for it.
+
+## Irreversibility is the axis that matters
+
+One rule to size all of this by. Sort actions by how hard they are to undo.
+
+Reading a document is free to get wrong. Writing a draft is nearly free. Sending an email is
+not undoable. Moving money is not undoable and has a regulator attached.
+
+The amount of machinery an action deserves is a function of that, not of how likely you think
+an attack is. Most agents need almost none of this, because most agents only read. The moment
+one grows a tool that spends money or talks to a customer, it needs all of it.
+
+## What the exercise asks
+
+Write both guardrails: the model-based one that reads the transcript, and the deterministic one
+that reads the session. Then run both against a transcript carrying the injection, and assert
+that the first passes the unsafe action and the second refuses it.
+
+Watching your own model-based check return `SAFE` on an action it should have stopped is a more
+durable lesson than any amount of prose about independence.

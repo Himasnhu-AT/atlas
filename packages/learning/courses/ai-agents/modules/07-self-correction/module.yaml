@@ -1,0 +1,11 @@
+id: ai-self-correction
+slug: self-correction
+name: Self-correction
+summary: "A second look is cheap. Making the second look independent of the first is the whole difficulty, and it is what separates a check that catches errors from one that launders them into confidence."
+version: 1.0.0
+track: agent
+order: 7
+isActive: true
+prerequisites: [ai-agent-security]
+difficulty: intermediate
+estimatedHours: 4.5

@@ -1,0 +1,96 @@
+---
+id: ai-self-correction.marking-its-own-homework
+title: Marking its own homework
+summary: Asking a model to check its own answer usually produces agreement, because the thing that caused the error is still in the context. Independence is the property that makes a second look worth anything.
+order: 1
+estimatedMinutes: 25
+---
+
+The cheapest idea in agent engineering is to ask twice. Generate an answer, then ask whether the
+answer is right. It costs one extra call and it sounds like it should catch a lot.
+
+Sometimes it does. Often it produces a confident endorsement of a wrong answer, which is worse
+than not asking, because now there is a check on the record.
+
+## Why the second look agrees
+
+When you send *"Here is my answer. Is it correct?"*, the model reads the answer, the question,
+and usually the reasoning that produced it. Everything that led to the error is still there.
+
+If the error came from a misread number in a document, the misread number is still in the
+context. If it came from an ambiguous question, the question is still ambiguous. The second
+pass is not a fresh attempt; it is the same attempt with the conclusion already written down,
+and a conclusion in the context is a strong hint about what the answer should be.
+
+There is a second effect on top of that: models are agreeable. Asked *"is this right?"* they say
+yes more often than the answer deserves, and asked *"this is wrong, isn't it?"* they will
+frequently find a fault in a correct answer. The framing moves the verdict, which means the
+verdict is partly measuring your framing.
+
+## The property that matters
+
+Every pattern in this module is a way of buying **independence**: making the second look depend
+on less of what produced the first.
+
+Rank them by how much they remove:
+
+**Ask again, same context.** Removes nothing. Nearly worthless.
+
+**Ask again with the conclusion hidden.** Sample the same question twice and compare. Removes
+the anchor, keeps the context. This is self-consistency, and it works because two independent
+attempts at a hard question disagree in a way one attempt cannot reveal.
+
+**Ask about a piece, not the whole.** Decompose the answer into individual claims and check each
+one on its own, without the surrounding argument. Removes most of the reasoning that produced
+the error. This is chain of verification.
+
+**Check against something outside the model.** Run the code. Query the source document. Compare
+the number to the database. Removes the model from the check entirely.
+
+That last one is the strongest and it is not always available, which is why the others exist.
+But the ordering is the point: **prefer the check that reads least of what you are checking.**
+
+You have met this argument before. In
+[a guardrail that cannot be talked out of](lesson:ai-agent-security.a-guardrail-that-cannot-be-talked-out-of)
+it was about attackers, and the conclusion was that a checker reading the poisoned transcript
+shares the poisoning. This is the same structure with a different cause: a checker reading the
+flawed reasoning shares the flaw. Security and correctness turn out to want the same thing.
+
+## What self-correction cannot fix
+
+Worth saying plainly, because these patterns get sold as more than they are.
+
+**A model that does not know something will not discover it by thinking harder.** If the answer
+depends on a fact absent from the context, no number of passes retrieves it. The fix is
+retrieval, which is the last lesson of this module.
+
+**Reflection cannot rescue a bad plan.** If the approach was wrong, critiquing the output tends
+to produce a better-written version of the same wrong thing.
+
+**More passes are not monotonically better.** Loops that revise until satisfied can drift:
+each pass makes a small change to please the critic, and after four passes the answer has moved
+away from the question. Bounded loops, always.
+
+## The cost, which is the reason to be selective
+
+Every pattern here multiplies calls. Chain of verification on a five-claim answer is six calls
+instead of one. Self-consistency at n=5 is five. Both together is thirty.
+
+At the sizes in this course that is nothing. In production it is your bill and your latency, and
+`run_ledger` from
+[observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost) is what
+tells you whether the accuracy you bought was worth it.
+
+The honest default is to apply verification to the things that are expensive to get wrong and
+to leave everything else alone. A wrong summary is a nuisance. A wrong citation in a document
+somebody publishes is a different category, which is why the
+[research briefing](lesson:ai-research-briefing.the-verification-pass) project verifies claims
+and does not verify prose.
+
+## What this module builds
+
+Reflection and its failure mode. Chain of verification, which is the general form of the
+project's verification pass. Self-consistency, and using disagreement as a confidence signal.
+Then retrieval that grades its own results and re-queries when they do not support the
+question, which is the same idea applied to the part of the system that actually can go and
+find the missing fact.

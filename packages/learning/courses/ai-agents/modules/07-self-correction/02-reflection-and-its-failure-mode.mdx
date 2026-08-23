@@ -1,0 +1,98 @@
+---
+id: ai-self-correction.reflection-and-its-failure-mode
+title: Reflection and its failure mode
+summary: Critique then revise is the simplest self-correction loop and the easiest to fool yourself with. Build it, then build the thing that tells you whether it improved anything.
+order: 2
+estimatedMinutes: 30
+exercise:
+  id: reflect-and-revise
+  timeboxMinutes: 30
+---
+
+Reflection is three calls: produce a draft, criticise it, revise it against the criticism.
+
+```
+draft    = model(task)
+critique = model(critique_prompt, draft)
+final    = model(revise_prompt, draft, critique)
+```
+
+It is genuinely useful for tasks with a checkable structure — code that must compile, output
+that must match a schema, prose that must follow a format. It is least useful for exactly the
+tasks people reach for it on, which are the ones where correctness is a matter of fact.
+
+## The loop is easy, the stopping is not
+
+Three questions decide whether this helps.
+
+**When does it stop?** Never let the model decide. *"Revise until you are satisfied"* runs until
+the model's agreeableness kicks in, which is unpredictable and usually two passes. A fixed
+maximum, always, and a way to stop early when the critique finds nothing.
+
+**What counts as "nothing"?** The critique has to be able to return no findings, and you have to
+believe it when it does. If your prompt asks *"what is wrong with this?"*, a model will find
+something wrong with a perfect answer, because you asked. Ask instead for findings against
+specific criteria, and allow an empty list.
+
+**Is the revision better?** This is the hard one, and it is the next section.
+
+## Revision drift
+
+Run reflection four times on the same draft and watch what happens.
+
+Pass one usually helps: the critique catches something real and the revision fixes it. Pass two
+often helps less. By pass three the critique is finding stylistic preferences, and the revision
+is rewriting sentences that were fine. By pass four the answer has drifted away from the
+original question, because every pass optimised for pleasing a critic rather than answering.
+
+This is why bounded loops are not a performance concession. They are correctness: **the loop has
+no term that pulls it back toward the question**, so left alone it wanders.
+
+The exercise makes you measure the drift rather than take my word for it.
+
+## Laundering
+
+The failure that matters most is subtler than drift, and it is why this lesson exists in a
+module about independence.
+
+A wrong draft goes in. The critique reads the draft, finds a real but minor problem — a missing
+caveat, an awkward sentence — and the revision fixes it. Now you have a wrong answer that has
+been through a review process, is better written, and carries a critique showing it was
+checked.
+
+**Reflection improved the presentation and left the error.** Worse, it made the error more
+convincing, and it produced an artefact that looks like evidence of checking.
+
+That is not a reason never to reflect. It is a reason to be precise about what reflection is
+for: it improves form, and it does not establish fact. Anything factual needs the next lesson,
+where the check reads the claim without the argument around it.
+
+## Reflexion, and what memory adds
+
+The variant worth knowing is one where the critique is not thrown away.
+
+In the plain loop, each attempt starts fresh and can repeat a mistake it already made. If
+instead the critiques accumulate into a short list of things that went wrong before, and that
+list is carried into the next attempt, the loop stops repeating itself.
+
+```
+attempt 1 → critique: "the date is not in the source"
+attempt 2 → given that note up front → different failure
+attempt 3 → given both notes
+```
+
+That is worth having when attempts are expensive and independent — a coding agent retrying a
+failing test, an agent whose tool call keeps erroring the same way. The list has to stay short
+and specific, or it becomes another paragraph of context competing for attention, which is the
+problem from
+[tokens and the context window](lesson:ai-llm-fundamentals.tokens-and-context) again.
+
+## What the exercise asks
+
+The three-call loop, with a bounded number of passes and early exit on an empty critique. Then
+a comparison harness that runs the loop against a fixed rubric and tells you whether each pass
+made the answer better, worse or merely different.
+
+The test that matters is the laundering one: a factually wrong draft goes in, the loop runs
+happily, and the assertion is that the error is still there afterwards. It is there so you know
+what reflection did not do.

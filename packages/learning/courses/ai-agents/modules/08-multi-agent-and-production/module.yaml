@@ -4,8 +4,8 @@ name: Multi-agent systems and production
 summary: Split one agent into several and route between them, orchestrate workers over a plan that can actually be fanned out, grade the trajectory and not just the answer, and answer the three questions production asks of a pile of trace records.
 version: 2.0.0
 track: agent
-order: 6
+order: 8
 isActive: true
-prerequisites: [ai-memory-and-rag]
+prerequisites: [ai-self-correction]
 difficulty: advanced
 estimatedHours: 5
