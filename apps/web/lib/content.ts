@@ -84,6 +84,27 @@ export const findLesson = (course: CourseEntry, moduleSlug: string, lessonSlug: 
 export const locateLesson = (lessonId: string) => findLessonById(manifest, lessonId)
 export const track = (course: CourseEntry, module: ModuleEntry) => trackOf(course, module)
 
+/**
+ * Every exercise in the catalogue, keyed by id, with the course and module that
+ * own it. The build guarantees these ids are unique across every course.
+ */
+export function exerciseIndex() {
+  const index = new Map<string, { courseId: string; moduleId: string; lessonId: string }>()
+  for (const course of activeCourses()) {
+    for (const module of activeModulesOf(course)) {
+      for (const lesson of module.lessons) {
+        if (!lesson.exercise) continue
+        index.set(lesson.exercise.id, {
+          courseId: course.id,
+          moduleId: module.id,
+          lessonId: lesson.id,
+        })
+      }
+    }
+  }
+  return index
+}
+
 /** Every (course, module, lesson) triple, for static generation across courses. */
 export function everyLesson() {
   return activeCourses().flatMap((course) =>

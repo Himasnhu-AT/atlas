@@ -334,11 +334,20 @@ const indent = (text: string) =>
     .map((line) => `      ${line}`)
     .join('\n')
 
+/** A rendered lesson, before cross-lesson links have been resolved. */
+type Compiled = {
+  id: string
+  html: string
+  exerciseFiles?: Record<string, string>
+  exerciseHash?: string
+}
+
 async function buildModule(
   course: { id: string; dir: string; tracks: { id: string }[] },
   lib: CourseLib,
   libDir: string,
   dir: string,
+  sink: Map<string, Compiled>,
 ): Promise<ModuleEntry | null> {
   const moduleDir = path.join(COURSES_DIR, course.dir, 'modules', dir)
   const metaPath = path.join(moduleDir, 'module.yaml')
@@ -491,15 +500,10 @@ async function buildModule(
   assertUnique(lessons.map((l) => l.id), at, 'duplicate lesson id')
   assertUnique(lessons.map((l) => l.order), at, 'duplicate lesson order')
 
-  if (!process.argv.includes('--check')) {
-    await mkdir(path.join(DIST_DIR, 'lessons'), { recursive: true })
-    for (const lesson of compiled) {
-      await writeFile(
-        path.join(DIST_DIR, 'lessons', `${lesson.id}.json`),
-        JSON.stringify({ ...lesson, moduleId: meta.id, courseId: course.id }),
-      )
-    }
-  }
+  // Handed to the caller rather than written here. Cross-lesson links can point
+  // at any lesson in the catalogue, so they cannot be resolved until every
+  // course has been read.
+  for (const lesson of compiled) sink.set(lesson.id, lesson)
 
   return { ...meta, courseId: course.id, lessons }
 }
@@ -592,6 +596,30 @@ function checkCourseBoundaries(courses: CourseEntry[]) {
   }
 }
 
+/**
+ * Rewrites `href="lesson:<id>"` into a real path, and hands the id to the client
+ * in `data-lesson`.
+ *
+ * A lesson body writes `[text](lesson:<id>)` so an author never has to know a
+ * URL shape, and until now the build validated that the target existed and then
+ * shipped the token verbatim. `lesson:` is not a scheme any browser knows, so
+ * every cross-lesson link in the course was inert: it looked like a link, took
+ * the pointer, and did nothing. The gate proved the target existed and nobody
+ * ever proved the link worked.
+ *
+ * The emitted `href` is the web app's path, because that is the one a link can
+ * usefully carry when it is copied, shared, or opened outside the app. The
+ * desktop app routes elsewhere (`/practice/...`) and intercepts clicks on
+ * `data-lesson` instead, which is why the id survives the rewrite rather than
+ * being dissolved into the path.
+ */
+function resolveCrossLinks(html: string, targets: Map<string, string>): string {
+  return html.replace(/href="lesson:([a-z0-9.-]+)"/g, (whole, id: string) => {
+    const href = targets.get(id)
+    return href ? `href="${href}" data-lesson="${id}"` : whole
+  })
+}
+
 /** Internal links are written as `lesson:<module-id>.<slug>`. */
 function checkCrossLinks(modules: ModuleEntry[], bodies: Map<string, string>) {
   const known = new Set(modules.flatMap((m) => m.lessons.map((l) => l.id)))
@@ -610,7 +638,11 @@ function checkCrossLinks(modules: ModuleEntry[], bodies: Map<string, string>) {
  * malformed, so one bad course reports as a content problem rather than taking
  * the whole build down with a stack trace.
  */
-async function buildCourse(dir: string, bodies: Map<string, string>): Promise<CourseEntry | null> {
+async function buildCourse(
+  dir: string,
+  bodies: Map<string, string>,
+  sink: Map<string, Compiled>,
+): Promise<CourseEntry | null> {
   const courseDir = path.join(COURSES_DIR, dir)
   const metaPath = path.join(courseDir, 'course.yaml')
   const at = `courses/${dir}`
@@ -656,7 +688,7 @@ async function buildCourse(dir: string, bodies: Map<string, string>): Promise<Co
       const { data, content } = matter(await readFile(path.join(moduleDir, file), 'utf8'))
       if (typeof data.id === 'string') bodies.set(data.id, content)
     }
-    const built = await buildModule({ ...meta, dir }, lib, libDir, moduleDirName)
+    const built = await buildModule({ ...meta, dir }, lib, libDir, moduleDirName, sink)
     if (built) modules.push(built)
   }
 
@@ -680,9 +712,10 @@ async function main() {
   }
 
   const bodies = new Map<string, string>()
+  const compiledLessons = new Map<string, Compiled>()
   const courses: CourseEntry[] = []
   for (const dir of dirs) {
-    const built = await buildCourse(dir, bodies)
+    const built = await buildCourse(dir, bodies, compiledLessons)
     if (built) courses.push(built)
   }
 
@@ -732,6 +765,34 @@ async function main() {
   if (!check) {
     await mkdir(DIST_DIR, { recursive: true })
     await writeFile(path.join(DIST_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2))
+
+    // Every lesson's path, so a `lesson:` link in any body can be resolved
+    // against the whole catalogue rather than only its own course.
+    const targets = new Map<string, string>()
+    const owners = new Map<string, { moduleId: string; courseId: string }>()
+    for (const course of courses) {
+      for (const module of course.modules) {
+        for (const lesson of module.lessons) {
+          targets.set(lesson.id, `/learn/${course.slug}/${module.slug}/${lesson.slug}`)
+          owners.set(lesson.id, { moduleId: module.id, courseId: course.id })
+        }
+      }
+    }
+
+    await mkdir(path.join(DIST_DIR, 'lessons'), { recursive: true })
+    for (const [id, lesson] of compiledLessons) {
+      const owner = owners.get(id)
+      if (!owner) continue
+      await writeFile(
+        path.join(DIST_DIR, 'lessons', `${id}.json`),
+        JSON.stringify({
+          ...lesson,
+          html: resolveCrossLinks(lesson.html, targets),
+          moduleId: owner.moduleId,
+          courseId: owner.courseId,
+        }),
+      )
+    }
   }
 
   const lessonCount = allModules.reduce((n, m) => n + m.lessons.length, 0)

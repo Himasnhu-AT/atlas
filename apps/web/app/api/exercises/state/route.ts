@@ -1,6 +1,6 @@
 import { SaveExerciseCode } from '@learn/core'
 
-import { BadRequestError, json, parseBody, route } from '@/lib/server/respond'
+import { BadRequestError, json, parseBody, preflight, route } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
 
@@ -34,3 +34,6 @@ export const PUT = route(async (request) => {
 
   return new Response(null, { status: 204 })
 })
+
+/** CORS preflight, so the desktop app can send an Authorization header. */
+export const OPTIONS = preflight

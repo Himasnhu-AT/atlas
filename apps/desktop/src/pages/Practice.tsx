@@ -74,7 +74,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
   const navigate = useNavigate()
   const desktop = isDesktop()
 
-  const { isComplete, markComplete, recordAttempt } = useProgress()
+  const { isComplete, markComplete, recordAttempt, recordPeek } = useProgress()
   const { layout, setFraction, toggleNav, toggleTerminal, reset: resetLayout } = useLayout()
 
   const [prepared, setPrepared] = useState<PreparedExercise | null>(null)
@@ -199,7 +199,12 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
         return
       }
 
-      recordAttempt(lesson.exercise?.id ?? lesson.id, report.passed)
+      // An exercise id, never a lesson id. These are separate namespaces and
+      // the old `?? lesson.id` fallback wrote both into the same column, so an
+      // attempt row could name something that was not an exercise at all.
+      // `handleRun` is unreachable without an exercise, so there is nothing to
+      // fall back to.
+      if (lesson.exercise) recordAttempt(lesson.exercise.id, report.passed)
       setStatus({
         tone: report.passed ? 'success' : 'error',
         text: summarize(report),
@@ -225,8 +230,10 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
   const handleShowSolution = useCallback(() => {
     if (!prepared) return
     setCode(prepared.reference)
+    // Revealing the reference is a recorded action, not just a buffer swap.
+    if (lesson.exercise) recordPeek(lesson.exercise.id, prepared.reference)
     setStatus({ tone: 'info', text: 'Showing the reference solution.' })
-  }, [prepared])
+  }, [prepared, recordPeek, lesson.exercise])
 
   const handleMarkComplete = useCallback(() => {
     markComplete(lesson.id, module.id, !done)
@@ -313,7 +320,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
                   label="Resize the lesson and editor panes"
                   fraction={layout.lessonFraction}
                   onFractionChange={(value) => setFraction('lessonFraction', value)}
-                  first={<LessonPane lessonRef={lessonRef} done={done} />}
+                  first={<LessonPane lessonRef={lessonRef} done={done} onNavigate={goTo} />}
                   second={
                     <EditorSlot
                       language="python"
@@ -326,7 +333,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
                   }
                 />
               ) : (
-                <LessonPane lessonRef={lessonRef} done={done} />
+                <LessonPane lessonRef={lessonRef} done={done} onNavigate={goTo} />
               )
 
               if (layout.terminalCollapsed) return workbench

@@ -16,9 +16,11 @@ const STORAGE_KEY = 'learn.progress.v1'
 interface LocalProgress {
   completed: Record<string, string>
   attempts: Record<string, { passed: boolean; at: string }>
+  /** When the learner revealed the reference, by exercise id. Sticky. */
+  peeked: Record<string, string>
 }
 
-const EMPTY: LocalProgress = { completed: {}, attempts: {} }
+const EMPTY: LocalProgress = { completed: {}, attempts: {}, peeked: {} }
 
 function read(): LocalProgress {
   try {
@@ -95,6 +97,34 @@ export function useProgress() {
     [],
   )
 
+  /**
+   * The learner asked for the reference.
+   *
+   * This is deliberately recorded, and deliberately sticky: revealing the answer
+   * is a real event in the pedagogy, and the server already has a
+   * `peeked_reference_at` column that only the web app ever wrote. Nothing here
+   * set it, so a "solved it unaided" signal read from the server would have been
+   * true of every desktop learner regardless of what they did.
+   */
+  const recordPeek = useCallback((exerciseId: string, currentCode: string) => {
+    setState((previous) => {
+      if (previous.peeked[exerciseId]) return previous
+      const next = {
+        ...previous,
+        peeked: { ...previous.peeked, [exerciseId]: new Date().toISOString() },
+      }
+      write(next)
+      return next
+    })
+
+    void mirror('/api/exercises/state', { exerciseId, currentCode, peeked: true })
+  }, [])
+
+  const hasPeeked = useCallback(
+    (exerciseId: string) => Boolean(state.peeked[exerciseId]),
+    [state.peeked],
+  )
+
   const recordAttempt = useCallback((exerciseId: string, passed: boolean) => {
     setState((previous) => {
       const next = {
@@ -116,5 +146,14 @@ export function useProgress() {
     [state.completed],
   )
 
-  return { loading, isComplete, markComplete, recordAttempt, lastAttempt, completedCount }
+  return {
+    loading,
+    isComplete,
+    markComplete,
+    recordAttempt,
+    recordPeek,
+    hasPeeked,
+    lastAttempt,
+    completedCount,
+  }
 }
