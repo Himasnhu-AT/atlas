@@ -1,6 +1,9 @@
 import { type ReactNode } from 'react'
 import { LayoutTemplate, PanelBottomOpen, Terminal } from 'lucide-react'
+
 import { cn } from '@atlas/ui'
+
+import { SyncPanel } from './SyncPanel'
 
 export interface AppHeaderProps {
   moduleTitle: string
@@ -37,6 +40,7 @@ export function AppHeader({
       </nav>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <SyncPanel />
         {terminalCollapsed ? (
           <IconAction label="Show the terminal" onClick={onShowTerminal}>
             <PanelBottomOpen aria-hidden className="size-4" />

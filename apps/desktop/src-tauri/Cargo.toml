@@ -32,7 +32,20 @@ tauri = { version = "2", features = [] }
 # grants a directory through the OS dialog, which is what makes reaching outside
 # the app sandbox legitimate.
 tauri-plugin-dialog = "2"
+# Opens the pairing URL in the system browser. Scoped to https in
+# capabilities/default.json: this is not a general "open anything" grant.
+tauri-plugin-shell = "2"
+# The API client lives in Rust so the bearer token never enters the webview.
+# rustls rather than the platform TLS stack, so a build does not depend on
+# OpenSSL being present on the machine that makes it.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+# For tests that need a throwaway directory. There was no dev-dependencies
+# section at all, so the moment `auth.rs` was declared as a module the whole
+# test suite stopped building.
+tempfile = "3"
 
 [profile.release]
 codegen-units = 1

@@ -131,8 +131,14 @@ function toError(cause: unknown, command: string): Error {
   return new Error(`\`${command}\` failed.`, { cause })
 }
 
-/** Arguments are serialised to JSON, so this is genuinely the value shape. */
-type InvokeArgs = Record<string, string | number | boolean | null>
+/**
+ * Arguments are serialised to JSON.
+ *
+ * `unknown` is admitted for the sync commands, whose payload is a whole request
+ * body rather than a scalar. Everything else still passes scalars, and the
+ * typed wrappers below are what actually constrain each command.
+ */
+type InvokeArgs = Record<string, string | number | boolean | null | unknown>
 
 async function call<T>(command: string, args?: InvokeArgs): Promise<T> {
   assertDesktop(command)
@@ -363,4 +369,85 @@ export function projectRoot(): Promise<string> {
  */
 export function projectAnalyse(rel = ''): Promise<AnalysisReport> {
   return call<AnalysisReport>('project_analyse', { rel })
+}
+
+/* --------------------------------------------------------------------- auth */
+
+/**
+ * Who is signed in.
+ *
+ * Deliberately never includes the token. It lives in a file Rust owns, and the
+ * requests that need it are made in Rust, so the webview has no reason to hold
+ * a thirty-day bearer credential and does not.
+ */
+export interface Account {
+  email: string
+  displayName: string
+  apiBase: string
+}
+
+export function authAccount(): Promise<Account | null> {
+  return call<Account | null>('auth_account')
+}
+
+export function authClear(): Promise<void> {
+  return call<void>('auth_clear')
+}
+
+/* --------------------------------------------------------------------- sync */
+
+export interface Pending {
+  count: number
+  signedIn: boolean
+}
+
+export interface DrainResult {
+  /** `idle` nothing queued · `signed-out` no account · `synced` · `unauthorized`. */
+  status: 'idle' | 'signed-out' | 'synced' | 'unauthorized'
+  sent: number
+  accepted: number
+  dropped: number
+  awarded: number
+  remaining: number
+  game?: unknown
+  detail?: string
+}
+
+export interface PairStart {
+  userCode: string
+  verificationUriComplete: string
+  intervalSeconds: number
+  deviceCode: string
+}
+
+export interface PairPoll {
+  status: 'pending' | 'expired' | 'approved'
+  account: Account | null
+}
+
+/**
+ * Queue an event for the server.
+ *
+ * The payload is the body of the route it names, so the outbox is those calls
+ * made durable rather than a second wire format. Returns the client event id,
+ * which is what makes a replay of the same batch harmless.
+ */
+export function syncQueue(kind: string, payload: unknown): Promise<string> {
+  return call<string>('sync_queue', { kind, payload })
+}
+
+export function syncPending(): Promise<Pending> {
+  return call<Pending>('sync_pending')
+}
+
+export function syncDrain(): Promise<DrainResult> {
+  return call<DrainResult>('sync_drain')
+}
+
+export function syncPairStart(name: string, platform: string): Promise<PairStart> {
+  return call<PairStart>('sync_pair_start', { name, platform })
+}
+
+export function syncPairPoll(deviceCode: string): Promise<PairPoll> {
+  return call<PairPoll>('sync_pair_poll', { deviceCode })
 }

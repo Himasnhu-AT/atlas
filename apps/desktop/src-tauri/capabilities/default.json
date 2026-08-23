@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimum surface the main window needs: window controls, the event bus that carries `pty:output`, path/app metadata, and the folder picker. The app's own commands (pty_*, workspace_*, project_*, run_tests, preflight) are registered through `invoke_handler` and are not plugin commands, so they are not listed here. The dialog plugin is limited to opening a folder: it is how a student grants the app access to their own repository, and it is the ONLY way a path outside the sandbox is ever established. No filesystem, shell or http plugin is enabled.",
+  "description": "Minimum surface the main window needs: window controls, the event bus that carries `pty:output`, path/app metadata, the folder picker, and opening a pairing URL in the system browser. The app's own commands (pty_*, workspace_*, project_*, auth_*, sync_*, run_tests, preflight) are registered through `invoke_handler` and are not plugin commands, so they are not listed here. The dialog plugin is limited to opening a folder: it is how a student grants the app access to their own repository, and it is the ONLY way a path outside the sandbox is ever established. The shell plugin is limited to opening https URLs and cannot execute anything. No filesystem or http plugin is enabled: the API client lives in Rust so the bearer token never enters the webview.",
   "local": true,
   "windows": [
     "main"
@@ -13,6 +13,17 @@
     "core:resources:default",
     "core:webview:default",
     "core:window:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://localhost:*"
+        }
+      ]
+    }
   ]
 }

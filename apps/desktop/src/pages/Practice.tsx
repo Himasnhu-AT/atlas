@@ -204,7 +204,18 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
       // attempt row could name something that was not an exercise at all.
       // `handleRun` is unreachable without an exercise, so there is nothing to
       // fall back to.
-      if (lesson.exercise) recordAttempt(lesson.exercise.id, report.passed)
+      // The whole report, not just the verdict. The server reads `durationMs`
+      // for the inside-the-timebox seal and the counts for the attempt history,
+      // and none of that survives being flattened to a boolean here.
+      if (lesson.exercise) {
+        recordAttempt(lesson.exercise.id, {
+          passed: report.passed,
+          testsPassed: report.testsPassed,
+          testsTotal: report.testsTotal,
+          durationMs: report.durationMs,
+          stdoutTail: report.output,
+        })
+      }
       setStatus({
         tone: report.passed ? 'success' : 'error',
         text: summarize(report),
