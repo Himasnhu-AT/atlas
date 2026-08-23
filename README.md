@@ -61,8 +61,8 @@ Two, and the platform assumes there will be more.
 
 | Course | Modules | Lessons | Exercises | Hours | Needs |
 |---|---|---|---|---|---|
-| AI agent engineering | 11 | 45 | 35 | 47 | Python 3.10+ |
-| Data engineering | 5 | 17 | 13 | 14 | Python 3.10+ |
+| AI agent engineering | 13 | 54 | 42 | 55 | Python 3.10+ |
+| Data engineering | 5 | 17 | 13 | 13.5 | Python 3.10+ |
 
 Neither needs anything installed beyond an interpreter. The AI course runs against `mockllm`;
 the data course uses `csv`, `json`, `sqlite3` and `datetime`, all standard library, and ships
@@ -70,7 +70,7 @@ its own deterministic fixture generator the same way.
 
 ### AI agent engineering
 
-11 modules, 45 lessons and 35 graded exercises, across four tracks.
+13 modules, 54 lessons and 42 graded exercises, across four tracks.
 
 | # | Module | Track | Lessons | Exercises | Hours |
 |---|---|---|---|---|---|

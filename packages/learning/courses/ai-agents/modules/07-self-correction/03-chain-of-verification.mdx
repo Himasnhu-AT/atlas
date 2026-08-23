@@ -1,0 +1,104 @@
+---
+id: ai-self-correction.chain-of-verification
+title: Chain of verification
+summary: Break the answer into claims, check each one on its own without the argument that produced it, and reassemble. The independence comes from what you leave out of the checking prompt.
+order: 3
+estimatedMinutes: 35
+exercise:
+  id: verify-claims
+  timeboxMinutes: 35
+---
+
+Reflection asks *"what is wrong with this answer?"* and gets a critique shaped by the answer.
+Chain of verification asks a different question entirely: it takes the answer apart, and asks
+about each piece as though it had never seen the rest.
+
+Four steps.
+
+**Decompose.** Split the draft into individual factual claims. One assertion each.
+
+**Question.** Turn each claim into a question that could be answered without knowing the claim.
+
+**Answer independently.** Answer each question in a fresh context. This is the step that does
+the work, and it is the step people skip.
+
+**Reconcile.** Compare each independent answer to the original claim, and rewrite the draft
+around whatever survived.
+
+## The independence is in the prompt, not the pattern
+
+You can implement all four steps and get nothing, and the way that happens is including the
+draft in the verification call.
+
+```python
+# Does nothing. The claim is right there.
+verify(f"Draft: {draft}\n\nIs this claim true: {claim}?")
+
+# Does the work. The model answers the question cold.
+verify(f"{question}")
+```
+
+The second one has no draft, no other claims, and no reasoning. If the answer comes back
+different from the claim, that difference is information, because the two were produced from
+different inputs.
+
+This is the same argument as the previous module's guardrail and the same argument as the last
+lesson, and it keeps being the same argument: **a check is worth what it did not read.**
+
+## Decomposition is the hard part
+
+The pattern's reputation rests on step one, and step one is fiddly.
+
+**One assertion per claim.** *"The 2019 model was released in March and sold 40,000 units"* is
+two claims, and verifying it as one gives you a single verdict on a sentence that could be half
+right. Split on the conjunction.
+
+**Claims must stand alone.** *"It was discontinued the following year"* cannot be checked, because
+"it" and "following" are relative to the sentence before. Resolve the references during
+decomposition or the verification question is unanswerable.
+
+**Not everything is a claim.** *"This is a significant improvement"* is a judgement, and running
+it through a fact check produces a confident-sounding verdict on an opinion. Separate the
+checkable from the not-checkable, and only verify the first kind.
+
+That third one is where most implementations go wrong. A verification pass that returns
+`verified: true` on *"the results are impressive"* has taught you nothing and looks like it
+taught you something.
+
+## Reconciling
+
+Each claim comes back supported, contradicted, or unsupported, and those three want different
+treatment.
+
+**Supported** stays.
+
+**Contradicted** — the independent answer says something different — gets corrected or removed.
+Correcting is better when you trust the independent answer; removing is safer when you do not.
+
+**Unsupported** — the independent answer did not know — is the one people get wrong. It is not
+the same as contradicted. The claim may be perfectly true and simply outside what the
+verification could reach. Deleting it silently loses good content; keeping it silently keeps a
+claim you failed to check. Mark it and let the caller decide, which is the same shape as the
+quarantine in the data engineering course:
+[quarantine, not deletion](lesson:de-cleaning.quarantine-not-deletion).
+
+## Where you have already seen this
+
+[The verification pass](lesson:ai-research-briefing.the-verification-pass) in the research
+briefing project is this pattern applied to citations: every factual sentence is checked against
+the source text it claims to come from, and anything that fails does not ship.
+
+That project version has an advantage this one does not — the source text is right there, so
+the check is against a document rather than against another model call. When you have a source,
+use it. Model-answers-question is the fallback for when you do not, and it is weaker.
+
+## What the exercise asks
+
+Decompose a draft into claims, separate the checkable ones from the judgements, generate a
+verification question for each, answer them in fresh contexts, and reconcile into a final
+answer with the three verdicts kept distinct.
+
+The test worth reading twice checks the independence precisely, because the loose version of the
+claim is wrong. The claim under test **has** to be in its own verification prompt, or there is
+no question to ask. What must not be there is the rest of the draft: the other claims, and the
+reasoning that produced them. That is the whole pattern, and it is one line to get wrong.

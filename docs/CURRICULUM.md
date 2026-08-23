@@ -57,14 +57,22 @@ how you know it worked.**
 | 3 | Tool use | The loop. A model that can act, observe, and stop. |
 | 4 | Agent frameworks | What an abstraction over that loop buys and costs. |
 | 5 | Memory and RAG | Knowledge the model was never trained on, and a bounded prompt. |
-| 6 | Multi-agent and production | More than one loop, and how you know any of it works. |
-| 7 | State graphs | One runtime style, rebuilt: durable state and resume. |
-| 8 | Handoffs and typed output | The other runtime style, rebuilt: control and contracts. |
-| 9 | Support triage | Everything, applied to one agent with a behaviour contract. |
-| 10 | Research briefing | Everything, applied to many agents with a verification pass. |
+| 6 | Agent security | Tool output and retrieved text are attacker-controlled input. |
+| 7 | Self-correction | A second look is only worth what it did not read. |
+| 8 | Multi-agent and production | More than one loop, and how you know any of it works. |
+| 9 | State graphs | One runtime style, rebuilt: durable state and resume. |
+| 10 | Handoffs and typed output | The other runtime style, rebuilt: control and contracts. |
+| 11 | Support triage | Everything, applied to one agent with a behaviour contract. |
+| 12 | Research briefing | Everything, applied to many agents with a verification pass. |
 
-Tracks: modules 0 to 2 are `base`, 3 to 6 are `agent`, 7 and 8 are `frameworks`, 9 and 10 are
+Tracks: modules 0 to 2 are `base`, 3 to 8 are `agent`, 9 and 10 are `frameworks`, 11 and 12 are
 `projects`. `order` is global across tracks, not per track.
+
+Modules 6 and 7 were added after the first eleven, from a survey of what the field covers that
+this course did not. Both were in `docs/PLAN.md`'s original syllabus and had been dropped:
+security was implicit in "guardrails" and never stated, and reflection had a module of its own
+that never shipped. They sit before multi-agent because both are properties of a single agent,
+and the projects then apply them.
 
 ## Where each idea is introduced, and where it is paid off
 
@@ -82,7 +90,10 @@ deliberately small, and cashed in later.
 | A trace record per step | 4.3 middleware and tracing | 6.4 observability and cost, 10.1 what fan out costs |
 | Grounding and refusing to answer | 5.4 the RAG pipeline | 9.2 grounded answers and scope |
 | Decomposition and aggregation | 6.2 orchestrator and workers | 10.1 fan out, 10.2 writing the brief |
-| An escalation or handoff payload | 6.1 routing and specialists | 8.2 handoffs, 9.3 when to hand over |
+| An escalation or handoff payload | 8.1 routing and specialists | 10.2 handoffs, 11.3 when to hand over |
+| Untrusted text in the context | 6.1 the attack surface | 6.3 least privilege, 6.4 out-of-band checks |
+| A check is worth what it did not read | 6.4 the guardrail that shares the compromise | 7.1 marking its own homework, 7.3 chain of verification |
+| Keeping what you could not check | 1.3 quarantine (data course) | 7.3 unsupported claims, 7.5 ambiguous chunks |
 
 If you add a lesson, it belongs in this table. If it does not, ask what it is for.
 
@@ -209,7 +220,38 @@ The embeddings in `mockllm` are the hashing trick, so they match on shared words
 match synonyms. Lessons say so rather than hiding it. Everything built here works the same way
 against a real embedding API and simply gets better at paraphrase.
 
-### 6. Multi-agent systems and production (`ai-multi-agent-and-production`, agent)
+### 6. Agent security (`ai-agent-security`, agent)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | The context is the attack surface | |
+| 2 | Injection through a tool result | `injected-tool-output` |
+| 3 | Least privilege for tools | `tool-permissions` |
+| 4 | A guardrail that cannot be talked out of | `out-of-band-check` |
+
+The exercise in lesson 2 asserts a false positive rate ABOVE zero on legitimate documentation.
+That assertion is the lesson: a detector tight enough to catch the quiet attack flags the refund
+policy page, because that page is instructions. Do not tune the patterns to make it pass.
+
+### 7. Self-correction (`ai-self-correction`, agent)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Marking its own homework | |
+| 2 | Reflection and its failure mode | `reflect-and-revise` |
+| 3 | Chain of verification | `verify-claims` |
+| 4 | Self-consistency | `sample-and-agree` |
+| 5 | Retrieval that corrects itself | `corrective-retrieval` |
+
+Five lessons, at the top of the range the module shape allows, because the RAG variants belong
+here rather than bolted onto module 5: corrective, self and adaptive RAG are self-correction
+applied to retrieval, and putting them in Memory and RAG would have made that module six
+lessons and buried the connection.
+
+The reflection exercise ends with a test asserting the loop leaves a factual error in place. It
+is there so nobody mistakes reflection for verification.
+
+### 8. Multi-agent systems and production (`ai-multi-agent-and-production`, agent)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -222,7 +264,7 @@ The last module before the projects, so it is where "does it work" and "what did
 become first class. Evaluating an agent is treated as harder than evaluating a prompt, because
 there is a trajectory and not just an output.
 
-### 7. State graphs and durable execution (`ai-state-graphs`, frameworks)
+### 9. State graphs and durable execution (`ai-state-graphs`, frameworks)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -231,7 +273,7 @@ there is a trajectory and not just an output.
 | 3 | The super-step | `super-step-engine` |
 | 4 | Checkpoints, resume and time travel | `checkpoint-saver` |
 
-### 8. Handoffs, guardrails, and typed output (`ai-handoffs-and-typed-output`, frameworks)
+### 10. Handoffs, guardrails, and typed output (`ai-handoffs-and-typed-output`, frameworks)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -240,7 +282,7 @@ there is a trajectory and not just an output.
 | 3 | Guardrails that can stop a run | `guardrail-tripwire` |
 | 4 | Typed output and the retry loop | `validated-output` |
 
-### 9. Support triage that knows when to escalate (`ai-support-triage`, projects)
+### 11. Support triage that knows when to escalate (`ai-support-triage`, projects)
 
 | # | Lesson | Exercise |
 |---|---|---|
@@ -249,7 +291,7 @@ there is a trajectory and not just an output.
 | 3 | When to hand over | `escalation-contract` |
 | 4 | Grading the behaviour | `persona-harness` |
 
-### 10. Research briefing with verified citations (`ai-research-briefing`, projects)
+### 12. Research briefing with verified citations (`ai-research-briefing`, projects)
 
 | # | Lesson | Exercise |
 |---|---|---|

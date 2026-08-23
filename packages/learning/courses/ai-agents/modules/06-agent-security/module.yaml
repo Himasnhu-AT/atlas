@@ -1,0 +1,11 @@
+id: ai-agent-security
+slug: agent-security
+name: Agent security
+summary: "Everything the model reads is input, and most of it did not come from you. Tool results and retrieved documents are attacker-controlled text landing in the same array as your system prompt, and the model cannot tell them apart."
+version: 1.0.0
+track: agent
+order: 6
+isActive: true
+prerequisites: [ai-memory-and-rag]
+difficulty: intermediate
+estimatedHours: 3.5

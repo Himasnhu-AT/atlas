@@ -1,0 +1,107 @@
+---
+id: ai-self-correction.retrieval-that-corrects-itself
+title: Retrieval that corrects itself
+summary: The pipeline you built always retrieves and always trusts what it gets back. Grading the results, re-querying when they miss, and deciding whether to retrieve at all is self-correction applied to the one part that can go and find the missing fact.
+order: 5
+estimatedMinutes: 35
+exercise:
+  id: corrective-retrieval
+  timeboxMinutes: 35
+---
+
+[The RAG pipeline](lesson:ai-memory-and-rag.the-rag-pipeline) does the same four things every
+time: embed the question, take the top k, put them in the prompt, answer. It is the right thing
+to build first and it has two assumptions in it that are not always true.
+
+It assumes the top k are relevant. Similarity search always returns something; on a question
+your corpus does not cover, it returns the least irrelevant chunks with no signal that this is
+what happened.
+
+And it assumes retrieval was needed at all. *"Thanks, that helped"* triggers an embedding call
+and stuffs three chunks of documentation into the context of a message that needed neither.
+
+Everything in this lesson is the module's one idea — check the thing that produced the answer,
+using something independent of it — pointed at retrieval. The difference is that here the
+correction can succeed, because unlike a model thinking harder, a retriever can go and get the
+missing fact.
+
+## Grade what came back
+
+The fix for the first assumption is a step between retrieval and generation: for each retrieved
+chunk, does it actually help answer this question?
+
+That grade is per chunk, not per result set, and it is a small independent judgement — the chunk
+and the question, nothing else. Three outcomes:
+
+**Relevant.** Keep it.
+
+**Not relevant.** Drop it. A chunk that scored well on embedding similarity and does not answer
+the question is noise, and noise in the context makes the answer worse rather than merely not
+better.
+
+**Ambiguous.** Keep it and mark it, exactly like the unsupported claims in
+[chain of verification](lesson:ai-self-correction.chain-of-verification).
+
+The interesting case is when everything is graded not relevant. That is the pipeline
+discovering that its corpus does not cover the question, which the plain version could never
+find out.
+
+## Then do something about it
+
+Knowing the retrieval failed is only useful if there is a next move.
+
+**Re-query.** The commonest reason for a bad result set is that the question is not phrased the
+way the documents are. A user asks *"why did my card get declined"*; the documentation says
+*"error 402: payment method rejected"*. Rewriting the query into the corpus's vocabulary and
+searching again is cheap and often works.
+
+**Widen.** Take more chunks, or drop a filter that was excluding the right document.
+
+**Say you do not know.** The answer nobody implements, and the correct one when the corpus
+genuinely lacks the fact. It is much better than the alternative, which is answering anyway from
+whatever was in the context. The support project makes this a rule in
+[grounded answers and the scope boundary](lesson:ai-support-triage.grounded-answers-and-scope);
+this is the retrieval-side machinery that lets you honour it.
+
+Bound the re-querying. Two attempts, then stop. A loop that keeps rewriting until it finds
+something will eventually find something, and what it finds will be whatever matched the query
+it drifted into.
+
+## Decide whether to retrieve
+
+The second assumption. Not every message needs the corpus.
+
+A cheap classification before retrieving — does answering this need documents we hold? — skips
+the whole pipeline for conversational turns, for questions answerable from the conversation so
+far, and for anything the model plainly knows.
+
+Two things this buys beyond latency. It stops irrelevant chunks landing in the context of a
+message that did not need them, which is a real quality improvement and not just a saving. And
+it makes the retrieval that does happen more legible in a trace, because a retrieval call now
+means something decided it was necessary.
+
+The risk is skipping when you should not have, and it points one way: **when unsure, retrieve.**
+An unnecessary retrieval costs tokens. A skipped necessary one costs a wrong answer delivered
+confidently.
+
+## The three names
+
+These get sold as three architectures. They are three decisions.
+
+Grading results and re-querying on failure is usually called **corrective RAG**. Deciding
+whether to retrieve at all is **adaptive RAG**. Having the generation step also judge whether
+its own answer is supported by what it retrieved is **self-RAG**, and that last one is chain of
+verification with the retrieved chunks as the source.
+
+Worth knowing the words because papers and libraries use them. Not worth treating as three
+things to choose between: they compose, and a real pipeline usually wants all three, each of
+them a few lines around the pipeline you already have.
+
+## What the exercise asks
+
+A relevance grader, a query rewriter, a bounded corrective loop that re-queries and gives up
+honestly, and the decision about whether to retrieve at all.
+
+The test to read is the one where the corpus does not contain the answer: the assertion is that
+the pipeline says so, rather than answering from three chunks that scored well and were about
+something else.
