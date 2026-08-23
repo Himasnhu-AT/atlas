@@ -26,14 +26,25 @@ export const LevelState = z.object({
 })
 export type LevelState = z.infer<typeof LevelState>
 
-export const StreakSummary = z.object({
-  days: z.number().int().nonnegative(),
-  rawDays: z.number().int().nonnegative(),
-  freezesAvailable: z.number().int().nonnegative(),
-  freezesSpent: z.number().int().nonnegative(),
-  longest: z.number().int().nonnegative(),
+/**
+ * The week against the target the learner set for themselves.
+ *
+ * Not a daily streak. See `weekly.ts` for why this product does not have one.
+ */
+export const WeeklyTarget = z.object({
+  /** Days a week the learner asked of themselves. */
+  target: z.number().int().min(1).max(7),
+  daysActive: z.number().int().min(0).max(7),
+  met: z.boolean(),
+  /** Monday of the current week, `YYYY-MM-DD`. */
+  weekStart: z.string(),
+  /** Completed weeks behind this one whose target was met. */
+  weeksInARow: z.number().int().nonnegative(),
+  bestWeeks: z.number().int().nonnegative(),
+  /** False until the learner has chosen a target rather than been given one. */
+  chosen: z.boolean(),
 })
-export type StreakSummary = z.infer<typeof StreakSummary>
+export type WeeklyTarget = z.infer<typeof WeeklyTarget>
 
 export const QuestState = z.object({
   id: z.string(),
@@ -74,7 +85,7 @@ export type CourseStanding = z.infer<typeof CourseStanding>
 
 export const GameState = z.object({
   level: LevelState,
-  streak: StreakSummary,
+  week: WeeklyTarget,
   quests: z.array(QuestState),
   /** Every seal, earned or not, so the ledger can show the blanks. */
   seals: z.array(SealState),
@@ -105,5 +116,9 @@ export type Leaderboard = z.infer<typeof Leaderboard>
 export const ClaimQuest = z.object({ claimKey: z.string().max(120) })
 export type ClaimQuest = z.infer<typeof ClaimQuest>
 
-export const UpdateGameSettings = z.object({ leaderboardOptIn: z.boolean() })
+export const UpdateGameSettings = z.object({
+  leaderboardOptIn: z.boolean().optional(),
+  /** Days a week. The learner sets this; nothing else may. */
+  weeklyTarget: z.number().int().min(1).max(7).optional(),
+})
 export type UpdateGameSettings = z.infer<typeof UpdateGameSettings>

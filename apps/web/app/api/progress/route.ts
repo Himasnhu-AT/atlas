@@ -6,7 +6,7 @@ import { store } from '@/lib/server/store'
 import {
   awardsForLessonCompletion,
   evaluateSeals,
-  evaluateStreak,
+  evaluateWeek,
   grant,
 } from '@/lib/server/xp'
 
@@ -55,7 +55,7 @@ export const PUT = route(async (request) => {
   if (body.status === 'completed') {
     const awards = await awardsForLessonCompletion(user.id, body.lessonId, body.moduleId)
     await grant(user.id, awards, now)
-    await grant(user.id, await evaluateStreak(user.id), now)
+    await grant(user.id, await evaluateWeek(user.id), now)
     await grant(user.id, await evaluateSeals(user.id), now)
   }
 

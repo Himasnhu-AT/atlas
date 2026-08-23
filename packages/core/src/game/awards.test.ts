@@ -10,7 +10,8 @@ import {
   moduleAward,
   questAward,
   sealAward,
-  streakAward,
+  weekMetAward,
+  weekMilestoneAward,
 } from './awards'
 
 const beginner: ModuleLike = { id: 'ai-foundations', courseId: 'ai-agents', difficulty: 'beginner' }
@@ -61,9 +62,18 @@ describe('award keys', () => {
 })
 
 describe('what things are worth', () => {
-  it('pays a lesson one XP per measured minute', () => {
-    assert.equal(lessonAward({ id: 'x.y', estimatedMinutes: 12 }, beginner).points, 12)
-    assert.equal(lessonAward({ id: 'x.y', estimatedMinutes: 60 }, beginner).points, 60)
+  it('pays a lesson a flat, small amount regardless of length', () => {
+    // Paying by length put a third of the economy behind a self-reported button
+    // that verifies nothing, and made a sixty-minute lesson worth sixty XP to
+    // anyone willing to click through it.
+    assert.equal(lessonAward({ id: 'x.y', estimatedMinutes: 12 }, beginner).points, 5)
+    assert.equal(lessonAward({ id: 'x.y', estimatedMinutes: 60 }, beginner).points, 5)
+  })
+
+  it('keeps reading worth far less than demonstrated work', () => {
+    const reading = lessonAward({ id: 'x.y', estimatedMinutes: 60 }, beginner).points
+    const doing = exerciseAwards(exercise, beginner, unaidedFirstTry).reduce((n, a) => n + a.points, 0)
+    assert.ok(doing > reading * 10, `${doing} vs ${reading}`)
   })
 
   it('scales an exercise by timebox and difficulty', () => {
@@ -101,22 +111,26 @@ describe('what things are worth', () => {
   })
 })
 
-describe('streak milestones', () => {
-  it('pays only on the seventh day and its multiples', () => {
-    assert.equal(streakAward(1), null)
-    assert.equal(streakAward(6), null)
-    assert.equal(streakAward(8), null)
-    assert.equal(streakAward(7)?.points, 25)
-    assert.equal(streakAward(14)?.points, 50)
+describe('the weekly target', () => {
+  it('pays once for a week that met its target, keyed by that week', () => {
+    assert.equal(weekMetAward('2026-08-17').awardKey, 'week:2026-08-17')
+    assert.equal(weekMetAward('2026-08-17').points, 60)
+    // Keyed by the week worked rather than by a running count, so nothing is
+    // lost by missing the next one.
+    assert.notEqual(weekMetAward('2026-08-17').awardKey, weekMetAward('2026-08-24').awardKey)
   })
 
-  it('caps, so a streak never becomes the cheapest XP in the game', () => {
-    assert.equal(streakAward(70)?.points, 200)
-    assert.equal(streakAward(700)?.points, 200)
+  it('marks a run of weeks only at sparse milestones', () => {
+    assert.equal(weekMilestoneAward(1), null)
+    assert.equal(weekMilestoneAward(3), null)
+    assert.equal(weekMilestoneAward(5), null)
+    assert.equal(weekMilestoneAward(4)?.points, 50)
+    assert.equal(weekMilestoneAward(12)?.points, 100)
+    assert.equal(weekMilestoneAward(52)?.points, 200)
   })
 
-  it('keys by the day count so a milestone cannot be re-earned', () => {
-    assert.equal(streakAward(7)?.awardKey, 'streak:7')
+  it('keys a milestone by the run so it cannot be re-earned', () => {
+    assert.equal(weekMilestoneAward(4)?.awardKey, 'weeks:4')
   })
 })
 
@@ -128,7 +142,7 @@ describe('carrying the course', () => {
   })
 
   it('leaves a global award without a course', () => {
-    assert.equal(streakAward(7)?.courseId, undefined)
+    assert.equal(weekMetAward('2026-08-17').courseId, undefined)
     assert.equal(questAward('pass-one', '2026-08-23', false).courseId, undefined)
   })
 })

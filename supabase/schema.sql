@@ -167,7 +167,12 @@ create table if not exists user_game (
   -- A cache of sum(points). `xp_awards` is authoritative; this exists so a
   -- leaderboard does not aggregate the ledger per row.
   total_xp           integer not null default 0,
-  longest_streak     integer not null default 0,
+  -- Days a week the learner asked of themselves, and whether they actually
+  -- picked it. There is deliberately no daily streak column: see
+  -- packages/core/src/game/weekly.ts for why this product does not have one.
+  weekly_target        integer not null default 3 check (weekly_target between 1 and 7),
+  weekly_target_chosen boolean not null default false,
+  best_weeks           integer not null default 0,
   leaderboard_opt_in boolean not null default false,
   -- IANA zone, captured at signup. The server assigns the day a piece of
   -- activity belongs to, so a client clock cannot decide what day it is.

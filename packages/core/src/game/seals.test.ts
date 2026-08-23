@@ -46,8 +46,8 @@ describe('the seal table', () => {
       completedLessons: new Set(lessons),
       coursesTouched: new Set(['ai-agents', 'data-engineering']),
       coursesCompleted: new Set(['ai-agents']),
-      streakDays: 100,
-      freezesSpent: 1,
+      weeksInARow: 52,
+      weeksMet: 60,
       catalogue: { exerciseIds: exercises, lessonIds: lessons },
     })
     const earned = new Set(newlyEarnedSeals(everything, new Set()).map((s) => s.id))
@@ -108,11 +108,28 @@ describe('individual predicates', () => {
     assert.ok(seal.earned(evidence({ coursesTouched: new Set(['ai-agents', 'data-engineering']) })))
   })
 
-  it('streak seals step at 7, 30 and 100', () => {
-    for (const [id, days] of [['week', 7], ['month', 30], ['hundred', 100]] as const) {
+  it('week seals step at 4, 12 and 52 consecutive weeks', () => {
+    for (const [id, weeks] of [['four-weeks', 4], ['a-season', 12], ['a-year', 52]] as const) {
       const seal = SEALS_BY_ID.get(id)!
-      assert.ok(!seal.earned(evidence({ streakDays: days - 1 })), `${id} not at ${days - 1}`)
-      assert.ok(seal.earned(evidence({ streakDays: days })), `${id} at ${days}`)
+      assert.ok(!seal.earned(evidence({ weeksInARow: weeks - 1 })), `${id} not at ${weeks - 1}`)
+      assert.ok(seal.earned(evidence({ weeksInARow: weeks })), `${id} at ${weeks}`)
+    }
+  })
+
+  it('rewards a single met week without asking for a run', () => {
+    const seal = SEALS_BY_ID.get('first-week')!
+    assert.ok(!seal.earned(emptyEvidence()))
+    assert.ok(seal.earned(evidence({ weeksMet: 1 })))
+  })
+
+  it('has no seal that punishes taking days off', () => {
+    // The day-streak seals asked a learner never to take two days off in three
+    // months. Nothing here should reward unbroken daily attendance.
+    for (const seal of SEALS) {
+      assert.ok(
+        !/\bday(s)? running\b|\bconsecutive days\b/i.test(seal.requirement),
+        `${seal.id} asks for consecutive days: ${seal.requirement}`,
+      )
     }
   })
 })
@@ -131,11 +148,11 @@ describe('newlyEarnedSeals', () => {
     // Predicates are pure over evidence rather than hooked to a live event, so
     // a seal introduced next month is awarded to the people who already earned
     // it rather than only to whoever triggers it next.
-    const e = evidence({ streakDays: 40, passedExercises: new Set(['a']) })
+    const e = evidence({ weeksInARow: 13, weeksMet: 20, passedExercises: new Set(['a']) })
     const held = new Set(['first-light'])
     const caughtUp = newlyEarnedSeals(e, held).map((s) => s.id)
-    assert.ok(caughtUp.includes('week'))
-    assert.ok(caughtUp.includes('month'))
+    assert.ok(caughtUp.includes('four-weeks'))
+    assert.ok(caughtUp.includes('a-season'))
     assert.ok(!caughtUp.includes('first-light'))
   })
 })
