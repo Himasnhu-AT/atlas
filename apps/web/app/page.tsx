@@ -1,12 +1,12 @@
 import Link from 'next/link'
-import manifest from '@learn/learning/manifest'
 
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { Reveal } from '@/components/reveal'
 import { PullQuote, Rule, RuledList, RuledRow, Wrap } from '@/components/layout'
+import { everyModule } from '@/lib/content'
 
-const modules = [...manifest.modules].sort((a, b) => a.order - b.order)
+const modules = everyModule()
 const exerciseCount = modules.reduce(
   (n, m) => n + m.lessons.filter((l) => l.exercise).length,
   0,

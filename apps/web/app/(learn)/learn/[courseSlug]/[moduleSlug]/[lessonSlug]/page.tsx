@@ -8,42 +8,41 @@ import { LessonBody } from '@/components/lesson-body'
 import { LessonSidebar } from '@/components/lesson-sidebar'
 import { CompleteButton } from '@/components/complete-button'
 import { ExerciseCallout } from '@/components/exercise-callout'
-import { findLesson, lessonSequence, loadLesson, neighbours } from '@/lib/content'
+import { everyLesson, findCourse, findLesson, loadLesson, neighbours } from '@/lib/content'
 import { currentUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
 
+type Params = Promise<{ courseSlug: string; moduleSlug: string; lessonSlug: string }>
+
 export function generateStaticParams() {
-  return lessonSequence().map(({ module, lesson }) => ({
+  return everyLesson().map(({ course, module, lesson }) => ({
+    courseSlug: course.slug,
     moduleSlug: module.slug,
     lessonSlug: lesson.slug,
   }))
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ moduleSlug: string; lessonSlug: string }>
-}): Promise<Metadata> {
-  const { moduleSlug, lessonSlug } = await params
-  const found = findLesson(moduleSlug, lessonSlug)
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { courseSlug, moduleSlug, lessonSlug } = await params
+  const course = findCourse(courseSlug)
+  const found = course && findLesson(course, moduleSlug, lessonSlug)
   return found ? { title: found.lesson.title, description: found.lesson.summary } : {}
 }
 
-export default async function LessonPage({
-  params,
-}: {
-  params: Promise<{ moduleSlug: string; lessonSlug: string }>
-}) {
-  const { moduleSlug, lessonSlug } = await params
+export default async function LessonPage({ params }: { params: Params }) {
+  const { courseSlug, moduleSlug, lessonSlug } = await params
 
-  const found = findLesson(moduleSlug, lessonSlug)
+  const course = findCourse(courseSlug)
+  if (!course) notFound()
+
+  const found = findLesson(course, moduleSlug, lessonSlug)
   if (!found) notFound()
 
   const { module, lesson } = found
   const compiled = await loadLesson(lesson.id)
   if (!compiled) notFound()
 
-  const { previous, next } = neighbours(lesson.id)
+  const { previous, next } = neighbours(course, lesson.id)
 
   // Reading is open to everyone. Only progress state needs a session.
   const user = await currentUser()
@@ -68,7 +67,7 @@ export default async function LessonPage({
             <header className="max-w-[62ch]">
               <p className="text-eyebrow font-medium uppercase text-muted">
                 <Link
-                  href={`/learn/${module.slug}`}
+                  href={`/learn/${course.slug}/${module.slug}`}
                   className="transition-colors duration-200 ease-paper hover:text-ink"
                 >
                   {module.name}
@@ -106,7 +105,7 @@ export default async function LessonPage({
                 />
               ) : (
                 <Link
-                  href={`/login?next=/learn/${module.slug}/${lesson.slug}`}
+                  href={`/login?next=/learn/${course.slug}/${module.slug}/${lesson.slug}`}
                   className="inline-flex min-h-11 items-center rounded-field border border-rule-strong px-5 text-caption font-medium text-ink transition-colors duration-200 ease-paper hover:bg-paper-raised"
                 >
                   Sign in to track progress
@@ -119,7 +118,7 @@ export default async function LessonPage({
               >
                 {previous ? (
                   <Link
-                    href={`/learn/${previous.module.slug}/${previous.lesson.slug}`}
+                    href={`/learn/${course.slug}/${previous.module.slug}/${previous.lesson.slug}`}
                     className="group py-6 transition-colors duration-200 ease-paper hover:bg-paper-raised sm:pr-8"
                   >
                     <span className="text-caption text-muted">Previous</span>
@@ -133,7 +132,7 @@ export default async function LessonPage({
 
                 {next && (
                   <Link
-                    href={`/learn/${next.module.slug}/${next.lesson.slug}`}
+                    href={`/learn/${course.slug}/${next.module.slug}/${next.lesson.slug}`}
                     className="group border-t border-rule py-6 transition-colors duration-200 ease-paper hover:bg-paper-raised sm:border-t-0 sm:border-l sm:pl-8 sm:text-right"
                   >
                     <span className="text-caption text-muted">Next</span>

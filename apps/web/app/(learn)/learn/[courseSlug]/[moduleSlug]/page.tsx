@@ -6,28 +6,31 @@ import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
 import { Reveal } from '@/components/reveal'
-import { activeModules, findModule } from '@/lib/content'
+import { activeCourses, activeModules, findCourse, findModule } from '@/lib/content'
+
+type Params = Promise<{ courseSlug: string; moduleSlug: string }>
 
 export function generateStaticParams() {
-  return activeModules().map((module) => ({ moduleSlug: module.slug }))
+  return activeCourses().flatMap((course) =>
+    activeModules(course).map((module) => ({
+      courseSlug: course.slug,
+      moduleSlug: module.slug,
+    })),
+  )
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ moduleSlug: string }>
-}): Promise<Metadata> {
-  const module = findModule((await params).moduleSlug)
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { courseSlug, moduleSlug } = await params
+  const course = findCourse(courseSlug)
+  const module = course && findModule(course, moduleSlug)
   return module ? { title: module.name, description: module.summary } : {}
 }
 
-export default async function ModulePage({
-  params,
-}: {
-  params: Promise<{ moduleSlug: string }>
-}) {
-  const { moduleSlug } = await params
-  const module = findModule(moduleSlug)
+export default async function ModulePage({ params }: { params: Params }) {
+  const { courseSlug, moduleSlug } = await params
+  const course = findCourse(courseSlug)
+  if (!course) notFound()
+  const module = findModule(course, moduleSlug)
   if (!module) notFound()
 
   const lessons = [...module.lessons].sort((a, b) => a.order - b.order)
@@ -41,7 +44,7 @@ export default async function ModulePage({
         <Wrap>
           <Reveal>
             <Link
-              href="/learn"
+              href={`/learn/${course.slug}`}
               className="group inline-flex min-h-11 items-center gap-2 text-caption text-muted transition-colors duration-200 ease-paper hover:text-ink"
             >
               <span
@@ -50,7 +53,7 @@ export default async function ModulePage({
               >
                 &larr;
               </span>
-              Curriculum
+              {course.name}
             </Link>
           </Reveal>
 
@@ -82,7 +85,7 @@ export default async function ModulePage({
                     ? `${lesson.estimatedMinutes} min · exercise`
                     : `${lesson.estimatedMinutes} min`
                 }
-                href={`/learn/${module.slug}/${lesson.slug}`}
+                href={`/learn/${course.slug}/${module.slug}/${lesson.slug}`}
               >
                 {lesson.summary}
               </RuledRow>

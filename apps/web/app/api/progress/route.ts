@@ -1,6 +1,5 @@
 import { UpdateLessonProgress, currentStreak, type ProgressSnapshot } from '@learn/core'
-import manifest from '@learn/learning/manifest'
-
+import { everyModule } from '@/lib/content'
 import { BadRequestError, json, parseBody, route } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
@@ -21,7 +20,7 @@ export const PUT = route(async (request) => {
   // Lessons live in the content bundle, not the database, so validate the id
   // against the manifest. Without this a typo writes an orphan row nobody ever
   // notices.
-  const module = manifest.modules.find((m) => m.id === body.moduleId)
+  const module = everyModule().find((m) => m.id === body.moduleId)
   const lesson = module?.lessons.find((l) => l.id === body.lessonId)
   if (!module || !lesson) {
     throw new BadRequestError(`unknown lesson: ${body.lessonId}`)
@@ -49,7 +48,7 @@ export const PUT = route(async (request) => {
 
 /** Module rollup is derived, so it can never drift from the lesson rows. */
 async function recomputeModule(userId: string, moduleId: string): Promise<void> {
-  const module = manifest.modules.find((m) => m.id === moduleId)
+  const module = everyModule().find((m) => m.id === moduleId)
   if (!module) return
 
   const snapshot = await store().progressFor(userId)

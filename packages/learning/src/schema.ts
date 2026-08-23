@@ -4,31 +4,55 @@ import { z } from 'zod'
  * The content schema. Everything the build pipeline validates, and the only
  * shape the web and desktop apps are allowed to assume.
  *
- * Authoring lives in two files per module:
- *   modules/<dir>/module.yaml   -> ModuleMeta
- *   modules/<dir>/<n>-<slug>.mdx -> LessonFrontmatter + body
+ * Authoring lives in three files:
+ *   courses/<dir>/course.yaml                    -> CourseMeta
+ *   courses/<dir>/modules/<dir>/module.yaml      -> ModuleMeta
+ *   courses/<dir>/modules/<dir>/<n>-<slug>.mdx   -> LessonFrontmatter + body
+ *
+ * A course is the unit a student chooses. Modules live inside one, and nothing
+ * crosses a course boundary: a prerequisite naming a module in another course
+ * fails the build.
  */
 
-export const TRACKS = ['base', 'cli', 'agent', 'frameworks', 'projects'] as const
 export const DIFFICULTIES = ['beginner', 'intermediate', 'advanced'] as const
 export const EXERCISE_LANGUAGES = ['python', 'bash'] as const
 
-export type Track = (typeof TRACKS)[number]
 export type Difficulty = (typeof DIFFICULTIES)[number]
 export type ExerciseLanguage = (typeof EXERCISE_LANGUAGES)[number]
 
-/** `stage-3`, `cli-a1`. Lowercase, digits, single hyphens. */
+/**
+ * A track is a grouping of modules inside one course, and it is deliberately
+ * NOT a global enum.
+ *
+ * It used to be `base | cli | agent | frameworks | projects`, which are words
+ * that only mean anything to the AI course. A data engineering course has no
+ * "agent" track and a Rust course has no "frameworks" track in that sense, so a
+ * shared enum would force every new course to either misuse an existing word or
+ * widen a type that every other course then has to ignore. Each course declares
+ * its own tracks in `course.yaml`, and the build checks that every module names
+ * one its own course declared.
+ */
+export type Track = string
+
+/** `ai-tool-use`, `de-pipelines`. Lowercase, digits, single hyphens. */
 const moduleId = z
   .string()
   .regex(/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/, 'module id must be lowercase kebab-case')
 
-/** `stage-3.react-loop`. A module id, a dot, then a lesson slug. */
+/** `ai-tool-use.react-loop`. A module id, a dot, then a lesson slug. */
 const lessonId = z
   .string()
   .regex(
     /^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[a-z][a-z0-9]*(-[a-z0-9]+)*$/,
     'lesson id must be <module-id>.<lesson-slug>',
   )
+
+/** `ai-agents`, `data-engineering`. Lowercase, digits, single hyphens. */
+const courseId = z
+  .string()
+  .regex(/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/, 'course id must be lowercase kebab-case')
+
+const slug = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'slug must be lowercase kebab-case')
 
 /** Semver, no prerelease. Bumping this is what tells a desktop client to re-sync. */
 const version = z.string().regex(/^\d+\.\d+\.\d+$/, 'version must be MAJOR.MINOR.PATCH')
@@ -58,13 +82,43 @@ export const ExerciseSpec = z.object({
 })
 export type ExerciseSpec = z.infer<typeof ExerciseSpec>
 
+/** One track a course declares. `id` is what a module's `track` names. */
+export const TrackMeta = z.object({
+  id: slug,
+  name: z.string().min(1).max(60),
+  note: z.string().min(1).max(200).optional(),
+})
+export type TrackMeta = z.infer<typeof TrackMeta>
+
+/**
+ * A course: the unit a student picks up. `courses/<dir>/course.yaml`.
+ *
+ * `lib` names a directory whose files are copied into every exercise workspace
+ * in this course, rather than installed. The AI course ships `mockllm.py` that
+ * way; a data course ships its own fixture generator, and neither knows the
+ * other exists.
+ */
+export const CourseMeta = z.object({
+  id: courseId,
+  slug,
+  name: z.string().min(1).max(80),
+  summary: z.string().min(1).max(400),
+  version,
+  order: z.number().int().nonnegative(),
+  isActive: z.boolean().default(true),
+  tracks: z.array(TrackMeta).min(1),
+  lib: z.string().default('lib'),
+})
+export type CourseMeta = z.infer<typeof CourseMeta>
+
 export const ModuleMeta = z.object({
   id: moduleId,
-  slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+  slug,
   name: z.string().min(1).max(80),
   summary: z.string().min(1).max(300),
   version,
-  track: z.enum(TRACKS),
+  /** Validated against the enclosing course's declared tracks by the build. */
+  track: z.string().min(1),
   order: z.number().int().nonnegative(),
   isActive: z.boolean().default(true),
   prerequisites: z.array(moduleId).default([]),
@@ -90,6 +144,7 @@ export type LessonFrontmatter = z.infer<typeof LessonFrontmatter>
  */
 export const LessonEntry = LessonFrontmatter.extend({
   moduleId,
+  courseId,
   slug: z.string(),
   /** Heading anchors, for the in-page outline. */
   headings: z.array(
@@ -100,15 +155,21 @@ export const LessonEntry = LessonFrontmatter.extend({
 export type LessonEntry = z.infer<typeof LessonEntry>
 
 export const ModuleEntry = ModuleMeta.extend({
+  courseId,
   lessons: z.array(LessonEntry),
 })
 export type ModuleEntry = z.infer<typeof ModuleEntry>
 
+export const CourseEntry = CourseMeta.extend({
+  modules: z.array(ModuleEntry),
+})
+export type CourseEntry = z.infer<typeof CourseEntry>
+
 export const Manifest = z.object({
-  /** Hash of every module version. Changes whenever any content changes. */
+  /** Hash of every course and module version. Changes when any content does. */
   contentVersion: z.string(),
   builtAt: z.string(),
-  modules: z.array(ModuleEntry),
+  courses: z.array(CourseEntry),
 })
 export type Manifest = z.infer<typeof Manifest>
 
@@ -116,6 +177,7 @@ export type Manifest = z.infer<typeof Manifest>
 export const CompiledLesson = z.object({
   id: lessonId,
   moduleId,
+  courseId,
   /**
    * The lesson body as plain HTML, syntax highlighting already applied.
    *

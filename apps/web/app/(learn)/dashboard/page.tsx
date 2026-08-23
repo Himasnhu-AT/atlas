@@ -5,9 +5,9 @@ import { currentStreak, modulePercent } from '@learn/core'
 
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
-import { PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
+import { Eyebrow, PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
 import { Reveal } from '@/components/reveal'
-import { activeModules, lessonSequence, prerequisiteNames } from '@/lib/content'
+import { activeCourses, activeModules, lessonSequence, prerequisiteNames } from '@/lib/content'
 import { currentUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
 
@@ -18,7 +18,7 @@ export default async function DashboardPage() {
   if (!user) redirect('/login?next=/dashboard')
 
   const snapshot = await store().progressFor(user.id)
-  const modules = activeModules()
+  const courses = activeCourses()
   const streak = currentStreak(snapshot.activity, new Date().toISOString().slice(0, 10))
 
   const completedModuleIds = new Set(
@@ -28,14 +28,19 @@ export default async function DashboardPage() {
     snapshot.lessons.filter((row) => row.status === 'completed').map((row) => row.lessonId),
   )
 
-  const sequence = lessonSequence()
+  // Reading order is per course, so resume walks courses in catalogue order and
+  // stops at the first unfinished lesson. It must not run off the end of one
+  // course into an unrelated one, which is why `lessonSequence` is course-scoped.
+  const sequence = courses.flatMap((course) =>
+    lessonSequence(course).map((entry) => ({ ...entry, course })),
+  )
   // The next unfinished lesson beats the most recently opened one: after
   // finishing a module, "resume" should move you forward, not back.
   const resume = sequence.find(({ lesson }) => !completedLessonIds.has(lesson.id))
   const totalLessons = sequence.length
-  // Count against the course as it stands. A rebuilt module can rename or drop
-  // a lesson, and the progress row for the old id outlives it, so counting the
-  // rows would say "41 of 40 lessons done".
+  // Count against the catalogue as it stands. A rebuilt module can rename or
+  // drop a lesson, and the progress row for the old id outlives it, so counting
+  // the rows would say "41 of 40 lessons done".
   const completedInCourse = sequence.filter(({ lesson }) =>
     completedLessonIds.has(lesson.id),
   ).length
@@ -68,7 +73,7 @@ export default async function DashboardPage() {
           {resume ? (
             <Reveal delay={0.2}>
               <Link
-                href={`/learn/${resume.module.slug}/${resume.lesson.slug}`}
+                href={`/learn/${resume.course.slug}/${resume.module.slug}/${resume.lesson.slug}`}
                 className="group mt-14 block border-y-2 border-ink py-8 transition-colors duration-200 ease-paper hover:bg-paper-raised"
               >
                 <p className="text-eyebrow font-medium uppercase text-muted">
@@ -84,7 +89,8 @@ export default async function DashboardPage() {
                   </span>
                 </p>
                 <p className="mt-3 text-caption text-muted">
-                  {resume.module.name} · {resume.lesson.estimatedMinutes} min
+                  {resume.course.name} · {resume.module.name} ·{' '}
+                  {resume.lesson.estimatedMinutes} min
                 </p>
               </Link>
             </Reveal>
@@ -99,60 +105,74 @@ export default async function DashboardPage() {
             </Reveal>
           )}
 
-          <RuledList>
-            {modules.map((module, index) => {
-              // Both numbers come from the lesson rows and the module as it
-              // stands today. Taking the count from the stored rollup and the
-              // total from the manifest is what produced a bar at 50% next to
-              // a label reading "1 of 3": the rollup is only recomputed when
-              // the student next completes a lesson in that module, so it
-              // still held the lesson count from before the content changed.
-              const done = module.lessons.filter((lesson) =>
-                completedLessonIds.has(lesson.id),
-              ).length
-              const percent = modulePercent({
-                moduleId: module.id,
-                status: 'available',
-                lessonsCompleted: done,
-                lessonsTotal: module.lessons.length,
-              })
-              const locked = !module.prerequisites.every((id) => completedModuleIds.has(id))
+          {courses.map((course) => {
+            const modules = activeModules(course)
+            return (
+              <section key={course.id} className="mt-16 first:mt-12">
+                <Reveal>
+                  <Eyebrow>{course.name}</Eyebrow>
+                </Reveal>
 
-              return (
-                <RuledRow
-                  key={module.id}
-                  index={index}
-                  aside={String(module.order).padStart(2, '0')}
-                  title={module.name}
-                  meta={`${done} of ${module.lessons.length}`}
-                  href={`/learn/${module.slug}`}
-                >
-                  {/* A hairline that fills, rather than a ring or a pill. The
-                      page already has rules everywhere; progress is one of them
-                      drawn partway. */}
-                  <div
-                    className="mt-1 h-px w-full max-w-sm bg-rule"
-                    role="progressbar"
-                    aria-valuenow={percent}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={`${module.name}: ${percent}% complete`}
-                  >
-                    <div
-                      className="h-px bg-accent transition-[width] duration-500 ease-paper"
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
+                <RuledList>
+                  {modules.map((module, index) => {
+                    // Both numbers come from the lesson rows and the module as
+                    // it stands today. Taking the count from the stored rollup
+                    // and the total from the manifest is what produced a bar at
+                    // 50% next to a label reading "1 of 3": the rollup is only
+                    // recomputed when the student next completes a lesson in
+                    // that module, so it still held the lesson count from
+                    // before the content changed.
+                    const done = module.lessons.filter((lesson) =>
+                      completedLessonIds.has(lesson.id),
+                    ).length
+                    const percent = modulePercent({
+                      moduleId: module.id,
+                      status: 'available',
+                      lessonsCompleted: done,
+                      lessonsTotal: module.lessons.length,
+                    })
+                    const locked = !module.prerequisites.every((id) =>
+                      completedModuleIds.has(id),
+                    )
 
-                  {locked && (
-                    <p className="mt-3 text-caption text-muted">
-                      Opens after {prerequisiteNames(module.prerequisites)}
-                    </p>
-                  )}
-                </RuledRow>
-              )
-            })}
-          </RuledList>
+                    return (
+                      <RuledRow
+                        key={module.id}
+                        index={index}
+                        aside={String(module.order).padStart(2, '0')}
+                        title={module.name}
+                        meta={`${done} of ${module.lessons.length}`}
+                        href={`/learn/${course.slug}/${module.slug}`}
+                      >
+                        {/* A hairline that fills, rather than a ring or a pill.
+                            The page already has rules everywhere; progress is
+                            one of them drawn partway. */}
+                        <div
+                          className="mt-1 h-px w-full max-w-sm bg-rule"
+                          role="progressbar"
+                          aria-valuenow={percent}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-label={`${module.name}: ${percent}% complete`}
+                        >
+                          <div
+                            className="h-px bg-accent transition-[width] duration-500 ease-paper"
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+
+                        {locked && (
+                          <p className="mt-3 text-caption text-muted">
+                            Opens after {prerequisiteNames(course, module.prerequisites)}
+                          </p>
+                        )}
+                      </RuledRow>
+                    )
+                  })}
+                </RuledList>
+              </section>
+            )
+          })}
         </Wrap>
       </main>
 
