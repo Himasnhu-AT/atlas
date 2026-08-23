@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { QuestState } from '@atlas/core'
 
 import { Rule } from './layout'
+import { type Levelled, LevelUpMoment, useLevelUp } from './level-up-moment'
 
 /**
  * Today's quests, and the week's.
@@ -16,6 +17,7 @@ import { Rule } from './layout'
 export function QuestList({ quests }: { quests: QuestState[] }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState(false)
+  const level = useLevelUp()
   const router = useRouter()
 
   async function claim(claimKey: string) {
@@ -28,6 +30,9 @@ export function QuestList({ quests }: { quests: QuestState[] }) {
         body: JSON.stringify({ claimKey }),
       })
       if (!response.ok) throw new Error(String(response.status))
+
+      const body = (await response.json()) as { awarded?: number } & Levelled
+      if (body.levelledTo) level.setLevelledTo(body.levelledTo)
       router.refresh()
     } catch {
       setError(true)
@@ -77,6 +82,8 @@ export function QuestList({ quests }: { quests: QuestState[] }) {
           Could not claim that. Check your connection and try again.
         </p>
       )}
+
+      <LevelUpMoment levelledTo={level.levelledTo} onDone={level.clear} />
     </div>
   )
 }

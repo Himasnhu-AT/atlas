@@ -2,7 +2,7 @@ import { ClaimQuest } from '@atlas/core'
 
 import { json, parseBody, preflight, route } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
-import { claimQuest, gameStateFor } from '@/lib/server/xp'
+import { claimQuest, gameStateFor, levelCrossing, xpTotalFor } from '@/lib/server/xp'
 
 /**
  * Claim a completed quest.
@@ -18,8 +18,14 @@ export const POST = route(async (request) => {
   const user = await requireUser(request)
   const body = await parseBody(request, ClaimQuest)
 
+  const before = await xpTotalFor(user.id)
   const awarded = await claimQuest(user.id, body.claimKey)
-  return json({ awarded, game: await gameStateFor(user.id) })
+
+  return json({
+    awarded,
+    levelledTo: levelCrossing(before, awarded),
+    game: await gameStateFor(user.id),
+  })
 })
 
 export const OPTIONS = preflight

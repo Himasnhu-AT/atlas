@@ -139,6 +139,24 @@ the page not made of ink.
   the target are still drawn, because the target is a floor the learner set and
   not a ceiling the product imposed.
 
+- **`LevelUp`** is the level-up itself: an accent rule drawn across the column
+  with a rank pressed onto it. It is the one thing in the product allowed to
+  interrupt a page, so it is also the one that has to leave. It holds for twelve
+  seconds and goes. A banner that stays turns the rarest event in the product
+  into furniture, and the ledger is where a rank lives permanently.
+
+  It is stateless, like the rest of these. The web app wraps it in
+  `LevelUpMoment`, which owns the timing and the `data-shown` flip, so both
+  surfaces that can grant XP from a click share one implementation of the moment
+  rather than two that drift.
+
+  **Whether a level was crossed is decided by the server**, not by comparing
+  numbers on the page. `/api/progress` and the quest claim both return
+  `levelledTo` when their award carried the user into a new level. A client
+  knows what it was just awarded but not the total it was added to, and any
+  baseline the page holds is stale the moment the same account passes an
+  exercise on the desktop.
+
 They are exported from `@atlas/ui/game`, not from the package barrel. The barrel
 reaches `LessonSidebar` and the other components that use hooks, so importing it
 from a server component drags `useState` in behind these and the page fails to

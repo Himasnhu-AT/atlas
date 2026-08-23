@@ -1,4 +1,9 @@
-import { UpdateLessonProgress, currentStreak, type ProgressSnapshot } from '@atlas/core'
+import {
+  type LevelProgress,
+  UpdateLessonProgress,
+  currentStreak,
+  type ProgressSnapshot,
+} from '@atlas/core'
 import { courseOfModule } from '@atlas/learning'
 
 import { everyModule, manifest } from '@/lib/content'
@@ -18,6 +23,8 @@ import {
   evaluateSeals,
   evaluateWeek,
   grant,
+  levelCrossing,
+  xpTotalFor,
 } from '@/lib/server/xp'
 
 /**
@@ -72,18 +79,26 @@ export const PUT = route(async (request) => {
   // anything the client sent. Only a completion pays, and the award key means
   // toggling a lesson off and on again pays nothing further.
   let awarded = 0
+  let levelledTo: LevelProgress | undefined
   if (body.status === 'completed') {
+    // One baseline for all three passes. They cannot be batched: a seal is only
+    // earned once the award that earned it has landed.
+    const before = await xpTotalFor(user.id)
+
     const awards = await awardsForLessonCompletion(user.id, body.lessonId, body.moduleId)
     awarded += (await grant(user.id, awards, now)).points
     awarded += (await grant(user.id, await evaluateWeek(user.id), now)).points
     awarded += (await grant(user.id, await evaluateSeals(user.id), now)).points
+
+    levelledTo = levelCrossing(before, awarded)
   }
 
-  // `awarded` rides along so the button can stamp what was just earned without a
-  // second round trip. It is extra to `ProgressSnapshot`, which zod drops on the
-  // way in, so the typed client is unaffected and only the caller that wants it
-  // reads it.
-  return json({ ...(await snapshotFor(user.id)), awarded })
+  // `awarded` and `levelledTo` ride along so the button can stamp what was just
+  // earned, and press a rank into the page on the rare completion that crosses a
+  // level, without a second round trip. Both are extra to `ProgressSnapshot`,
+  // which zod drops on the way in, so the typed client is unaffected and only
+  // the caller that wants them reads them.
+  return json({ ...(await snapshotFor(user.id)), awarded, levelledTo })
 })
 
 /** Module rollup is derived, so it can never drift from the lesson rows. */
