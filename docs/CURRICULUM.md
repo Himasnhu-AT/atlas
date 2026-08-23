@@ -1,8 +1,31 @@
 # Curriculum
 
-What the course teaches, in what order, and why each module exists. `docs/PLAN.md` records
-the build decisions. This file records the content decisions, and it is the thing to read
-before adding or moving a lesson.
+What the courses teach, in what order, and why each module exists. `docs/PLAN.md` records the
+build decisions. This file records the content decisions, and it is the thing to read before
+adding or moving a lesson.
+
+There are two courses. Everything below the "The destination" heading describes the AI agent
+engineering course, which was the first and is the longer. The data engineering course is at
+the bottom.
+
+## Rules that apply to every course
+
+A course declares its own tracks in `course.yaml`, and a module names one of them. There is no
+global list of tracks and there should never be one again: the words that describe one
+curriculum are not the words that describe another.
+
+Nothing crosses a course boundary. A prerequisite may only name a module in its own course,
+and the build refuses one that does not, because a course that cannot be started on its own is
+a later chapter of another one. Cross-lesson *links* may point anywhere, and the build resolves
+them into real paths.
+
+`estimatedHours` is the sum of a module's lesson minutes and its exercise timeboxes, rounded to
+the nearest half hour, with a total landing exactly on a quarter hour rounding down. It is a
+measurement, not an ambition, and it is checked rather than trusted.
+
+A course ships whatever its exercises import in its own `lib/`, copied into every workspace
+rather than installed. The AI course ships `mockllm`; the data course ships a deterministic
+fixture generator. Neither knows the other exists.
 
 ## The destination
 
@@ -325,3 +348,99 @@ This is accepted rather than overlooked. The alternative is a capstone whose par
 each other, which is the thing that makes most course projects feel like disconnected drills.
 The cost is real and it is smaller than the cost of the alternative. It is written down here so
 the next person to notice knows it was a decision.
+
+---
+
+# The data engineering course
+
+`courses/data-engineering`, five modules, seventeen lessons, thirteen graded exercises, in the
+Python standard library alone.
+
+## The spine
+
+**A pipeline is a promise about data that has to keep being true tomorrow, so every stage has
+to be re-runnable and every promise has to be checkable.**
+
+| Step | Module | The idea it adds |
+|---|---|---|
+| 0 | Records and formats | A row is a claim, and the file is not the table you wanted. |
+| 1 | Cleaning and validation | Every value is a string until something decides, and the deciding can fail. |
+| 2 | Storage and query | A table refuses what a list of dicts cannot, and then you can ask questions. |
+| 3 | Pipelines | Running it again is the job. Idempotence, watermarks, backfills, resume. |
+| 4 | Quality and contracts | The check that notices, and the promise written down. |
+
+Tracks: modules 0 to 2 are `handling`, 3 and 4 are `pipelines`.
+
+## Where each idea is introduced, and where it is paid off
+
+| Thread | Introduced | Paid off |
+|---|---|---|
+| Present and empty is not absent | 0.2 the short row | 1.2 missing versus invalid |
+| Double counting one parent value | 0.3 exploding a list | 2.4 the multiplying join |
+| A failure that returns rather than raises | 1.1 coercion | 1.2 the extract report, 4.1 the check runner |
+| A rate that moved | 1.3 quarantine | 4.1 row counts against history |
+| Naming the conflict you forgive | 2.2 ON CONFLICT versus OR IGNORE | 3.2 the upsert a watermark depends on |
+| One transaction | 2.2 the load | 3.2 the watermark, 3.4 the run log |
+| Owning a partition | 3.1 idempotence | 3.3 the backfill, 3.4 resume |
+| Counting what you lost | 2.4 the join audit | 4.1 the checks, 4.3 the contract |
+
+## Full module map
+
+### 0. Records and formats (`de-records`, handling)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | What a record is | |
+| 2 | Reading a messy file | `read-csv` |
+| 3 | Shapes that nest | `flatten-records` |
+
+The hand-written parser is deliberate and is never used again. Its failures are the failures
+a learner will spend years diagnosing in other people's pipelines, and they are much easier to
+recognise having caused them once.
+
+### 1. Cleaning and validation (`de-cleaning`, handling)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Coercion and what it costs | `coerce-fields` |
+| 2 | A schema that reports | `row-schema` |
+| 3 | Quarantine, not deletion | `quarantine` |
+
+The return type is the lesson. A function that can fail and returns only a value has to encode
+failure as a value, and every value it could pick is also a legitimate answer.
+
+### 2. Storage and query (`de-storage`, handling)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Why a table | |
+| 2 | Loading a table | `load-table` |
+| 3 | Indexes and the plan | `query-plan` |
+| 4 | The rows a join loses | `join-audit` |
+
+`INSERT OR IGNORE` versus `ON CONFLICT ... DO NOTHING` is the sharpest single point in the
+course: the obvious spelling silently forgives every constraint, including the ones the schema
+existed to enforce.
+
+### 3. Pipelines (`de-pipelines`, pipelines)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Idempotence | |
+| 2 | Watermarks | `incremental-load` |
+| 3 | Backfills | `backfill` |
+| 4 | The partial run | `resumable-run` |
+
+The watermark uses `>=` and not `>`, and the reason is the whole design: overlap is cheap and
+gaps are permanent.
+
+### 4. Quality and contracts (`de-contracts`, pipelines)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Counting is a test | `row-checks` |
+| 2 | Freshness | `freshness` |
+| 3 | The contract | |
+
+The last lesson has no exercise on purpose. It is the wrap-up, and it names where every earlier
+piece ended up.

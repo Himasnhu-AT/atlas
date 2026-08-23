@@ -1,0 +1,74 @@
+---
+id: de-pipelines.watermarks
+title: Watermarks
+summary: An incremental load needs to know where it got to. The obvious answer, the maximum timestamp it has seen, is wrong in a way that quietly loses rows.
+order: 2
+estimatedMinutes: 35
+exercise:
+  id: incremental-load
+  timeboxMinutes: 35
+---
+
+Reloading everything every night is the simplest correct thing, and for a lot of tables it is
+the right answer for far longer than people expect. When it stops being right, the usual
+replacement is a **watermark**: a record of how far the last run got, so the next one only asks
+for what came after.
+
+## The obvious watermark, and why it loses rows
+
+Store the highest `placed_at` you have loaded, and next time ask for rows strictly after it.
+
+```sql
+SELECT * FROM source WHERE placed_at > :watermark
+```
+
+This is wrong, and it is wrong in the direction that loses data rather than duplicating it,
+which means nothing raises.
+
+Two rows can share a timestamp. If the last run's final row was `2026-03-06T09:14:00` and
+another row exists with exactly that timestamp, the strict `>` skips it. Forever. There is no
+later run that will pick it up, because the watermark has already moved past it.
+
+Use `>=` instead and the boundary rows come back every time — which is fine, because the
+write is an upsert and re-writing an unchanged row costs almost nothing. **Overlap is cheap
+and gaps are permanent**, and that trade decides this whole design.
+
+## Late arrivals
+
+Worse than ties: a row can be created with a timestamp earlier than one you have already seen.
+A transaction that began before the last run and committed after it. A source system that
+backdates a correction. A timezone bug.
+
+A watermark on a business timestamp cannot see those rows at all. They are behind the mark by
+the time you look.
+
+There are three honest answers. Watermark on an **ingestion** timestamp the source assigns on
+write, which is monotonic in a way a business date is not. Or re-read a **lookback window**,
+asking for everything since the mark minus a few hours, and rely on the upsert. Or run a
+periodic full reconciliation and accept that between reconciliations you may be missing
+something.
+
+Most real pipelines do the second, which costs almost nothing, and the third weekly. What none
+of them do is pretend the problem does not exist, which is what a bare `>` on a business date
+is doing.
+
+## The watermark has to be written after the rows
+
+If the watermark is committed before or separately from the data, a crash between the two
+leaves a mark saying you loaded rows you did not.
+
+So the watermark update belongs in the **same transaction** as the write it describes. Then
+either both landed or neither did, and a crash costs you a re-run rather than a silent hole.
+
+This is the same argument as one transaction per load, applied to the bookkeeping rather than
+the data, and it is the part people leave out.
+
+## What the exercise asks
+
+Read a watermark, select the rows a run should process, write those rows and the new watermark
+atomically, and prove three things: that running twice writes nothing new, that a row sharing
+the boundary timestamp is not lost, and that a crash between the write and the mark does not
+leave the mark ahead of the data.
+
+That last test is the one worth keeping. It is easy to write a loader that is correct when
+nothing goes wrong.

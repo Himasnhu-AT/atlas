@@ -55,7 +55,20 @@ runtime, so server components and route handlers cannot run inside it. The two a
 packages, not an app shell, which suits them: a three-pane IDE is a different interface from
 a web reader.
 
-## The AI agent engineering course
+## The courses
+
+Two, and the platform assumes there will be more.
+
+| Course | Modules | Lessons | Exercises | Hours | Needs |
+|---|---|---|---|---|---|
+| AI agent engineering | 11 | 45 | 35 | 47 | Python 3.10+ |
+| Data engineering | 5 | 17 | 13 | 14 | Python 3.10+ |
+
+Neither needs anything installed beyond an interpreter. The AI course runs against `mockllm`;
+the data course uses `csv`, `json`, `sqlite3` and `datetime`, all standard library, and ships
+its own deterministic fixture generator the same way.
+
+### AI agent engineering
 
 11 modules, 45 lessons and 35 graded exercises, across four tracks.
 
@@ -92,6 +105,18 @@ where a handoff turns out to be a tool call and typed output turns out to be a s
 retry. Module 4, on the `agent` track, is the survey that introduces all three first. Nothing
 is installed: like every other exercise, both run against `mockllm` with the standard library
 alone.
+
+### Data engineering
+
+5 modules, 17 lessons and 13 graded exercises, in pure standard library Python.
+
+One idea in five steps: a pipeline is a promise about data that has to keep being true
+tomorrow, so every stage has to be re-runnable and every promise has to be checkable. Students
+parse a delimited file by hand once, write coercions that can admit they failed, validate a
+whole extract instead of one row, quarantine the failures instead of dropping them, load into
+a table with constraints that refuse, read a query plan, count what a join threw away, make a
+load idempotent behind a watermark, backfill with the same code as the daily run, resume a job
+that died halfway, and then check row counts and freshness and write the promise down.
 
 `docs/CURRICULUM.md` has the lesson-by-lesson map, which idea is introduced where and paid off
 where, and the rules for changing any of it. Read it before adding or moving a lesson.

@@ -1,0 +1,11 @@
+id: de-contracts
+slug: quality-and-contracts
+name: Quality and contracts
+summary: "A pipeline that fails loudly is a good afternoon. A pipeline that succeeds while producing wrong numbers can go unnoticed for a quarter. Counting rows, checking freshness, and writing the promise down as a test."
+version: 1.0.0
+track: pipelines
+order: 4
+isActive: true
+prerequisites: [de-pipelines]
+difficulty: advanced
+estimatedHours: 2.5
