@@ -56,4 +56,3 @@ export type { LessonSidebarProps } from './components/LessonSidebar'
 
 export { AppShell } from './components/AppShell'
 export type { AppShellProps } from './components/AppShell'
-

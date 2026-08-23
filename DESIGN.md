@@ -118,6 +118,39 @@ fastest way to make a considered product look generated. Where a card is temptin
 answer is a `RuledRow`. If you need a shadow, a gradient, or a corner radius above 6px,
 the answer is almost certainly a `RuledRow` too.
 
+## The game's marks
+
+The game adds four shapes, in `packages/ui/src/game/marks.tsx`. All four are
+inline SVG using `currentColor` and sized in `em`, so they take the ink colour of
+whatever they sit beside and scale with it. There are no image files and no icon
+font, because an asset that cannot take the ink colour would be the one thing on
+the page not made of ink.
+
+- **`RankStamp`** is a rank pressed into the page: two rings slightly out of true
+  with each other and a roman numeral. The unevenness is fixed rather than
+  random, so a rank is the same shape every time a reader sees it.
+- **`WaxSeal`** marks an achievement. Filled when earned, an outline when not,
+  and the outline is drawn at a legible weight rather than faded almost out:
+  a seal a learner can see is a goal, one they cannot is a surprise.
+- **`RuleMeter`** is the progress bar, and is deliberately not a bar. The page is
+  already made of rules, so progress is one of them drawn partway. Never a ring,
+  never a pill.
+- **`WeekDots`** is the week as seven marks, filled for a day worked. Days past
+  the target are still drawn, because the target is a floor the learner set and
+  not a ceiling the product imposed.
+
+They are exported from `@atlas/ui/game`, not from the package barrel. The barrel
+reaches `LessonSidebar` and the other components that use hooks, so importing it
+from a server component drags `useState` in behind these and the page fails to
+render.
+
+**The game does not get its own visual language.** No neon, no pixel art, no
+progress rings, no confetti, no badges with drop shadows. Rank is a stamp, an
+achievement is a seal, progress is a rule drawn partway, and a level-up is the
+page ruling a line. If a proposed game element cannot be described as something
+that happens to paper or ink, it does not belong, and that rule does not relax
+because the screen is a scoreboard.
+
 ## Motion
 
 **The gesture is ruling a line on paper.** A rule is never faded in; it is drawn, from the
@@ -142,6 +175,13 @@ the line lands just after the words.
 Reveals fire on `IntersectionObserver` (8% visible, 6% bottom margin), once. An entrance
 that has already finished before the reader arrives is worse than no entrance, because the
 page then just looks static to them.
+
+**`data-reveal` on its own renders nothing.** It sets `opacity: 0` and waits for
+`data-shown`, which `Reveal` adds when the observer fires. An element injected
+after a click is never observed, so the attribute alone leaves it invisible: the
+XP stamp on the complete button was rendered, announced to screen readers, and
+never drawn. Something that appears in response to an action has to set
+`data-shown` itself on the next frame.
 
 Hover and focus are 200ms on the same curve. Nav links draw a 1px accent rule underneath,
 the same gesture as the page rules, rather than only changing colour.

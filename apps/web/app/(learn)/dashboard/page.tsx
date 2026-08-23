@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
-import { currentStreak, modulePercent } from '@atlas/core'
+import { modulePercent } from '@atlas/core'
+
+import { RankStamp, RuleMeter, WeekDots } from '@atlas/ui/game'
 
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
@@ -10,6 +12,7 @@ import { Reveal } from '@/components/reveal'
 import { activeCourses, activeModules, lessonSequence, prerequisiteNames } from '@/lib/content'
 import { currentUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
+import { gameStateFor } from '@/lib/server/xp'
 
 export const metadata: Metadata = { title: 'Progress' }
 
@@ -19,7 +22,7 @@ export default async function DashboardPage() {
 
   const snapshot = await store().progressFor(user.id)
   const courses = activeCourses()
-  const streak = currentStreak(snapshot.activity, new Date().toISOString().slice(0, 10))
+  const game = await gameStateFor(user.id)
 
   const completedModuleIds = new Set(
     snapshot.modules.filter((row) => row.status === 'completed').map((row) => row.moduleId),
@@ -61,14 +64,55 @@ export default async function DashboardPage() {
             }
             lead={
               completedInCourse === 0
-                ? 'Nothing finished yet. Module 0 takes about an hour and ends with a passing test.'
-                : `${completedInCourse} of ${totalLessons} lessons done${
-                    streak > 0
-                      ? `, and you have worked ${streak} day${streak === 1 ? '' : 's'} running.`
-                      : '.'
-                  }`
+                ? 'Nothing finished yet. The first module takes about an hour and ends with a passing test.'
+                : `${completedInCourse} of ${totalLessons} lessons done.`
             }
           />
+
+          {/* Rank, XP and the week, in one ruled band. Not a row of stat tiles:
+              this is the page a dashboard would most like to become. */}
+          <Reveal delay={0.16}>
+            <div className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-5 border-t border-rule pt-8">
+              <span className="shrink-0 text-accent">
+                <RankStamp
+                  roman={game.level.rank.roman}
+                  title={`Rank ${game.level.rank.roman}, ${game.level.rank.name}`}
+                />
+              </span>
+
+              <div className="min-w-[14rem] flex-1">
+                <p className="flex items-baseline justify-between gap-4 text-caption text-muted">
+                  <span>
+                    Level {game.level.level} · {game.level.rank.name}
+                  </span>
+                  <span className="font-mono tabular-nums">{game.level.totalXp} xp</span>
+                </p>
+                <RuleMeter
+                  className="mt-3"
+                  fraction={
+                    game.level.levelSpan === 0 ? 0 : game.level.intoLevel / game.level.levelSpan
+                  }
+                  label={`Level ${game.level.level}`}
+                />
+              </div>
+
+              <Link
+                href="/ledger"
+                className="group flex shrink-0 items-center gap-3 text-caption text-muted transition-colors duration-200 ease-paper hover:text-ink"
+              >
+                <WeekDots daysActive={game.week.daysActive} target={game.week.target} />
+                <span>
+                  {game.week.daysActive}/{game.week.target} this week
+                </span>
+                <span
+                  aria-hidden
+                  className="transition-transform duration-200 ease-paper group-hover:translate-x-1"
+                >
+                  &rarr;
+                </span>
+              </Link>
+            </div>
+          </Reveal>
 
           {resume ? (
             <Reveal delay={0.2}>

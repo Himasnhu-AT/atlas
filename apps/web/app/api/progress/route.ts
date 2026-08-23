@@ -52,14 +52,19 @@ export const PUT = route(async (request) => {
   // XP is granted here, from the event the server just recorded, never from
   // anything the client sent. Only a completion pays, and the award key means
   // toggling a lesson off and on again pays nothing further.
+  let awarded = 0
   if (body.status === 'completed') {
     const awards = await awardsForLessonCompletion(user.id, body.lessonId, body.moduleId)
-    await grant(user.id, awards, now)
-    await grant(user.id, await evaluateWeek(user.id), now)
-    await grant(user.id, await evaluateSeals(user.id), now)
+    awarded += (await grant(user.id, awards, now)).points
+    awarded += (await grant(user.id, await evaluateWeek(user.id), now)).points
+    awarded += (await grant(user.id, await evaluateSeals(user.id), now)).points
   }
 
-  return json(await snapshotFor(user.id))
+  // `awarded` rides along so the button can stamp what was just earned without a
+  // second round trip. It is extra to `ProgressSnapshot`, which zod drops on the
+  // way in, so the typed client is unaffected and only the caller that wants it
+  // reads it.
+  return json({ ...(await snapshotFor(user.id)), awarded })
 })
 
 /** Module rollup is derived, so it can never drift from the lesson rows. */

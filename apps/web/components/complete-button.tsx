@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export function CompleteButton({
   lessonId,
@@ -15,7 +15,35 @@ export function CompleteButton({
   const [complete, setComplete] = useState(initiallyComplete)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
+  /** XP just earned, stamped in the margin and then let go. */
+  const [stamp, setStamp] = useState<number | null>(null)
+  const stampRef = useRef<HTMLSpanElement | null>(null)
   const router = useRouter()
+
+  /**
+   * Arrive using the page's own gesture.
+   *
+   * `[data-reveal]` is opacity 0 until something adds `data-shown`, which for
+   * scrolled content is the IntersectionObserver in `Reveal`. Nothing observes a
+   * span injected after a click, so setting the attribute alone left the stamp
+   * invisible: it was rendered, announced to a screen reader, and never drawn.
+   * Flipping it on the next frame is what the observer would have done.
+   */
+  useEffect(() => {
+    if (stamp === null) return
+    const frame = requestAnimationFrame(() => {
+      stampRef.current?.setAttribute('data-shown', '')
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [stamp])
+
+  // The stamp is a moment, not a state. It clears itself so the page does not
+  // keep congratulating someone who has moved on to the next lesson.
+  useEffect(() => {
+    if (stamp === null) return
+    const timer = setTimeout(() => setStamp(null), 4000)
+    return () => clearTimeout(timer)
+  }, [stamp])
 
   async function toggle() {
     setBusy(true)
@@ -37,6 +65,11 @@ export function CompleteButton({
         }),
       })
       if (!response.ok) throw new Error(String(response.status))
+
+      const body = (await response.json()) as { awarded?: number }
+      if (next && typeof body.awarded === 'number' && body.awarded > 0) {
+        setStamp(body.awarded)
+      }
       router.refresh()
     } catch {
       setComplete(!next)
@@ -62,6 +95,19 @@ export function CompleteButton({
         {complete && <span aria-hidden>&#10003;</span>}
         {complete ? 'Completed' : 'Mark complete'}
       </button>
+
+      {stamp !== null && (
+        <span
+          ref={stampRef}
+          // Announced, because a number appearing beside a button is the whole
+          // feedback and a screen reader would otherwise get silence.
+          role="status"
+          data-reveal
+          className="font-mono text-caption tabular-nums text-accent-deep"
+        >
+          +{stamp} xp
+        </span>
+      )}
 
       {error && (
         <span role="alert" className="text-caption text-fail">
