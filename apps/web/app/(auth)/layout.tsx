@@ -7,7 +7,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <header className="border-b border-rule">
         <div className="mx-auto w-full max-w-page px-6 py-5 sm:px-8">
           <Link href="/" className="font-serif text-[17px] font-medium text-ink">
-            Learn&thinsp;AI
+            Atlas
           </Link>
         </div>
       </header>

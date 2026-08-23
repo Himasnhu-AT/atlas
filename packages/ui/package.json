@@ -6,6 +6,7 @@
   "description": "Shared React component library and Tailwind theme tokens for the learn platform.",
   "exports": {
     ".": "./src/index.ts",
+    "./game": "./src/game/index.ts",
     "./styles.css": "./src/styles.css"
   },
   "scripts": {

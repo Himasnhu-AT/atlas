@@ -20,11 +20,11 @@ export async function SiteHeader() {
           href="/"
           className="inline-flex min-h-11 items-center font-serif text-[17px] font-medium tracking-[-0.01em] text-ink"
         >
-          Learn&thinsp;AI
+          Atlas
         </Link>
 
         <nav aria-label="Main" className="flex items-center gap-5 text-caption sm:gap-7">
-          <NavLink href="/learn">Curriculum</NavLink>
+          <NavLink href="/learn">Courses</NavLink>
           <NavLink href="/download">Desktop</NavLink>
           {user && <NavLink href="/dashboard">Progress</NavLink>}
         </nav>
