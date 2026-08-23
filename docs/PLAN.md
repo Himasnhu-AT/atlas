@@ -32,40 +32,24 @@ thing being taught, and the loop is what the tests check.
 
 ## Syllabus
 
-Ten modules, two tracks after a shared base, five persona entry points.
+Two courses now, not one, and `docs/CURRICULUM.md` is the authority on both. It
+carries the spine, the threads, the module maps and the rules about measured
+rather than aspirational hours. This file used to hold a ten module list with
+persona branches and a CLI track; none of that survived contact with the
+writing, and keeping a second copy of a syllabus only produces two that
+disagree.
 
-```
-   5 persona     ┌─ Stage 0 ─ Stage 1 ─ Stage 2 ─┐          (shared base)
-   branches ────▶│                               │
-                 │        ┌──────────────────────┴──────────────────┐
-                 │   Track A, CLI                          Track B, Agent
-                 │   A1 → A2 → A3            Stage 3 → 4 → 5 → 6 → 7 → 7.5 → 8
-                 └────────────────┬───────────────────────────────────┘
-                              CAPSTONE
-```
+Two pedagogical rules from that work belong here, because they constrain the
+build rather than the prose.
 
-| # | Module | Exercises |
-|---|---|---|
-| 0 | Foundations. How the course works, setup, first passing test | 1 |
-| 1 | LLM fundamentals. Tokens, context, sampling, the completion loop | 3 |
-| 2 | Prompt engineering. Structure, few-shot, decomposition, evaluation | 2 |
-| 3 | Tool use and building an agent. Schemas, the ReAct loop, error handling | 6 |
-| 4 | Agent frameworks. What they abstract, and building one agent twice | 4 |
-| 5 | The agent tooling ecosystem. MCP, skills, subagents | 2 |
-| 6 | Memory and RAG. Embeddings, chunking, retrieval, long term memory | 5 |
-| 7 | Multi-agent and production. Orchestration, evals, observability, deploy | 5 |
-| 8 | Advanced agentic patterns. Reflection, planning, context engineering | 3 |
-| 9 | Agent interfaces. CLI, chat, background, and embedded agents | 3 |
+The reference solution is not the starting buffer. Each exercise ships a scaffold
+with signatures and docstrings and empty bodies, plus a separate complete
+solution the student has to deliberately ask for. Reading a working solution
+after a real attempt teaches something. Reading one instead of attempting
+teaches almost nothing.
 
-Two pedagogical rules, both carried over from the reference curriculum because they are sound.
-
-The reference solution is not the starting buffer. Each exercise ships a scaffold with
-signatures and docstrings and empty bodies, plus a separate complete solution the student has
-to deliberately ask for. Reading a working solution after a real attempt teaches something.
-Reading one instead of attempting teaches almost nothing.
-
-Twenty minutes is the timebox. Past that, the app offers the reference. Struggling is useful
-and grinding is not.
+The timebox is per exercise and declared in frontmatter. Past it, the app offers
+the reference. Struggling is useful and grinding is not.
 
 ## The content package
 
@@ -170,7 +154,7 @@ anyway as a second layer, but nothing depends on it.
 ```
 learn/
 ├─ apps/
-│  ├─ web/                      Next.js 15, App Router, frontend and backend
+│  ├─ web/                      Next.js 16, App Router, frontend and backend
 │  │  ├─ app/
 │  │  │  ├─ (marketing)/        landing, download
 │  │  │  ├─ (auth)/             login, signup, callback
@@ -206,18 +190,180 @@ Runs on desktop launch and before any exercise run. Never fatal.
 The list is short by design. D11 removed Ollama, model downloads, virtual environments, and
 API keys from v1 entirely. Python 3.10 is the only hard requirement.
 
+## The game
+
+Atlas is a game as well as a course, and the mechanics are cloned honestly from
+the interactive-RPG format while the skin deliberately is not. There is no neon
+and no pixel art. Rank is a stamp, an achievement is a seal, progress is a rule
+drawn partway, and a level-up is the page ruling a line. DESIGN.md holds that
+rule; this section holds the logic behind it.
+
+### The economy is derived, never authored
+
+Weights come from `estimatedMinutes`, `timeboxMinutes` and a module's
+`difficulty`, all of which already exist in the manifest and are already
+measured. Nothing new enters lesson frontmatter, so the content gate is
+untouched and the economy cannot drift from the course. Adding a course prices
+itself.
+
+| Event | XP |
+|---|---|
+| Lesson finished | 5, flat |
+| Exercise passed | `timeboxMinutes x 2 x difficulty` (x1.0 / x1.25 / x1.5) |
+| — no reference revealed | +25% |
+| — passed on the first run | +15% |
+| Module finished | `100 x difficulty` |
+| Quest claimed | 40 daily, 150 weekly |
+| Seal earned | 25 to 500, per seal |
+
+Reading pays flat and small on purpose. Paying by length started here and was
+wrong: "mark complete" is self-reported and takes one click, so a sixty minute
+lesson was worth sixty xp to anyone willing to click through it, and a third of
+the economy sat behind a button that verifies nothing. Flat keeps the
+acknowledgement and keeps the lessons that carry no exercise worth something,
+while the weight moves to work that is actually graded. Exercises are now about
+85% of the economy.
+
+Levels use `10(L-1)^2 + 30(L-1)`, which gives 23 levels across a course-sized
+body of work: an early level costs about one exercise and a late one about six.
+The obvious steeper curve was tried and rejected because it made the last levels
+cost more than a whole module, so the back third of a course delivered almost no
+level-ups, which is exactly where a learner most needs one. Ranks are eight
+tiers of three levels, Wanderer through Magister, named for the atlas rather
+than for any one domain.
+
+### Award keys are the whole idempotency story
+
+An award key is a function of the user, the kind, and a natural key for the
+thing rewarded. Never a client-supplied id, never a timestamp, never anything
+mutable. `unique (user_id, award_key)` and `insert ... on conflict do nothing`
+do the rest.
+
+The trap worth naming, because it looks right and passes every test where
+somebody completes once: `lesson:<id>:<completedAt>` double-pays on the third
+toggle, because `/api/progress` preserves `completedAt` on re-complete and
+clears it on un-complete, so the next complete mints a fresh timestamp.
+
+Award keys dedupe xp. They do not dedupe history, and the attempt counters are
+what the first-run bonus and two seals read, so the sync batch carries a
+`clientEventId` and `unique (user_id, client_event_id)` stops a retried drain
+counting a failure twice.
+
+### Quests, seals, and the week
+
+Quests are deterministic: the day's three come from a pool by `hash(userId +
+date)`, and their progress is computed from rows the API already writes. No
+scheduler, and nothing stored until a claim, which is just an award row. Two
+accounts on the same day are offered different quests, which is the intended
+behaviour and worth knowing before debugging a claim that pays zero.
+
+Seals are wax stamps for real feats, each a pure predicate over a checked data
+source so none can silently never fire. Fourteen of them, from First light to A
+year, including Polymath for clearing a module in two different courses.
+
+There is no daily streak. A weekly target the learner sets themselves replaced
+it, because a daily streak turns one bad day into a quit and punishes anyone
+studying two things at once. The target is a floor they chose, not a ceiling the
+product imposed, and days past it are still drawn.
+
+### The user flow
+
+A signed-out reader browses the site and reads the free track. Signing up costs
+an email and a password, and level 1 is 0 xp.
+
+The loop is: read a lesson on the web, open its exercise in the desktop app,
+write `solution.py` against a scripted model client, run the tests locally, and
+watch the ledger move. Marking a lesson complete stamps a small `+5` in the
+margin. Passing an exercise pays the bulk of the economy. Crossing a level draws
+a rule across the column and presses a rank into the page, once, and then lets it
+go.
+
+`/atlas` is the map: courses as regions, and within a region the prerequisite
+DAG drawn as a chart, which is the only screen that can show the frameworks
+branch is a side road nothing depends on. `/ledger` is the character sheet: rank,
+xp, the week, today's quests, and every seal earned or still blank.
+
+Grading happens only on the desktop, so the most xp-worthy event in the product
+happens on the machine least able to report it. The desktop queues domain events
+rather than xp, in an append-only file beside its credentials, and drains them in
+order when it can reach the API. Signed out it shows a practice ledger that is
+deliberately not xp ("14 exercises passed, 6 hours of practice"), and that
+backlog is the outbox, so somebody who worked offline for three weeks and then
+signed up is paid for all of it.
+
+### Assets
+
+Inline SVG, hand-drawn in `packages/ui/src/game/`, using `currentColor` and `em`
+sizing so they inherit the theme and print. No image files, no icon font, no new
+fonts. An asset that cannot take the ink colour would be the one thing on the
+page not made of ink.
+
+They are exported from `@atlas/ui/game` rather than the package barrel, because
+the barrel reaches components that use hooks and importing it from a server
+component drags `useState` in behind them.
+
+### The honest threat model
+
+Grading is client-side and must stay that way, per D3 and D11: offline, no key,
+no network. So a determined person can post a pass for every exercise in the
+catalogue. Worse, the app deliberately writes `reference.py` into the workspace,
+so copying the reference and passing is a supported action rather than an
+exploit. Pretending otherwise would be theatre.
+
+**The distracted student** double-clicks Run or toggles a lesson twice, and must
+never be double-paid. Award keys handle this, and it is almost all of the volume.
+
+**The self-cheater** pastes the reference. Deliberately not prevented. The course
+is voluntary, there is no credential at the end, and the only person harmed is
+them. Similarity scoring produces false accusations against people who genuinely
+wrote the same solution, and the model-based version would violate D10.
+
+**The leaderboard griefer** is the only one worth engineering against, and only
+because a public board makes cheating visible and demoralising. Five defences, in
+value order: a per-day cap on what one day contributes to a board score, award
+keys giving the catalogue a finite ceiling, an account-age floor on joining,
+weekly scoring on when xp was received rather than earned, and a manual
+exclusion flag. No automated banning: `stdout_tail` is recorded and a human
+settles a case in a minute.
+
+Explicitly not attempted: grader attestation, signed test reports, proof of work,
+obfuscation. Every one is defeated by a user with a debugger on their own
+machine, and this platform teaches people to use debuggers.
+
 ## Build order
 
-1. `packages/learning`: schema, build pipeline, validators, `mockllm`. **Done.**
-2. Modules 0 through 2 written end to end as the vertical slice. **In progress.**
+Everything below has shipped. The order is kept because it records what had to
+be true before the next thing could start.
+
+1. `packages/learning`: schema, build pipeline, validators, `mockllm`.
+2. Modules 0 through 2 end to end, as the vertical slice that proved the pipeline.
 3. `packages/core`: types, zod schemas, typed API client.
-4. `apps/web`: Next.js auth, API routes, static lesson rendering, dashboard.
-5. `apps/desktop`: exercise loading, `run_tests`, preflight, device pairing.
-6. Modules 3 through 9 and Track A, once the pipeline is proven.
-7. Hardening: rate limits, error states, content update flow, a security review of the PTY surface.
+4. `apps/web`: auth, API routes, lesson rendering, dashboard.
+5. `apps/desktop`: exercise loading, `run_tests`, preflight.
+6. The rest of the AI course.
+7. Courses above modules, so the AI course stopped being the product. Ids gained
+   a course prefix, `track` stopped being a global enum, and the gate learned to
+   check uniqueness across courses.
+8. Five latent bugs fixed before xp was built on them, the worst being that
+   `/api/attempts` validated nothing.
+9. The rename to Atlas.
+10. The game: pure domain layer first, then the ledger, then the routes, then the
+    surfaces.
+11. Desktop pairing by device authorization grant, device-scoped tokens, and the
+    outbox.
+12. The data engineering course, which is what proved the course-scoped `lib/`
+    mechanism was real rather than theoretical.
+13. The membership gate.
 
 ## Working assumptions
 
-All ten modules plus Track A eventually, with 0 through 2 first to prove the pipeline. Prose
-written to be read by a person: direct, concrete, no filler. The five persona branches become
-an onboarding question that orders the dashboard rather than lessons of their own.
+Prose written to be read by a person: direct, concrete, no filler.
+`docs/CURRICULUM.md` holds the rules it is held to.
+
+There is no payment provider. `users.plan` is set by hand, and the gate is
+enforced server-side because that is where the boundary is. Free covers each
+course's first track, so every course has a real free start.
+
+What is deliberately not built: a tutor, generated hints, or any model call at
+runtime (D10); a teacher, classroom or cohort (D8); a general command-exec IPC in
+the desktop; and any automated response to suspected cheating.
