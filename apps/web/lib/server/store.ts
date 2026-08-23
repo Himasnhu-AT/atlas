@@ -32,6 +32,57 @@ export interface StoredUser extends User {
   passwordSalt: string
 }
 
+/** One row of the XP ledger, as the store writes it. */
+export interface StoredAward {
+  awardKey: string
+  kind: string
+  points: number
+  courseId?: string
+  rulesVersion: number
+  occurredAt: string
+  awardedAt: string
+}
+
+/**
+ * What a learner has done with one exercise, in aggregate.
+ *
+ * The first-run bonus and two seals read failure counts, so this has to be
+ * durable. `LocalStore` keeps these as counters because it truncates its attempt
+ * log to stay a reasonable size on disk; Supabase derives them from the full
+ * append-only log, which is complete there. Same numbers, different source.
+ */
+export interface ExerciseStats {
+  exerciseId: string
+  passes: number
+  failures: number
+  /** Failed runs recorded before the first pass. */
+  failuresBeforePass: number
+  firstPassedAt?: string
+  /** Fastest passing run, for the inside-the-timebox seal. */
+  bestPassDurationMs?: number
+}
+
+export interface GameRecord {
+  totalXp: number
+  longestStreak: number
+  leaderboardOptIn: boolean
+  timezone: string
+}
+
+export const EMPTY_GAME: GameRecord = {
+  totalXp: 0,
+  longestStreak: 0,
+  leaderboardOptIn: false,
+  timezone: 'UTC',
+}
+
+export interface LeaderboardEntry {
+  userId: string
+  displayName: string
+  weeklyXp: number
+  totalXp: number
+}
+
 export interface Store {
   findUserByEmail(email: string): Promise<StoredUser | null>
   findUserById(id: string): Promise<StoredUser | null>
@@ -47,6 +98,27 @@ export interface Store {
   saveExerciseState(userId: string, state: ExerciseState): Promise<void>
 
   recordAttempt(userId: string, attempt: NewAttempt): Promise<void>
+  exerciseStats(userId: string): Promise<ExerciseStats[]>
+
+  gameFor(userId: string): Promise<GameRecord>
+  updateGame(userId: string, patch: Partial<GameRecord>): Promise<void>
+
+  /**
+   * Write one award, or do nothing because it was already written.
+   *
+   * Returns the points actually granted, so a caller can tell a first
+   * completion from a replay without a second read. The whole idempotency story
+   * lives behind this one boolean: the key is unique per user, and the cached
+   * total only moves when the insert did.
+   */
+  awardXp(userId: string, award: StoredAward): Promise<number>
+  awardsFor(userId: string): Promise<StoredAward[]>
+
+  sealsFor(userId: string): Promise<{ sealId: string; earnedAt: string }[]>
+  grantSeal(userId: string, sealId: string, courseId?: string): Promise<boolean>
+
+  /** XP received (not merely occurred) since `since`, for opted-in users. */
+  weeklyLeaderboard(since: string, limit: number): Promise<LeaderboardEntry[]>
 }
 
 export function hasSupabase(): boolean {
@@ -66,7 +138,12 @@ interface LocalData {
   moduleProgress: Record<string, ModuleProgress[]>
   exerciseState: Record<string, ExerciseState[]>
   attempts: Record<string, (NewAttempt & { id: string; createdAt: string })[]>
+  /** Durable per-exercise counters, because `attempts` above is truncated. */
+  stats: Record<string, Record<string, ExerciseStats>>
   activity: Record<string, ActivityDay[]>
+  awards: Record<string, StoredAward[]>
+  game: Record<string, GameRecord>
+  seals: Record<string, { sealId: string; courseId?: string; earnedAt: string }[]>
 }
 
 const EMPTY: LocalData = {
@@ -75,7 +152,11 @@ const EMPTY: LocalData = {
   moduleProgress: {},
   exerciseState: {},
   attempts: {},
+  stats: {},
   activity: {},
+  awards: {},
+  game: {},
+  seals: {},
 }
 
 const DATA_DIR = path.join(process.cwd(), '.data')
@@ -201,12 +282,105 @@ class LocalStore implements Store {
 
   async recordAttempt(userId: string, attempt: NewAttempt) {
     await this.write((data) => {
+      const now = new Date().toISOString()
       const rows = (data.attempts[userId] ??= [])
-      rows.push({ ...attempt, id: randomUUID(), createdAt: new Date().toISOString() })
+      rows.push({ ...attempt, id: randomUUID(), createdAt: now })
       // An unbounded append-only log in a JSON file is a memory leak with extra
       // steps. Supabase keeps the full history.
       if (rows.length > 500) rows.splice(0, rows.length - 500)
+
+      // Counters, kept separately and never truncated. The log above loses its
+      // oldest rows, and the first-run bonus and two seals read failure counts,
+      // so deriving them from a truncated log would quietly stop awarding things
+      // to exactly the learners who have been here longest.
+      const byExercise = (data.stats[userId] ??= {})
+      const stat = (byExercise[attempt.exerciseId] ??= {
+        exerciseId: attempt.exerciseId,
+        passes: 0,
+        failures: 0,
+        failuresBeforePass: 0,
+      })
+
+      if (attempt.passed) {
+        stat.passes += 1
+        stat.firstPassedAt ??= now
+        if (
+          stat.bestPassDurationMs === undefined ||
+          attempt.durationMs < stat.bestPassDurationMs
+        ) {
+          stat.bestPassDurationMs = attempt.durationMs
+        }
+      } else {
+        stat.failures += 1
+        if (stat.passes === 0) stat.failuresBeforePass += 1
+      }
     })
+  }
+
+  async exerciseStats(userId: string): Promise<ExerciseStats[]> {
+    return Object.values((await this.read()).stats[userId] ?? {})
+  }
+
+  async gameFor(userId: string): Promise<GameRecord> {
+    return { ...EMPTY_GAME, ...(await this.read()).game[userId] }
+  }
+
+  async updateGame(userId: string, patch: Partial<GameRecord>) {
+    await this.write((data) => {
+      data.game[userId] = { ...EMPTY_GAME, ...data.game[userId], ...patch }
+    })
+  }
+
+  async awardXp(userId: string, award: StoredAward): Promise<number> {
+    // The check and the write are both inside `mutate`, which `write()` runs
+    // through a promise queue. Doing the lookup outside it and then calling
+    // `write()` is the natural way to express this and is a race: two requests
+    // for the same award both read "not present" and both append.
+    return this.write((data) => {
+      const rows = (data.awards[userId] ??= [])
+      if (rows.some((row) => row.awardKey === award.awardKey)) return 0
+
+      rows.push(award)
+      const game = (data.game[userId] = { ...EMPTY_GAME, ...data.game[userId] })
+      game.totalXp += award.points
+      return award.points
+    })
+  }
+
+  async awardsFor(userId: string): Promise<StoredAward[]> {
+    return (await this.read()).awards[userId] ?? []
+  }
+
+  async sealsFor(userId: string) {
+    return (await this.read()).seals[userId] ?? []
+  }
+
+  async grantSeal(userId: string, sealId: string, courseId?: string): Promise<boolean> {
+    return this.write((data) => {
+      const rows = (data.seals[userId] ??= [])
+      if (rows.some((row) => row.sealId === sealId)) return false
+      rows.push({ sealId, courseId, earnedAt: new Date().toISOString() })
+      return true
+    })
+  }
+
+  async weeklyLeaderboard(since: string, limit: number): Promise<LeaderboardEntry[]> {
+    const data = await this.read()
+    const rows: LeaderboardEntry[] = []
+
+    for (const [userId, game] of Object.entries(data.game)) {
+      if (!game.leaderboardOptIn) continue
+      const user = data.users[userId]
+      if (!user) continue
+
+      const weeklyXp = (data.awards[userId] ?? [])
+        .filter((award) => award.awardedAt >= since)
+        .reduce((sum, award) => sum + award.points, 0)
+
+      rows.push({ userId, displayName: user.displayName, weeklyXp, totalXp: game.totalXp })
+    }
+
+    return rows.sort((a, b) => b.weeklyXp - a.weeklyXp).slice(0, limit)
   }
 }
 
@@ -373,6 +547,173 @@ class SupabaseStore implements Store {
       duration_ms: attempt.durationMs,
       stdout_tail: attempt.stdoutTail?.slice(-4000),
     })
+  }
+
+  /**
+   * Derived from the log rather than from counters.
+   *
+   * `exercise_attempts` is append-only and complete here, and the index on
+   * `(user_id, exercise_id, created_at desc)` makes one user's history cheap.
+   * `LocalStore` keeps counters instead because its log is truncated.
+   */
+  async exerciseStats(userId: string): Promise<ExerciseStats[]> {
+    const { data } = await this.client()
+      .from('exercise_attempts')
+      .select('exercise_id, passed, duration_ms, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+
+    const byExercise = new Map<string, ExerciseStats>()
+    for (const row of (data ?? []) as Record<string, unknown>[]) {
+      const exerciseId = row.exercise_id as string
+      let stat = byExercise.get(exerciseId)
+      if (!stat) {
+        stat = { exerciseId, passes: 0, failures: 0, failuresBeforePass: 0 }
+        byExercise.set(exerciseId, stat)
+      }
+
+      if (row.passed) {
+        stat.passes += 1
+        stat.firstPassedAt ??= row.created_at as string
+        const duration = (row.duration_ms as number) ?? 0
+        if (stat.bestPassDurationMs === undefined || duration < stat.bestPassDurationMs) {
+          stat.bestPassDurationMs = duration
+        }
+      } else {
+        stat.failures += 1
+        if (stat.passes === 0) stat.failuresBeforePass += 1
+      }
+    }
+
+    return [...byExercise.values()]
+  }
+
+  async gameFor(userId: string): Promise<GameRecord> {
+    const { data } = await this.client()
+      .from('user_game')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (!data) return { ...EMPTY_GAME }
+    return {
+      totalXp: data.total_xp ?? 0,
+      longestStreak: data.longest_streak ?? 0,
+      leaderboardOptIn: data.leaderboard_opt_in ?? false,
+      timezone: data.timezone ?? 'UTC',
+    }
+  }
+
+  async updateGame(userId: string, patch: Partial<GameRecord>) {
+    const row: Record<string, unknown> = { user_id: userId, updated_at: new Date().toISOString() }
+    if (patch.totalXp !== undefined) row.total_xp = patch.totalXp
+    if (patch.longestStreak !== undefined) row.longest_streak = patch.longestStreak
+    if (patch.leaderboardOptIn !== undefined) row.leaderboard_opt_in = patch.leaderboardOptIn
+    if (patch.timezone !== undefined) row.timezone = patch.timezone
+
+    await this.client().from('user_game').upsert(row, { onConflict: 'user_id' })
+  }
+
+  /**
+   * One statement, in the database.
+   *
+   * The insert dedupes on the primary key and the cached total only moves when
+   * the insert actually happened. Doing the two here, over two round trips,
+   * would let a double-click write one ledger row and add the points twice.
+   */
+  async awardXp(userId: string, award: StoredAward): Promise<number> {
+    const { data, error } = await this.client().rpc('award_xp', {
+      p_user_id: userId,
+      p_award_key: award.awardKey,
+      p_kind: award.kind,
+      p_points: award.points,
+      p_course_id: award.courseId ?? null,
+      p_rules_version: award.rulesVersion,
+      p_occurred_at: award.occurredAt,
+    })
+    if (error) throw new Error(error.message)
+    return (data as number) ?? 0
+  }
+
+  async awardsFor(userId: string): Promise<StoredAward[]> {
+    const { data } = await this.client()
+      .from('xp_awards')
+      .select('*')
+      .eq('user_id', userId)
+      .order('awarded_at', { ascending: false })
+
+    return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+      awardKey: row.award_key as string,
+      kind: row.kind as string,
+      points: (row.points as number) ?? 0,
+      courseId: (row.course_id as string) ?? undefined,
+      rulesVersion: (row.rules_version as number) ?? 1,
+      occurredAt: row.occurred_at as string,
+      awardedAt: row.awarded_at as string,
+    }))
+  }
+
+  async sealsFor(userId: string) {
+    const { data } = await this.client()
+      .from('user_seals')
+      .select('seal_id, earned_at')
+      .eq('user_id', userId)
+
+    return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+      sealId: row.seal_id as string,
+      earnedAt: row.earned_at as string,
+    }))
+  }
+
+  async grantSeal(userId: string, sealId: string, courseId?: string): Promise<boolean> {
+    const { data, error } = await this.client()
+      .from('user_seals')
+      .upsert(
+        { user_id: userId, seal_id: sealId, course_id: courseId ?? null },
+        { onConflict: 'user_id,seal_id', ignoreDuplicates: true },
+      )
+      .select('seal_id')
+
+    if (error) throw new Error(error.message)
+    // `ignoreDuplicates` returns nothing when the row was already there, which
+    // is what makes this answer "was this newly granted" rather than "does it
+    // exist".
+    return ((data ?? []) as unknown[]).length > 0
+  }
+
+  async weeklyLeaderboard(since: string, limit: number): Promise<LeaderboardEntry[]> {
+    const client = this.client()
+    const { data: optedIn } = await client
+      .from('user_game')
+      .select('user_id, total_xp')
+      .eq('leaderboard_opt_in', true)
+
+    const ids = ((optedIn ?? []) as Record<string, unknown>[]).map((r) => r.user_id as string)
+    if (ids.length === 0) return []
+
+    const [{ data: awards }, { data: users }] = await Promise.all([
+      client.from('xp_awards').select('user_id, points').in('user_id', ids).gte('awarded_at', since),
+      client.from('users').select('id, display_name').in('id', ids),
+    ])
+
+    const names = new Map(
+      ((users ?? []) as Record<string, unknown>[]).map((r) => [r.id as string, r.display_name as string]),
+    )
+    const weekly = new Map<string, number>()
+    for (const row of (awards ?? []) as Record<string, unknown>[]) {
+      const id = row.user_id as string
+      weekly.set(id, (weekly.get(id) ?? 0) + ((row.points as number) ?? 0))
+    }
+
+    return ((optedIn ?? []) as Record<string, unknown>[])
+      .map((r) => ({
+        userId: r.user_id as string,
+        displayName: names.get(r.user_id as string) ?? 'Someone',
+        weeklyXp: weekly.get(r.user_id as string) ?? 0,
+        totalXp: (r.total_xp as number) ?? 0,
+      }))
+      .sort((a, b) => b.weeklyXp - a.weeklyXp)
+      .slice(0, limit)
   }
 }
 
