@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
-import { cn } from '@learn/ui'
+import { cn } from '@atlas/ui'
 import { clampFraction } from '../lib/layout'
 
 export interface SplitPaneProps {

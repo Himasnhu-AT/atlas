@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef } from 'react'
-import { Button } from '@learn/ui'
-import type { ButtonVariant } from '@learn/ui'
+import { Button } from '@atlas/ui'
+import type { ButtonVariant } from '@atlas/ui'
 
 export interface ConfirmDialogProps {
   open: boolean

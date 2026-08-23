@@ -8,10 +8,10 @@
     "incremental": true,
     "paths": {
       "@/*": ["./*"],
-      "@learn/core": ["../../packages/core/src/index.ts"],
-      "@learn/ui": ["../../packages/ui/src/index.ts"],
-      "@learn/learning": ["../../packages/learning/src/index.ts"],
-      "@learn/learning/manifest": ["../../packages/learning/dist/manifest.json"]
+      "@atlas/core": ["../../packages/core/src/index.ts"],
+      "@atlas/ui": ["../../packages/ui/src/index.ts"],
+      "@atlas/learning": ["../../packages/learning/src/index.ts"],
+      "@atlas/learning/manifest": ["../../packages/learning/dist/manifest.json"]
     },
     "plugins": [{ "name": "next" }]
   },

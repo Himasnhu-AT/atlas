@@ -34,7 +34,7 @@ function ResumeRedirect() {
       <div className="flex h-full items-center justify-center bg-paper px-6 text-center">
         <p className="max-w-sm text-sm text-ink-soft">
           No lessons are bundled with this build. Run{' '}
-          <code className="font-mono">pnpm --filter @learn/learning build</code> and start the
+          <code className="font-mono">pnpm --filter @atlas/learning build</code> and start the
           app again.
         </p>
       </div>

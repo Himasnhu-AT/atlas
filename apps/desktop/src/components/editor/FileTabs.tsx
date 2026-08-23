@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { cn } from '@learn/ui'
+import { cn } from '@atlas/ui'
 
 export interface EditorFile {
   /** Stable identity — the workspace-relative path works well here. */

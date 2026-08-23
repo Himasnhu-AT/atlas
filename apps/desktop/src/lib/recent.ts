@@ -8,7 +8,7 @@ import { findLessonRef, type LessonRef } from './content'
 // Bumped when the stored value gained a course segment. An old two-part value
 // read by the three-part parser would resolve to nothing and silently send the
 // learner back to lesson one, so the key changes rather than the parser guessing.
-const STORAGE_KEY = 'learn.desktop.lastLesson.v2'
+const STORAGE_KEY = 'atlas.desktop.lastLesson.v2'
 
 export function rememberLesson(ref: LessonRef): void {
   if (typeof localStorage === 'undefined') return

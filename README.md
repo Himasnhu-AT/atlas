@@ -1,15 +1,17 @@
-# Learn AI
+# Atlas
 
-A hands-on course in AI agent engineering, and the platform that teaches it.
+A code-first learning platform, and the courses it teaches. Students read lessons on the web
+and practice in a desktop app that puts the lesson, a code editor, and a real terminal side by
+side. Every exercise is graded locally by tests that run in about a second.
 
-Students read lessons on the web and practice in a desktop app that puts the lesson, a code
-editor, and a real terminal side by side. Exercises are graded locally by Python tests that
-run in about a second.
+A course is the unit a student picks up. Each one declares its own tracks and ships its own
+support library, so a curriculum on data engineering does not have to describe itself in the
+vocabulary of one on AI agents. The first course is AI agent engineering.
 
-Nothing in the platform calls a language model. Every exercise runs against `mockllm`, a
-scripted client with the same shape as a provider SDK, so the loops students write here are
-the loops they would write against a live provider. There is no API key, no model download,
-and no network requirement anywhere in the course.
+Nothing in the platform calls a language model. The AI course runs against `mockllm`, a
+scripted client with the same shape as a provider SDK, so the loops students write are the
+loops they would write against a live provider. There is no API key, no model download, and
+no network requirement anywhere.
 
 ## Quick start
 
@@ -53,7 +55,7 @@ runtime, so server components and route handlers cannot run inside it. The two a
 packages, not an app shell, which suits them: a three-pane IDE is a different interface from
 a web reader.
 
-## The course
+## The AI agent engineering course
 
 11 modules, 45 lessons and 35 graded exercises, across four tracks.
 
@@ -96,29 +98,44 @@ where, and the rules for changing any of it. Read it before adding or moving a l
 
 ## Writing content
 
-Lessons are MDX under `packages/learning/modules/`. A module is a directory with a
-`module.yaml` and its lessons:
+Content lives under `packages/learning/courses/`. A course is a directory with a
+`course.yaml`, a `lib/`, and its modules:
 
 ```
-modules/03-tool-use/
-├─ module.yaml                 id, version, track, difficulty, prerequisites
-├─ 01-what-makes-an-agent.mdx
-├─ 02-tool-schemas.mdx
-├─ 03-the-react-loop.mdx
-├─ 04-parallel-tool-calls.mdx
-├─ 05-when-tools-fail.mdx
-└─ exercises/
-   ├─ tool-schemas/
-   ├─ react-loop/
-   │  ├─ scaffold.py           the student's starting buffer, signatures only
-   │  ├─ reference.py          a complete worked solution
-   │  └─ test.py               the grader
-   ├─ parallel-dispatch/
-   └─ resilient-agent/
+courses/ai-agents/
+├─ course.yaml                 id, version, order, tracks
+├─ lib/
+│  └─ mockllm.py               copied into every exercise workspace in this course
+└─ modules/
+   └─ 03-tool-use/
+      ├─ module.yaml           id, version, track, difficulty, prerequisites
+      ├─ 01-what-makes-an-agent.mdx
+      ├─ 02-tool-schemas.mdx
+      ├─ 03-the-react-loop.mdx
+      ├─ 04-parallel-tool-calls.mdx
+      ├─ 05-when-tools-fail.mdx
+      └─ exercises/
+         ├─ tool-schemas/
+         ├─ react-loop/
+         │  ├─ scaffold.py     the student's starting buffer, signatures only
+         │  ├─ reference.py    a complete worked solution
+         │  └─ test.py         the grader
+         ├─ parallel-dispatch/
+         └─ resilient-agent/
 ```
+
+A course declares its own tracks, and a module's `track` has to name one of them. There is no
+global list of tracks to widen, which is what lets an unrelated course use whatever words
+actually describe it.
+
+`lib/` is the course's support library. Its files are copied into every exercise workspace in
+that course rather than installed, so a student needs nothing but an interpreter to run their
+first test, and a course can ship whatever its exercises import without any other course
+knowing about it.
 
 The `NN-` prefix on a lesson file has to match its `order`, and the slug after it has to match
-the slug in its `id`. A lesson claims an exercise in its frontmatter:
+the slug in its `id`. Module ids carry their course (`ai-tool-use`), and lesson ids are
+`<module-id>.<lesson-slug>`. A lesson claims an exercise in its frontmatter:
 
 ```yaml
 exercise:
@@ -135,9 +152,11 @@ pnpm content:watch    # revalidate on save
 
 ### The build is a gate
 
-`pnpm content` exits non-zero on a schema violation, a duplicate id or order, a prerequisite
-naming a module that does not exist, a prerequisite cycle, a lesson claiming an exercise whose
-files are missing, or a cross-lesson link pointing nowhere.
+`pnpm content` exits non-zero on a schema violation, a duplicate id or order, a module naming
+a track its course did not declare, a module id or exercise id that collides with one in
+another course, a prerequisite naming a module that does not exist or that lives in another
+course, a prerequisite cycle, a lesson claiming an exercise whose files are missing, or a
+cross-lesson link pointing nowhere.
 
 It also runs each exercise against the checks that only apply to code. An exercise fails if its
 reference solution does not pass its own test, if the scaffold does pass it, if a signature has
@@ -154,8 +173,9 @@ the exercise first opens, and `test.py` imports from it. Because the name is fix
 file grades both the student's attempt and the reference solution, which is what makes the
 build gate possible.
 
-`mockllm.py` is copied into every exercise workspace by the build rather than installed, so a
-student needs nothing but a Python interpreter to run their first test.
+The AI course's `mockllm.py` is copied into every one of its exercise workspaces by the build
+rather than installed, so a student needs nothing but a Python interpreter to run their first
+test. Any course can do the same with its own `lib/`.
 
 Exercises open on the scaffold, never on the answer. The reference exists and takes a
 deliberate, confirmed click to reveal. Reading a working solution after a real attempt teaches

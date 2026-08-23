@@ -1,4 +1,4 @@
-import { NewAttempt } from '@learn/core'
+import { NewAttempt } from '@atlas/core'
 
 import { exerciseIndex } from '@/lib/content'
 import { BadRequestError, parseBody, preflight, route } from '@/lib/server/respond'

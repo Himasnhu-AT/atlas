@@ -102,7 +102,7 @@ export async function prepareExercise(ref: LessonRef): Promise<PreparedExercise>
   if (!files) {
     throw new ExerciseUnavailableError(
       `The files for ${spec.id} are missing from this build. ` +
-        'Run `pnpm --filter @learn/learning build` and restart the app.',
+        'Run `pnpm --filter @atlas/learning build` and restart the app.',
     )
   }
 

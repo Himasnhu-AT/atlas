@@ -1,4 +1,4 @@
-import { UpdateLessonProgress, currentStreak, type ProgressSnapshot } from '@learn/core'
+import { UpdateLessonProgress, currentStreak, type ProgressSnapshot } from '@atlas/core'
 import { everyModule } from '@/lib/content'
 import { BadRequestError, json, parseBody, preflight, route } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'

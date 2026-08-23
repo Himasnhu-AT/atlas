@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { LayoutTemplate, PanelBottomOpen, Terminal } from 'lucide-react'
-import { cn } from '@learn/ui'
+import { cn } from '@atlas/ui'
 
 export interface AppHeaderProps {
   moduleTitle: string

@@ -1,4 +1,4 @@
-import { SignupRequest } from '@learn/core'
+import { SignupRequest } from '@atlas/core'
 
 import { fail, json, parseBody, route } from '@/lib/server/respond'
 import { createToken, hashPassword, setSessionCookie } from '@/lib/server/session'

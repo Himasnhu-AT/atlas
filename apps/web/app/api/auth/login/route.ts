@@ -1,4 +1,4 @@
-import { Credentials } from '@learn/core'
+import { Credentials } from '@atlas/core'
 
 import { fail, json, parseBody, route } from '@/lib/server/respond'
 import { createToken, setSessionCookie, verifyPassword } from '@/lib/server/session'

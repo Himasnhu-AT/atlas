@@ -18,11 +18,11 @@ import tailwindcss from '@tailwindcss/vite'
  *   browsers `es2022` targets by default.
  */
 
-// The @learn/* workspace packages are source-only (no build step). Vite must
+// The @atlas/* workspace packages are source-only (no build step). Vite must
 // compile them from TypeScript source rather than pre-bundling them with
 // esbuild, otherwise dependency optimisation caches stale copies and JSX in
 // those packages is not transformed by @vitejs/plugin-react.
-const workspacePackages = ['@learn/core', '@learn/ui', '@learn/learning']
+const workspacePackages = ['@atlas/core', '@atlas/ui', '@atlas/learning']
 
 // Set by `tauri dev --host` when developing against a phone/other machine.
 const devHost = process.env['TAURI_DEV_HOST']

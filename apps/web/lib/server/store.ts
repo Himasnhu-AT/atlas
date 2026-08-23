@@ -12,7 +12,7 @@ import type {
   NewAttempt,
   ProgressSnapshot,
   User,
-} from '@learn/core'
+} from '@atlas/core'
 
 /**
  * The only module that talks to persistent storage.

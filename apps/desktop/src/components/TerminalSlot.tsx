@@ -1,5 +1,5 @@
 import { PanelBottomClose, TerminalSquare } from 'lucide-react'
-import { cn } from '@learn/ui'
+import { cn } from '@atlas/ui'
 import { TerminalPane } from './terminal'
 
 export interface TerminalSlotProps {

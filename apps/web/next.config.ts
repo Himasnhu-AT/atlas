@@ -3,7 +3,7 @@ import type { NextConfig } from 'next'
 const config: NextConfig = {
   // The shared packages ship TypeScript source rather than a build, so Next
   // has to compile them the same way it compiles this app.
-  transpilePackages: ['@learn/ui', '@learn/core', '@learn/learning'],
+  transpilePackages: ['@atlas/ui', '@atlas/core', '@atlas/learning'],
 
   // Off because several destinations are computed at runtime (the `?next=`
   // redirect target, lesson links built from the manifest). Typed routes would

@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
  * dashboard being a few minutes stale.
  */
 
-const STORAGE_KEY = 'learn.progress.v1'
+const STORAGE_KEY = 'atlas.progress.v1'
 
 interface LocalProgress {
   completed: Record<string, string>

@@ -5,7 +5,7 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
-@import "@learn/ui/styles.css";
+@import "@atlas/ui/styles.css";
 
 /* Tailwind v4 finds classes by scanning source, and its automatic detection
    stops at node_modules, which is where both workspace packages resolve from.
