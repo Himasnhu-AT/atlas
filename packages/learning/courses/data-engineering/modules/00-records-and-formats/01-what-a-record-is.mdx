@@ -1,0 +1,83 @@
+---
+id: de-records.what-a-record-is
+title: What a record is
+summary: A row is a claim about something that happened. Most of the difficulty in this job comes from rows that make a claim they cannot support, and from pipelines that pass them along anyway.
+order: 1
+estimatedMinutes: 20
+---
+
+Everything in this course is a pipeline: something reads data from one place, changes its
+shape, and writes it somewhere else. The reading and the writing are easy. What makes the job
+hard is that the data is a set of claims about the world, and the world does not fill in forms
+carefully.
+
+## A row is a claim
+
+Here is one row, from the extract you will work on for the next five modules.
+
+```
+1004,ada@example.com,2026-03-02,,29.99,shipped
+```
+
+It says: order 1004 was placed by ada@example.com on the second of March, quantity blank,
+total 29.99, status shipped.
+
+Read that again with the blank in mind. Something shipped, and we do not know how many of it
+shipped. That is not a formatting problem. It is a hole in a claim, and everything downstream
+that adds up quantities is about to be wrong by an amount nobody can calculate.
+
+The instinct is to fill it in. Zero is tempting because it is a number and the sum will run.
+It is also a lie: an order with zero items did not ship. One is tempting because it is the
+most common quantity. It is a better guess and still a guess, and a guess written into a
+column that everyone downstream will read as a fact.
+
+The rest of this course is mostly about the third option, which is to keep the row, mark it,
+and make sure the number nobody can calculate is a number nobody silently calculates.
+
+## The shape you actually get
+
+Data arrives in a small number of shapes, and they are not interchangeable.
+
+A **delimited file** is rows of fields separated by a character. CSV is the one you will meet
+most, and it is worse than it looks: a field can contain the delimiter if it is quoted, a
+quoted field can contain quotes if they are doubled, and a field can contain a newline. A
+naive `line.split(",")` gets all three wrong, and the row it corrupts is usually the one with
+the interesting data in it.
+
+A **document format** like JSON carries its own types and can nest. That solves the quoting
+problem and introduces a different one: a nested document is not a row, and something has to
+decide how it becomes one.
+
+A **table**, in a database, has a schema the storage engine enforces. This is the shape you
+usually want to end at, because it is the only one of the three where a claim about types is
+checked by something other than hope.
+
+Most of a pipeline is moving between these, and each move is an opportunity to lose
+information quietly.
+
+## Where the difficulty actually is
+
+New data engineers expect the hard part to be volume. It usually is not. The hard part is
+that the same field means two things, that a job ran twice, or that an upstream system was
+fixed last Tuesday and the fix changed the data without changing the schema.
+
+Those are all the same problem wearing different clothes: **something changed and nothing
+noticed**. A pipeline that fails loudly is a good afternoon. A pipeline that succeeds while
+producing wrong numbers can go unnoticed for a quarter, and by then every report built on it
+is wrong too.
+
+That is the spine of this course. A pipeline is a promise about data that has to keep being
+true tomorrow, so every stage has to be re-runnable and every promise has to be checkable.
+
+## What you need
+
+Python 3.10 or newer, and nothing else. `csv`, `json`, `sqlite3` and `datetime` are all in the
+standard library, and between them they cover every exercise here.
+
+`sampledata` is a single file the app copies next to each exercise, the same way the AI
+course ships its mock client. It generates the extracts you will work on, deterministically,
+so a test that passes on your machine passes in the build. There is no download, no database
+server, and no network.
+
+The next lesson gets a messy file into memory. The one after decides what its rows should
+look like. Then you spend the rest of the course making sure the answer stays true.

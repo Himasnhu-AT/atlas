@@ -1,0 +1,85 @@
+---
+id: de-records.reading-a-messy-file
+title: Reading a messy file
+summary: Parse a delimited file by hand once, so you know exactly what the csv module is doing for you and exactly which of your assumptions it does not share.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: read-csv
+  timeboxMinutes: 25
+---
+
+You will never write a CSV parser at work. `csv` is in the standard library, it is correct,
+and reaching past it is the kind of thing that gets flagged in review.
+
+You are going to write one here anyway, once, because the failures of the naive version are
+the failures you will spend years diagnosing in other people's pipelines, and they are much
+easier to recognise if you have caused them yourself.
+
+## The naive parser, and the row it eats
+
+Splitting on the delimiter is the obvious approach.
+
+```python
+def parse(text):
+    lines = text.strip().split("\n")
+    header = lines[0].split(",")
+    return [dict(zip(header, line.split(","))) for line in lines[1:]]
+```
+
+That works on most rows of most files, which is exactly what makes it dangerous. Here is a
+row from the extract:
+
+```
+1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending
+```
+
+The total is `1,499.00`, quoted because it contains a comma. The naive parser splits it into
+`"1` and `499.00"`, produces seven fields where the header promised six, and `zip` silently
+drops the extra one. No error, no warning. The largest order in the file quietly becomes
+`1` and the status disappears.
+
+That is the shape of almost every data bug worth the name: **the wrong answer arrives looking
+exactly like a right one**.
+
+## What quoting actually means
+
+Three rules cover nearly all of it.
+
+A field may be wrapped in double quotes. Inside a quoted field, the delimiter is ordinary
+text. Inside a quoted field, two double quotes in a row mean one literal double quote.
+
+That is enough to make a parser that is a state machine rather than a split: you walk the
+text one character at a time, holding a flag for whether you are currently inside quotes, and
+the delimiter only ends a field when that flag is off.
+
+A newline inside a quoted field is legal too, which is why splitting on `\n` before parsing is
+also wrong. The exercise leaves that case out, and it is the reason you use `csv` at work.
+
+## The row with the wrong number of fields
+
+Look at this one:
+
+```
+1007,ada@example.com,2026-03-05,1,9.99
+```
+
+Five fields, six columns in the header. The export was truncated, or the writer skipped a
+trailing empty field, or somebody edited the file by hand.
+
+You have to decide what that row becomes, and there is no default that is right everywhere.
+Padding with `None` says "we do not know the status", which is true. Dropping the row says
+"this never happened", which is false and is the more common choice because it makes the
+error go away. `csv.DictReader` pads, and it is right to: a row that is present in the source
+should be present in what you parsed, even if what you parsed is incomplete.
+
+The general rule, and it comes up in every module from here on: **losing a row is worse than
+keeping a bad one**, because a bad row can be found later and a missing one cannot.
+
+## What the exercise asks
+
+Four functions. A field splitter that respects quotes, a parser that turns the whole text
+into dicts, a shape check that reports which rows do not match the header, and a small
+function that answers a question about the parsed data so you have something to look at.
+
+Then you use `csv` for the rest of the course.

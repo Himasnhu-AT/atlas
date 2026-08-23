@@ -1,0 +1,77 @@
+---
+id: de-records.shapes-that-nest
+title: Shapes that nest
+summary: JSON carries types and nests, which solves the quoting problem and creates the flattening problem. Deciding how a document becomes a row is a design decision, not a mechanical one.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: flatten-records
+  timeboxMinutes: 25
+---
+
+The file in the last lesson was flat: every row had the same fields and every field was a
+string. Most data you receive over an API is not.
+
+```json
+{
+  "order_id": 1003,
+  "customer": {"email": "lin@example.com", "country": "SG"},
+  "items": [
+    {"sku": "A-1", "quantity": 2},
+    {"sku": "B-7", "quantity": 1}
+  ],
+  "total": 1499.00
+}
+```
+
+This is better than CSV in two ways that matter. `1499.00` is a number rather than a string
+that looks like one, so nobody downstream has to guess whether the comma was a thousands
+separator or a decimal point. And the structure is explicit: the customer is one thing, the
+items are a list of things.
+
+It is worse in one way that matters more. It is not a row, and something has to make it one.
+
+## Flattening is a decision
+
+There is no single right way to turn that document into rows, and the wrong choice is not
+detectable later.
+
+Flatten the nesting with dotted keys and you get one row: `customer.email`,
+`customer.country`, `total`. That is fine until you reach `items`, which is a list of two
+things, and a row cannot hold two of a thing without pretending.
+
+Explode the list and you get one row per item: order 1003 appears twice, once for `A-1` and
+once for `B-7`. Now the shape is honest about the items and dishonest about the total, because
+`1499.00` is now on both rows. Anyone who sums `total` gets 2998.
+
+Keep the list as JSON in a text column and the row is honest, but the items are now invisible
+to every query, which means the first person who needs them writes their own parser.
+
+The usual answer is the boring one: two tables, orders and order items, with the order id on
+both. That is what a relational model is for, and module 2 builds it. The point here is that
+the decision happens at flattening time, and by the time somebody notices the total was
+double counted, the pipeline has been running for months.
+
+## Types survive, until they do not
+
+JSON has numbers, strings, booleans and null. That looks like it solves the coercion problem
+the next module is about. It half does.
+
+`null` and a missing key are different things and JSON can express both, which is genuinely
+useful: "we know the quantity and it is nothing" is not "we never received a quantity". Most
+pipelines flatten that distinction on the first hop, and the information is gone.
+
+Numbers are where it gets thin. JSON has one numeric type and no precision guarantee, so
+`1499.00` may arrive as `1499` and money stored as a float will eventually be out by a cent.
+Anything financial is a string or an integer of minor units, and that decision belongs at the
+edge where the document is parsed, not three stages later.
+
+## What the exercise asks
+
+Flatten a nested document to dotted keys, explode a list field into one row per element while
+keeping the parent's identity, and write the check that catches the double counting: given
+rows that came from an explode, confirm that summing a parent-level field gives a number that
+is too big.
+
+That last one is the habit worth taking away. The bug is not hard to fix. It is hard to
+notice, so you write something that notices it.
