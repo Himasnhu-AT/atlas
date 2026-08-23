@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test src/game/*.test.ts"
+    "test": "node --import tsx --test src/*.test.ts src/game/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
