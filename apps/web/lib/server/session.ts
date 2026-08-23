@@ -100,13 +100,33 @@ function sign(payload: string): string {
   return createHmac('sha256', secret()).update(payload).digest('base64url')
 }
 
-export function createToken(userId: string): string {
+/**
+ * Mint a session token.
+ *
+ * `deviceId` scopes the token to a paired device so it can be revoked. Without
+ * it a token is a stateless HMAC good for thirty days, and the only way to
+ * revoke one is to rotate `SESSION_SECRET`, which signs everybody out. For a
+ * token sitting on somebody's laptop for a month that is not an acceptable
+ * answer to "I lost it".
+ *
+ * The payload gains a fourth part. That is backward compatible by construction:
+ * the signature split uses `lastIndexOf`, and the parse below reads positions 0
+ * and 1, so a three-part cookie minted before this still verifies and still
+ * resolves to its user.
+ */
+export function createToken(userId: string, deviceId?: string): string {
   const expires = Date.now() + MAX_AGE_SECONDS * 1000
-  const payload = `${userId}.${expires}.${randomUUID()}`
+  const payload = `${userId}.${expires}.${randomUUID()}${deviceId ? `.${deviceId}` : ''}`
   return `${Buffer.from(payload).toString('base64url')}.${sign(payload)}`
 }
 
-export function readToken(token: string | undefined): string | null {
+export interface TokenClaims {
+  userId: string
+  /** Present only on a token minted for a paired device. */
+  deviceId?: string
+}
+
+export function readToken(token: string | undefined): TokenClaims | null {
   if (!token) return null
 
   const separator = token.lastIndexOf('.')
@@ -127,11 +147,11 @@ export function readToken(token: string | undefined): string | null {
   const b = Buffer.from(expected)
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
 
-  const [userId, expires] = payload.split('.')
+  const [userId, expires, , deviceId] = payload.split('.')
   if (!userId || !expires) return null
   if (Number(expires) < Date.now()) return null
 
-  return userId
+  return { userId, deviceId: deviceId || undefined }
 }
 
 export async function setSessionCookie(token: string): Promise<void> {
@@ -158,24 +178,42 @@ export async function clearSessionCookie(): Promise<void> {
  */
 export async function currentUser(request?: Request): Promise<User | null> {
   let token: string | undefined
+  let bearer = false
 
   const header = request?.headers.get('authorization')
   if (header?.startsWith('Bearer ')) {
     token = header.slice(7)
+    bearer = true
   } else {
     token = (await cookies()).get(COOKIE)?.value
   }
 
-  const id = readToken(token)
-  if (!id) return null
+  const claims = readToken(token)
+  if (!claims) return null
 
-  const record = await store().findUserById(id)
+  // The revocation lookup is on the bearer path only. A cookie is a browser
+  // session the person can end by signing out, and making every page render pay
+  // for a device lookup would be a cost with no matching risk.
+  if (bearer && claims.deviceId) {
+    const device = await store().findDevice(claims.deviceId)
+    if (!device || device.userId !== claims.userId || device.revokedAt) return null
+    await store().touchDevice(claims.deviceId)
+  }
+
+  const record = await store().findUserById(claims.userId)
   if (!record) return null
 
   const { passwordHash, passwordSalt, ...user } = record
   void passwordHash
   void passwordSalt
   return user
+}
+
+/** The device a request came from, if it came from one. */
+export async function currentDeviceId(request?: Request): Promise<string | undefined> {
+  const header = request?.headers.get('authorization')
+  if (!header?.startsWith('Bearer ')) return undefined
+  return readToken(header.slice(7))?.deviceId
 }
 
 export async function requireUser(request?: Request): Promise<User> {

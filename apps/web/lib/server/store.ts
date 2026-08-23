@@ -89,6 +89,40 @@ export const EMPTY_GAME: GameRecord = {
   timezone: 'UTC',
 }
 
+/** A paired device. Named, listable, and revocable. */
+export interface StoredDevice {
+  id: string
+  userId: string
+  name: string
+  platform: string
+  appVersion: string
+  createdAt: string
+  lastSeenAt: string
+  revokedAt?: string
+}
+
+/**
+ * A pairing in flight.
+ *
+ * Kept apart from `devices` because the lifetimes differ by orders of
+ * magnitude: a pairing expires in ten minutes and a device lives for years.
+ * Mixing them means an index mostly full of dead rows.
+ */
+export interface StoredPairing {
+  /** SHA-256 of the device code. The code itself is never stored. */
+  deviceCodeHash: string
+  /** Eight readable characters the person types into the browser. */
+  userCode: string
+  name: string
+  platform: string
+  appVersion: string
+  createdAt: string
+  expiresAt: string
+  /** Set when a signed-in browser approves it. */
+  userId?: string
+  approvedAt?: string
+}
+
 export interface LeaderboardEntry {
   userId: string
   displayName: string
@@ -132,6 +166,18 @@ export interface Store {
 
   /** XP received (not merely occurred) since `since`, for opted-in users. */
   weeklyLeaderboard(since: string, limit: number): Promise<LeaderboardEntry[]>
+
+  devicesFor(userId: string): Promise<StoredDevice[]>
+  findDevice(deviceId: string): Promise<StoredDevice | null>
+  createDevice(device: StoredDevice): Promise<void>
+  touchDevice(deviceId: string): Promise<void>
+  revokeDevice(userId: string, deviceId: string): Promise<boolean>
+
+  createPairing(pairing: StoredPairing): Promise<void>
+  findPairingByUserCode(userCode: string): Promise<StoredPairing | null>
+  findPairingByCodeHash(hash: string): Promise<StoredPairing | null>
+  approvePairing(userCode: string, userId: string): Promise<boolean>
+  deletePairing(hash: string): Promise<void>
 }
 
 export function hasSupabase(): boolean {
@@ -157,6 +203,8 @@ interface LocalData {
   awards: Record<string, StoredAward[]>
   game: Record<string, GameRecord>
   seals: Record<string, { sealId: string; courseId?: string; earnedAt: string }[]>
+  devices: Record<string, StoredDevice>
+  pairings: Record<string, StoredPairing>
 }
 
 const EMPTY: LocalData = {
@@ -170,6 +218,8 @@ const EMPTY: LocalData = {
   awards: {},
   game: {},
   seals: {},
+  devices: {},
+  pairings: {},
 }
 
 const DATA_DIR = path.join(process.cwd(), '.data')
@@ -425,6 +475,89 @@ class LocalStore implements Store {
     }
 
     return rows.sort((a, b) => b.weeklyXp - a.weeklyXp).slice(0, limit)
+  }
+
+  async devicesFor(userId: string): Promise<StoredDevice[]> {
+    const data = await this.read()
+    return Object.values(data.devices)
+      .filter((d) => d.userId === userId)
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+  }
+
+  async findDevice(deviceId: string): Promise<StoredDevice | null> {
+    return (await this.read()).devices[deviceId] ?? null
+  }
+
+  async createDevice(device: StoredDevice) {
+    await this.write((data) => {
+      data.devices[device.id] = device
+    })
+  }
+
+  async touchDevice(deviceId: string) {
+    await this.write((data) => {
+      const device = data.devices[deviceId]
+      if (device) device.lastSeenAt = new Date().toISOString()
+    })
+  }
+
+  async revokeDevice(userId: string, deviceId: string): Promise<boolean> {
+    return this.write((data) => {
+      const device = data.devices[deviceId]
+      // Ownership is checked here rather than by the caller, so a device id
+      // guessed from somewhere else revokes nothing.
+      if (!device || device.userId !== userId || device.revokedAt) return false
+      device.revokedAt = new Date().toISOString()
+      return true
+    })
+  }
+
+  async createPairing(pairing: StoredPairing) {
+    await this.write((data) => {
+      // Expired pairings are swept on write rather than by a job. There are
+      // never many, and a job that has to run for correctness is a job that
+      // will one day not run.
+      const now = new Date().toISOString()
+      for (const [hash, row] of Object.entries(data.pairings)) {
+        if (row.expiresAt < now) delete data.pairings[hash]
+      }
+      data.pairings[pairing.deviceCodeHash] = pairing
+    })
+  }
+
+  async findPairingByUserCode(userCode: string): Promise<StoredPairing | null> {
+    const data = await this.read()
+    const now = new Date().toISOString()
+    return (
+      Object.values(data.pairings).find(
+        (row) => row.userCode === userCode && row.expiresAt >= now,
+      ) ?? null
+    )
+  }
+
+  async findPairingByCodeHash(hash: string): Promise<StoredPairing | null> {
+    const row = (await this.read()).pairings[hash]
+    if (!row) return null
+    return row.expiresAt >= new Date().toISOString() ? row : null
+  }
+
+  async approvePairing(userCode: string, userId: string): Promise<boolean> {
+    return this.write((data) => {
+      const now = new Date().toISOString()
+      const row = Object.values(data.pairings).find(
+        (candidate) => candidate.userCode === userCode && candidate.expiresAt >= now,
+      )
+      if (!row || row.approvedAt) return false
+      row.userId = userId
+      row.approvedAt = now
+      return true
+    })
+  }
+
+  async deletePairing(hash: string) {
+    await this.write((data) => {
+      delete data.pairings[hash]
+    })
   }
 }
 
@@ -762,6 +895,134 @@ class SupabaseStore implements Store {
       }))
       .sort((a, b) => b.weeklyXp - a.weeklyXp)
       .slice(0, limit)
+  }
+
+  async devicesFor(userId: string): Promise<StoredDevice[]> {
+    const { data } = await this.client()
+      .from('devices')
+      .select('*')
+      .eq('user_id', userId)
+      .order('last_seen_at', { ascending: false })
+    return ((data ?? []) as Record<string, unknown>[]).map(rowToDevice)
+  }
+
+  async findDevice(deviceId: string): Promise<StoredDevice | null> {
+    const { data } = await this.client()
+      .from('devices')
+      .select('*')
+      .eq('id', deviceId)
+      .maybeSingle()
+    return data ? rowToDevice(data) : null
+  }
+
+  async createDevice(device: StoredDevice) {
+    const { error } = await this.client().from('devices').insert({
+      id: device.id,
+      user_id: device.userId,
+      name: device.name,
+      platform: device.platform,
+      app_version: device.appVersion,
+      created_at: device.createdAt,
+      last_seen_at: device.lastSeenAt,
+    })
+    if (error) throw new Error(error.message)
+  }
+
+  async touchDevice(deviceId: string) {
+    await this.client()
+      .from('devices')
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq('id', deviceId)
+  }
+
+  async revokeDevice(userId: string, deviceId: string): Promise<boolean> {
+    const { data } = await this.client()
+      .from('devices')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', deviceId)
+      // Ownership in the predicate, so a device id from elsewhere matches
+      // nothing rather than being checked after the fact.
+      .eq('user_id', userId)
+      .is('revoked_at', null)
+      .select('id')
+    return ((data ?? []) as unknown[]).length > 0
+  }
+
+  async createPairing(pairing: StoredPairing) {
+    const client = this.client()
+    await client.from('device_pairings').delete().lt('expires_at', new Date().toISOString())
+    const { error } = await client.from('device_pairings').insert({
+      device_code_hash: pairing.deviceCodeHash,
+      user_code: pairing.userCode,
+      name: pairing.name,
+      platform: pairing.platform,
+      app_version: pairing.appVersion,
+      created_at: pairing.createdAt,
+      expires_at: pairing.expiresAt,
+    })
+    if (error) throw new Error(error.message)
+  }
+
+  async findPairingByUserCode(userCode: string): Promise<StoredPairing | null> {
+    const { data } = await this.client()
+      .from('device_pairings')
+      .select('*')
+      .eq('user_code', userCode)
+      .gte('expires_at', new Date().toISOString())
+      .maybeSingle()
+    return data ? rowToPairing(data) : null
+  }
+
+  async findPairingByCodeHash(hash: string): Promise<StoredPairing | null> {
+    const { data } = await this.client()
+      .from('device_pairings')
+      .select('*')
+      .eq('device_code_hash', hash)
+      .gte('expires_at', new Date().toISOString())
+      .maybeSingle()
+    return data ? rowToPairing(data) : null
+  }
+
+  async approvePairing(userCode: string, userId: string): Promise<boolean> {
+    const { data } = await this.client()
+      .from('device_pairings')
+      .update({ user_id: userId, approved_at: new Date().toISOString() })
+      .eq('user_code', userCode)
+      .gte('expires_at', new Date().toISOString())
+      .is('approved_at', null)
+      .select('user_code')
+    return ((data ?? []) as unknown[]).length > 0
+  }
+
+  async deletePairing(hash: string) {
+    await this.client().from('device_pairings').delete().eq('device_code_hash', hash)
+  }
+}
+
+function rowToDevice(row: Record<string, unknown>): StoredDevice {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    name: row.name as string,
+    platform: row.platform as string,
+    appVersion: row.app_version as string,
+    createdAt: row.created_at as string,
+    lastSeenAt: row.last_seen_at as string,
+    revokedAt: (row.revoked_at as string) ?? undefined,
+  }
+}
+
+function rowToPairing(row: Record<string, unknown>): StoredPairing {
+  return {
+    deviceCodeHash: row.device_code_hash as string,
+    userCode: row.user_code as string,
+    name: row.name as string,
+    platform: row.platform as string,
+    appVersion: row.app_version as string,
+    createdAt: row.created_at as string,
+    expiresAt: row.expires_at as string,
+    userId: (row.user_id as string) ?? undefined,
+    approvedAt: (row.approved_at as string) ?? undefined,
   }
 }
 
