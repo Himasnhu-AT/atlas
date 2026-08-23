@@ -1,0 +1,11 @@
+id: de-records
+slug: records-and-formats
+name: Records and formats
+summary: "What a record is, why the file you were sent is not the table you wanted, and how to get from one to the other without pretending the mess is not there."
+version: 1.0.0
+track: handling
+order: 0
+isActive: true
+prerequisites: []
+difficulty: beginner
+estimatedHours: 2

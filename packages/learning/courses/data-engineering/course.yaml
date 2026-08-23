@@ -1,0 +1,17 @@
+id: data-engineering
+slug: data-engineering
+name: Data engineering
+summary: "A pipeline is a promise about data that has to keep being true tomorrow. Read a messy file without a library, quarantine what is wrong instead of dropping it, put it in a table you can query, then make the whole thing re-runnable and checkable."
+version: 1.0.0
+order: 1
+isActive: true
+
+tracks:
+  - id: handling
+    name: Handling data
+    note: Reading it, cleaning it, and putting it somewhere you can ask questions.
+  - id: pipelines
+    name: Moving data
+    note: Making the whole thing re-runnable, and knowing when it has quietly stopped working.
+
+lib: lib
