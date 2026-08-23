@@ -4,6 +4,7 @@ import {
   type Award,
   EMPTY_COUNTS,
   type GameState,
+  type LevelProgress,
   type QuestCounts,
   RULES_VERSION,
   type SealEvidence,
@@ -11,6 +12,7 @@ import {
   exerciseAwards,
   isoWeekOf,
   lessonAward,
+  levelForXp,
   levelProgress,
   moduleAward,
   newlyEarnedSeals,
@@ -94,6 +96,36 @@ export async function grant(
   }
 
   return { granted, points }
+}
+
+/**
+ * Reads the total a grant is about to be added to, so a crossing can be spotted.
+ *
+ * Separate from `levelCrossing` because a route usually grants in several
+ * dependent passes: a seal can only be evaluated once the award that earned it
+ * has landed, so the batches cannot be merged. Taking one baseline at the top
+ * and testing the sum at the bottom covers all of them.
+ */
+export async function xpTotalFor(userId: string): Promise<number> {
+  return (await store().gameFor(userId)).totalXp
+}
+
+/**
+ * Whether `points` added to `before` carried the user into a new level.
+ *
+ * Decided here because this is the only place holding both totals. A client
+ * knows what it was just awarded but not the number it was added to, and a
+ * baseline kept on the page goes stale the moment the same account earns
+ * anything on the desktop. So a level-up travels as a fact the server
+ * established, not as a subtraction the client is trusted to get right.
+ *
+ * Undefined when nothing was paid or the level did not move, which is the
+ * common case and the one a caller renders nothing for.
+ */
+export function levelCrossing(before: number, points: number): LevelProgress | undefined {
+  if (points <= 0) return undefined
+  const after = before + points
+  return levelForXp(after) > levelForXp(before) ? levelProgress(after) : undefined
 }
 
 /** Awards for finishing a lesson, plus its module if that finished it too. */
