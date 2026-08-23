@@ -1,4 +1,4 @@
-id: proj-1
+id: ai-support-triage
 slug: support-triage
 name: Support triage that knows when to escalate
 summary: "One support agent built end to end: grounded answers from a knowledge base, an escalation contract with a handoff payload worth receiving, and a persona driven harness that fails the agent for escalating too early and for refusing too long."
@@ -6,6 +6,6 @@ version: 1.0.1
 track: projects
 order: 9
 isActive: true
-prerequisites: [stage-6]
+prerequisites: [ai-multi-agent-and-production]
 difficulty: advanced
 estimatedHours: 5

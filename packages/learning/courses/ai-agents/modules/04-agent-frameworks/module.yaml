@@ -1,4 +1,4 @@
-id: stage-4
+id: ai-agent-frameworks
 slug: agent-frameworks
 name: Agent frameworks
 summary: What a framework adds to the loop you already wrote, built rather than described. A registry that derives schemas, five hook points and a trace, and an agent expressed as data you can validate and diff.
@@ -6,6 +6,6 @@ version: 2.0.0
 track: agent
 order: 4
 isActive: true
-prerequisites: [stage-3]
+prerequisites: [ai-tool-use]
 difficulty: intermediate
 estimatedHours: 4

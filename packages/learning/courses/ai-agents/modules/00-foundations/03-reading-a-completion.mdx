@@ -1,5 +1,5 @@
 ---
-id: stage-0.reading-a-completion
+id: ai-foundations.reading-a-completion
 title: Reading a completion
 summary: The object every model call hands back, and why finish_reason rather than the text is the thing your code branches on. Truncation, tool call turns, and what usage is actually counting.
 order: 3
@@ -100,7 +100,7 @@ attribute quietly inherits everything else.
 
 `run_tools` is doing a lot of work in one name there, and the turn it belongs to does not end
 when it returns: the results go back into the conversation and the model is called again.
-Wrapping that in a loop is [the ReAct loop](lesson:stage-3.the-react-loop), which is where the
+Wrapping that in a loop is [the ReAct loop](lesson:ai-tool-use.the-react-loop), which is where the
 dispatch above stops being a function and becomes an agent.
 
 Branch on this field rather than on the text, for a reason worth stating plainly.
@@ -146,7 +146,7 @@ It gets sharper the moment you asked for JSON, because a document that stops ear
 not parse and the parse error says nothing about why. Checking `finish_reason` before you parse
 turns that into a decision you can act on: ask again with a larger output budget, send less
 input, or split the work into pieces that each fit. What to do about it in code, and the retry
-loop it turns into, is [structured output](lesson:stage-2.structured-output).
+loop it turns into, is [structured output](lesson:ai-prompt-engineering.structured-output).
 
 The truncated reply is billed either way. You pay for the tokens it produced before it stopped.
 
@@ -215,7 +215,7 @@ per token generated, so the smaller number on the right is not the smaller numbe
 invoice. And several providers discount a repeated prompt prefix through caching, which makes
 the resend cheaper without making it smaller, so the window still fills at the same rate. That
 second one, and the twenty turn arithmetic, are
-[tokens and the context window](lesson:stage-1.tokens-and-context).
+[tokens and the context window](lesson:ai-llm-fundamentals.tokens-and-context).
 
 The numbers `mockllm` reports come from a word count with a multiplier, not a real tokenizer.
 They move in the right direction as a conversation grows, which is the part worth noticing. Do

@@ -1,4 +1,4 @@
-id: stage-1
+id: ai-llm-fundamentals
 slug: llm-fundamentals
 name: LLM fundamentals
 summary: What a model actually computes, why tokens and the context window are the constraint that binds first, how a sampler turns a distribution into a token, and why a conversation is a list you own and resend.
@@ -6,6 +6,6 @@ version: 2.0.0
 track: base
 order: 1
 isActive: true
-prerequisites: [stage-0]
+prerequisites: [ai-foundations]
 difficulty: beginner
 estimatedHours: 3.5

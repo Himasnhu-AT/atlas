@@ -1,12 +1,12 @@
 ---
-id: stage-4.what-frameworks-abstract
+id: ai-agent-frameworks.what-frameworks-abstract
 title: What frameworks abstract
 summary: You already wrote the engine. A framework adds five things around it, in one of two shapes, and charges you in stack traces and in coupling. Knowing which five is what makes the choice a decision.
 order: 1
 estimatedMinutes: 25
 ---
 
-[The loop you wrote in module 3](lesson:stage-3.the-react-loop) is the engine. Call the model,
+[The loop you wrote in module 3](lesson:ai-tool-use.the-react-loop) is the engine. Call the model,
 check `finish_reason`, run what it asked for, append the results, call again, stop when it stops
 asking. Every agent framework on the market runs that loop, and none of them run a different
 one, because there is no different one to run.
@@ -98,9 +98,9 @@ becomes a typed object. What this buys is that a new engineer can read one funct
 what happens. What it costs is that durable resume and true parallel branching are yours to
 build, because there is no scheduler to hang them on.
 
-You will rebuild one of each. [Why a graph beats a loop](lesson:fw-1.why-a-graph-beats-a-loop)
+You will rebuild one of each. [Why a graph beats a loop](lesson:ai-state-graphs.why-a-graph-beats-a-loop)
 is the graph runtime, down to the scheduler and the checkpointer.
-[Two runtimes, one loop](lesson:fw-2.two-runtimes-one-loop) is the other family. This module is
+[Two runtimes, one loop](lesson:ai-handoffs-and-typed-output.two-runtimes-one-loop) is the other family. This module is
 what makes both of those land as two answers to a question you already have rather than as two
 new things to learn.
 

@@ -1,5 +1,5 @@
 ---
-id: stage-2.teaching-with-examples
+id: ai-prompt-engineering.teaching-with-examples
 title: Teaching with examples
 summary: An example carries format and edge case handling that no instruction states cleanly. How many to use, which ones to pick, and what an accidental shared property teaches by mistake.
 order: 2
@@ -105,12 +105,12 @@ can share an output keeps the selection honest.
 
 Dynamic selection has a cost that is easy to miss and lands on the bill rather than in the
 output. A prompt whose examples change per request has a different prefix on every call, so the
-prefix reuse from [anatomy of a prompt](lesson:stage-2.anatomy-of-a-prompt) never happens, and
+prefix reuse from [anatomy of a prompt](lesson:ai-prompt-engineering.anatomy-of-a-prompt) never happens, and
 you pay full price for the whole prompt every time. A fixed set of examples in the system
 message is reused after the first call. That is a real tradeoff rather than a footnote: on a
 task where a fixed set scores nearly as well, fixed is the cheaper answer, and the only way to
 know whether "nearly as well" is true of your task is to measure both, which is
-[measuring a prompt](lesson:stage-2.measuring-a-prompt).
+[measuring a prompt](lesson:ai-prompt-engineering.measuring-a-prompt).
 
 ### The accidental property
 

@@ -1,4 +1,4 @@
-id: stage-3
+id: ai-tool-use
 slug: tool-use
 name: Tool use and building an agent
 summary: Give a model hands. Write schemas it can read, build the ReAct loop from scratch, answer a whole batch of parallel calls including the ones that failed, and end every run with a reason you can act on.
@@ -6,6 +6,6 @@ version: 2.0.0
 track: agent
 order: 3
 isActive: true
-prerequisites: [stage-2]
+prerequisites: [ai-prompt-engineering]
 difficulty: intermediate
 estimatedHours: 5.5

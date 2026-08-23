@@ -1,4 +1,4 @@
-id: fw-1
+id: ai-state-graphs
 slug: state-graphs
 name: State graphs and durable execution
 summary: "Rebuild what a graph runtime gives you: channels with reducers, a super-step scheduler that knows which nodes are stale, and a checkpointer that makes resume, time travel and forking fall out of one dict."
@@ -6,6 +6,6 @@ version: 1.0.1
 track: frameworks
 order: 7
 isActive: true
-prerequisites: [stage-4]
+prerequisites: [ai-agent-frameworks]
 difficulty: intermediate
 estimatedHours: 4.5

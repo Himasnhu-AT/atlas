@@ -1,5 +1,5 @@
 ---
-id: stage-5.the-rag-pipeline
+id: ai-memory-and-rag.the-rag-pipeline
 title: The RAG pipeline
 summary: Ingest, retrieve, assemble, generate. The assembly step in the detail it deserves, why a grounding instruction needs a score floor behind it, and why retrieval quality and answer quality are two different measurements.
 order: 4
@@ -130,9 +130,9 @@ sent.
 
 Keeping them separate is what makes verification possible later, because you have both a record
 of what was sent and a claim about what was used.
-[Grounded answers and scope](lesson:proj-1.grounded-answers-and-scope) in module 9 does that
+[Grounded answers and scope](lesson:ai-support-triage.grounded-answers-and-scope) in module 9 does that
 comparison and treats a cited id that was never retrieved as the cheapest hallucination signal
-available. [The verification pass](lesson:proj-2.the-verification-pass) in module 10 goes further
+available. [The verification pass](lesson:ai-research-briefing.the-verification-pass) in module 10 goes further
 and checks the quoted text against the source, which is the step that depends on the context
 having gone in unmodified.
 
@@ -143,7 +143,7 @@ other, and one number cannot tell you which one you have.
 
 Retrieval quality asks whether the chunk that contains the answer came back at all. Take your
 questions, note which chunk should answer each one, and count how often it is in the top `k`.
-That is the same measurement [chunking](lesson:stage-5.chunking) used to settle chunk size, which
+That is the same measurement [chunking](lesson:ai-memory-and-rag.chunking) used to settle chunk size, which
 is the point: one set of labelled questions answers both, and it costs nothing to run because no
 model is involved. It is also where most RAG problems actually live.
 
