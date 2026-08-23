@@ -1,0 +1,80 @@
+---
+id: de-storage.why-a-table
+title: Why a table
+summary: A list of dicts holds whatever you put in it. A table refuses, and the refusal is the feature you are actually buying.
+order: 1
+estimatedMinutes: 20
+---
+
+You have clean rows. You could stop here: keep them as a list of dicts, write some functions
+that filter and sum, and ship it. People do, and it works until it does not.
+
+## What a list of dicts cannot do
+
+It cannot stop you. Every constraint you rely on is a convention you are maintaining by hand.
+
+Nothing stops a second row with the same `order_id`. Nothing stops `quantity` being a string
+on one row and an integer on the next, which is easy to do when one code path uses your
+coercion and another was written in a hurry. Nothing stops a row referring to a customer who
+does not exist, and nothing tells you when one appears.
+
+The failure mode is always the same: it works in testing, where you wrote the data, and breaks
+in production, where somebody else did.
+
+A table can refuse all four. `PRIMARY KEY` refuses the duplicate. A column type refuses the
+wrong type, or at least records the intent. `NOT NULL` refuses the hole. `REFERENCES` refuses
+the orphan. Those refusals happen in the storage engine, below every code path, including the
+one somebody adds next year without reading this.
+
+## sqlite, specifically
+
+`sqlite3` is in the standard library, the database is one file, and there is no server. That
+makes it the right thing for this course and a genuinely good default for real work at small
+and medium scale.
+
+It has one behaviour you have to know about, because it will bite you. sqlite uses **type
+affinity** rather than strict typing: declaring a column `INTEGER` and inserting the string
+`"two"` succeeds, and the value comes back as the string `"two"`.
+
+```sql
+CREATE TABLE orders (quantity INTEGER);
+INSERT INTO orders VALUES ('two');   -- accepted
+```
+
+So the type declaration is documentation and a conversion hint, not a guarantee. That is
+exactly why the previous module exists: coercion at the edge is not made redundant by having a
+schema. In sqlite it is the only thing actually enforcing the type.
+
+Modern sqlite offers `STRICT` tables, which do enforce it, and using them is the right call
+when your version supports it. Both are in the exercise.
+
+## Parameters, not string formatting
+
+One rule, and it is not negotiable.
+
+```python
+cursor.execute(f"INSERT INTO orders VALUES ('{order_id}')")   # no
+cursor.execute("INSERT INTO orders VALUES (?)", (order_id,))  # yes
+```
+
+The first is SQL injection. In a pipeline the attacker is usually not a person, it is a
+customer name containing an apostrophe, and the result is a crash at three in the morning
+rather than a breach. The fix is the same either way, it is shorter, and it is faster because
+the driver can reuse the prepared statement.
+
+## Loading is not one insert at a time
+
+A separate transaction per row means an fsync per row, and a ten thousand row load that should
+take a second takes minutes. Batch the inserts and commit once, or once per few thousand.
+
+The second reason matters more than the speed: one transaction means the load either happened
+or it did not. A load that dies halfway through with no transaction leaves a table holding
+part of an extract, and nothing in the table says which part.
+
+## What the next lessons do
+
+Load the cleaned orders into a real table with real constraints, look at what the query
+planner does with and without an index, and then join orders to customers and count what the
+join threw away.
+
+That last one is where most of the actual bugs live.

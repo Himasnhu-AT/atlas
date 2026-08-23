@@ -1,0 +1,86 @@
+---
+id: de-cleaning.coercion-and-what-it-costs
+title: Coercion and what it costs
+summary: A CSV field is a string. Turning it into a number, a date or a boolean is a guess, and the guess has to be able to say it failed rather than returning something plausible.
+order: 1
+estimatedMinutes: 25
+exercise:
+  id: coerce-fields
+  timeboxMinutes: 25
+---
+
+Every field in a delimited file is text. `29.99` is a string, `2026-03-02` is a string, and
+so is `unknown`. Something has to turn them into values, and that something is making a claim
+about what the writer meant.
+
+## The three answers to a bad value
+
+Take `quantity` in the extract. Most rows hold `2` or `3`. One holds an empty string. One
+holds `unknown`.
+
+```python
+int(row["quantity"])
+```
+
+raises on both. That is one answer, and it is better than most: it is loud, and it stops at
+the first bad row so you find out immediately. Its problem is that it stops at the first bad
+row, so a ten-million-row load dies on row four and you learn nothing about rows five onward.
+
+```python
+int(row["quantity"] or 0)
+```
+
+is the answer people actually write, and it is the worst of the three. It never fails, so the
+load always succeeds, and `unknown` still raises while empty quietly becomes zero. An order
+that shipped now claims it shipped nothing, and the number is indistinguishable from a real
+zero forever after.
+
+The third answer is to return the value **and** whether it worked.
+
+```python
+value, ok = to_int(row["quantity"])
+```
+
+This is more typing at every call site, which is why people avoid it, and it is the only
+version where the caller has to decide what a failure means. That decision is the job.
+
+## Dates are worse than numbers
+
+The extract spells `placed_at` three ways.
+
+```
+2026-03-01
+01/03/2026
+2026-03-02T09:14:00
+```
+
+The first and third are unambiguous. The second is not: `01/03/2026` is the first of March in
+most of the world and the third of January in the United States, and nothing in the file says
+which. You cannot tell by looking at one value. You sometimes cannot tell by looking at all of
+them, because a file where every day is twelve or under is consistent with both readings.
+
+The honest handling is to pick an interpretation, write it down where the next person will see
+it, and record which rows needed it. What you must not do is let `dateutil` or a chain of
+`try` blocks silently apply a different rule to different rows, which is what happens when you
+try formats in order until one sticks. Then some rows are day-first and some are month-first
+and no evidence of which is which survives.
+
+## Empty is not the same as absent
+
+Module 0 kept the difference between a field that was present and empty and a field that was
+missing entirely. This is where it pays off.
+
+An empty `quantity` means the source system had a row and left the field blank. A missing
+`status` means the row was truncated before that field. They are different failures with
+different owners: one is a data problem, the other is a transport problem, and a coercion
+layer that maps both to `None` has thrown away the only clue about which one to go and fix.
+
+## What the exercise asks
+
+Four coercions — integer, decimal, date, boolean — each returning a value and a flag, each
+refusing to guess. `to_decimal` has to survive `$59.00` and `1,499.00`, which are the two
+things a total actually arrives as, and it has to keep the value exact rather than turning
+money into a float.
+
+The habit to take away is the return type. A function that can fail and returns only a value
+has to encode failure as a value, and every value it could pick is also a legitimate answer.

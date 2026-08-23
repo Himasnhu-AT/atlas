@@ -1,0 +1,84 @@
+---
+id: de-storage.the-rows-a-join-loses
+title: The rows a join loses
+summary: An inner join silently drops rows that do not match. That is what it is for and it is also where most quiet data bugs come from, so count what it dropped every time.
+order: 4
+estimatedMinutes: 30
+exercise:
+  id: join-audit
+  timeboxMinutes: 30
+---
+
+Joining orders to customers is a one-liner.
+
+```sql
+SELECT o.order_id, o.total, c.country
+FROM orders o
+JOIN customers c ON c.email = o.customer;
+```
+
+Run it on the sample and you get fewer rows than there are orders. Nothing raises. The result
+is a perfectly good table, and a total computed from it is wrong.
+
+## Why rows disappear
+
+Three reasons, and they need different fixes.
+
+The customer genuinely does not exist in the reference table. Order 1008 has a blank customer
+and has nothing to match. That is a real data problem and the row should be quarantined, not
+dropped by a join.
+
+The customer exists but does not match. `Grace@Example.com` with the surrounding whitespace is
+the same person as `grace@example.com`, and a join on raw values misses it. That is a
+normalisation problem, and it belongs at the coercion layer in module 1 rather than being
+patched with `lower(trim(...))` in every query that touches the column, which as the last
+lesson noted also throws away the index.
+
+The reference table is stale. The customer signed up this morning and the dimension was loaded
+last night. That is an ordering problem in the pipeline, and it is the next module's subject.
+
+All three look identical in the output: rows that are not there.
+
+## Count the difference, every time
+
+The fix is not to stop using inner joins. It is to know what they cost.
+
+```sql
+SELECT count(*) FROM orders;                                    -- 9
+SELECT count(*) FROM orders o JOIN customers c ON ...;          -- 7
+```
+
+Two rows did not join. That number should be recorded by the pipeline, next to the row counts
+it already records, and it should be compared to yesterday's. A join that has always dropped
+two rows is a known issue. A join that dropped two yesterday and four hundred today is an
+incident, and the shape of the alert is exactly the rate check from
+[quarantine, not deletion](lesson:de-cleaning.quarantine-not-deletion).
+
+## A left join is not the fix, it is a different question
+
+Switching to `LEFT JOIN` keeps every order and fills the missing country with NULL. That is
+right when the country is genuinely optional. It is wrong when a missing country means the
+order is broken, because now the broken rows are inside your clean table with a NULL that
+every downstream query has to remember to handle.
+
+The choice is the same one as the quarantine lesson's: keep the row somewhere marked, or keep
+it inline and flagged. Both are defensible. Silently dropping it is not, and that is what the
+unadorned inner join does.
+
+## The multiplying join
+
+One more, because it is the reason totals come out too big.
+
+If the right-hand table has more than one matching row, the join produces more than one output
+row per input row. Join orders to a customers table that accidentally holds two rows for
+`ada@example.com` and every one of Ada's orders appears twice, along with its total.
+
+This is the same double counting as the explode in
+[shapes that nest](lesson:de-records.shapes-that-nest), arriving by a different route, and the
+same check catches it: the output of a join to a reference table should have the same number
+of rows as the input, and if it does not, that table is not unique on the key you joined.
+
+## What the exercise asks
+
+Run a join, count what it dropped, classify why each row dropped, and detect the multiplying
+case. Four small queries that together turn a silent failure into a number.
