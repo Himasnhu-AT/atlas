@@ -112,10 +112,22 @@ export const POST = route(async (request) => {
       continue
     }
 
-    await store().recordAttempt(user.id, {
-      ...event.payload,
-      stdoutTail: event.payload.stdoutTail?.slice(-4000),
-    })
+    const applied = await store().recordAttempt(
+      user.id,
+      { ...event.payload, stdoutTail: event.payload.stdoutTail?.slice(-4000) },
+      event.clientEventId,
+    )
+
+    // A batch this device already sent. Award keys would have stopped it paying
+    // twice, but not being counted twice, and the counters are what the
+    // first-run bonus and two seals read: five replays of two genuine failures
+    // is enough to mint Stubborn. Still accepted, because it was accepted once
+    // and the device only needs to know it can drop it.
+    if (!applied) {
+      accepted += 1
+      continue
+    }
+
     await store().recordActivity(user.id, occurredAt.slice(0, 10), 'attempt')
 
     const awards = await awardsForAttempt(user.id, event.payload.exerciseId, event.payload.passed)

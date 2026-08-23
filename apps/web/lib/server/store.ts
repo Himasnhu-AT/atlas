@@ -154,7 +154,15 @@ export interface Store {
   exerciseState(userId: string, exerciseId: string): Promise<ExerciseState | null>
   saveExerciseState(userId: string, state: ExerciseState): Promise<void>
 
-  recordAttempt(userId: string, attempt: NewAttempt): Promise<void>
+  /**
+   * Records one run. Returns false when `clientEventId` was already applied,
+   * which is how a replayed outbox batch is stopped from counting twice.
+   */
+  recordAttempt(
+    userId: string,
+    attempt: NewAttempt,
+    clientEventId?: string,
+  ): Promise<boolean>
   exerciseStats(userId: string): Promise<ExerciseStats[]>
 
   gameFor(userId: string): Promise<GameRecord>
@@ -209,6 +217,15 @@ interface LocalData {
   attempts: Record<string, (NewAttempt & { id: string; createdAt: string })[]>
   /** Durable per-exercise counters, because `attempts` above is truncated. */
   stats: Record<string, Record<string, ExerciseStats>>
+  /**
+   * Client event ids already applied, newest last.
+   *
+   * Award keys stop a replayed batch paying twice, but they do not stop it
+   * being *recorded* twice, and the attempt counters are what the first-run
+   * bonus and two seals read. Without this a plain 5xx retry inflates the
+   * failure count: five replays of two genuine failures mints Stubborn.
+   */
+  seenEvents: Record<string, string[]>
   activity: Record<string, ActivityDay[]>
   awards: Record<string, StoredAward[]>
   game: Record<string, GameRecord>
@@ -224,6 +241,7 @@ const EMPTY: LocalData = {
   exerciseState: {},
   attempts: {},
   stats: {},
+  seenEvents: {},
   activity: {},
   awards: {},
   game: {},
@@ -384,8 +402,26 @@ class LocalStore implements Store {
     })
   }
 
-  async recordAttempt(userId: string, attempt: NewAttempt) {
+  async recordAttempt(userId: string, attempt: NewAttempt, clientEventId?: string) {
+    let applied = true
+
     await this.write((data) => {
+      // Inside the mutate callback, never before it. `write` serialises through
+      // a promise queue, so a check-then-write split across two calls is a race
+      // that two draining devices will eventually lose.
+      if (clientEventId !== undefined) {
+        const seen = (data.seenEvents[userId] ??= [])
+        if (seen.includes(clientEventId)) {
+          applied = false
+          return
+        }
+        seen.push(clientEventId)
+        // Bounded, like the attempt log. A drain carries at most MAX_EVENTS and
+        // retries follow within minutes, so this is far more history than a
+        // replay can span. Supabase gets a real unique constraint instead.
+        if (seen.length > 2000) seen.splice(0, seen.length - 2000)
+      }
+
       const now = new Date().toISOString()
       const rows = (data.attempts[userId] ??= [])
       rows.push({ ...attempt, id: randomUUID(), createdAt: now })
@@ -419,6 +455,8 @@ class LocalStore implements Store {
         if (stat.passes === 0) stat.failuresBeforePass += 1
       }
     })
+
+    return applied
   }
 
   async exerciseStats(userId: string): Promise<ExerciseStats[]> {
@@ -725,16 +763,31 @@ class SupabaseStore implements Store {
       )
   }
 
-  async recordAttempt(userId: string, attempt: NewAttempt) {
-    await this.client().from('exercise_attempts').insert({
-      user_id: userId,
-      exercise_id: attempt.exerciseId,
-      passed: attempt.passed,
-      tests_passed: attempt.testsPassed,
-      tests_total: attempt.testsTotal,
-      duration_ms: attempt.durationMs,
-      stdout_tail: attempt.stdoutTail?.slice(-4000),
-    })
+  async recordAttempt(userId: string, attempt: NewAttempt, clientEventId?: string) {
+    // `unique (user_id, client_event_id)` does the work. `ignoreDuplicates` on a
+    // conflict makes a replayed batch a no-op rather than an error, so a device
+    // retrying after a 5xx does not have to know what it already sent.
+    const { data } = await this.client()
+      .from('exercise_attempts')
+      .upsert(
+        {
+          user_id: userId,
+          exercise_id: attempt.exerciseId,
+          passed: attempt.passed,
+          tests_passed: attempt.testsPassed,
+          tests_total: attempt.testsTotal,
+          duration_ms: attempt.durationMs,
+          stdout_tail: attempt.stdoutTail?.slice(-4000),
+          client_event_id: clientEventId,
+        },
+        { onConflict: 'user_id,client_event_id', ignoreDuplicates: true },
+      )
+      .select('id')
+
+    // `ignoreDuplicates` makes a replay silent rather than an error, so the
+    // error field cannot tell them apart. The returned rows can: a duplicate
+    // inserts nothing and comes back empty.
+    return (data?.length ?? 0) > 0
   }
 
   /**
