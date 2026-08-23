@@ -208,3 +208,12 @@ The tests cover the wrappings from the section above, the truncated reply, and a
 where an integer was required. The parts people get wrong are the brace scanner, which has to
 ignore braces inside strings and escaped quotes rather than counting every one it sees, and the
 attempt budget, which is the total number of model calls rather than the number of retries.
+
+
+## Seen in production
+
+Grab describe classifying data entities at scale in
+[LLM-powered data classification](https://engineering.grab.com/llm-powered-data-classification).
+Worth reading for the operational half rather than the prompting: what they do with a
+classification they cannot parse, and how a schema plus a retry becomes a pipeline stage rather
+than a request.

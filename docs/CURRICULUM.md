@@ -27,6 +27,23 @@ A course ships whatever its exercises import in its own `lib/`, copied into ever
 rather than installed. The AI course ships `mockllm`; the data course ships a deterministic
 fixture generator. Neither knows the other exists.
 
+## Outbound links
+
+A lesson may close with a **Seen in production** section pointing at one public engineering
+write-up, with a sentence saying what to read it for. Three rules, because a link section is
+easy to let rot:
+
+The link is to the **primary source**, never to a list that collects it. Every URL was fetched
+and returned 200 before it shipped; several otherwise good candidates were left out because
+their host blocks a plain fetch and "probably fine" is not verified.
+
+**One per lesson at most**, and only where the write-up illuminates the specific thing the
+lesson teaches. A link that is merely on the same topic is noise, and a section of them is a
+worse version of a bookmark folder.
+
+**Say what to read it for.** These are long articles written for a different purpose, and
+without a sentence of direction the reader either skips it or reads the wrong half.
+
 ## The destination
 
 A student who finishes has built two working systems, offline, against a scripted model
