@@ -4,6 +4,7 @@ import { exerciseIndex } from '@/lib/content'
 import { BadRequestError, parseBody, preflight, route } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
+import { awardsForAttempt, evaluateSeals, evaluateStreak, grant } from '@/lib/server/xp'
 
 /**
  * Test results posted by the desktop app.
@@ -28,6 +29,15 @@ export const POST = route(async (request) => {
     stdoutTail: body.stdoutTail?.slice(-4000),
   })
   await store().recordActivity(user.id, new Date().toISOString().slice(0, 10), 'attempt')
+
+  // The attempt is recorded before the award is computed, so `failuresBeforePass`
+  // already reflects this run. A failing run pays nothing; a passing one pays
+  // once, ever, because the award key names the exercise and nothing else.
+  const now = new Date().toISOString()
+  const awards = await awardsForAttempt(user.id, body.exerciseId, body.passed)
+  await grant(user.id, awards, now)
+  await grant(user.id, await evaluateStreak(user.id), now)
+  await grant(user.id, await evaluateSeals(user.id), now)
 
   return new Response(null, { status: 204 })
 })

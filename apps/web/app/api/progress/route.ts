@@ -3,6 +3,12 @@ import { everyModule } from '@/lib/content'
 import { BadRequestError, json, parseBody, preflight, route } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
+import {
+  awardsForLessonCompletion,
+  evaluateSeals,
+  evaluateStreak,
+  grant,
+} from '@/lib/server/xp'
 
 /**
  * Progress. The user id always comes from the session, never from the body.
@@ -42,6 +48,16 @@ export const PUT = route(async (request) => {
 
   await store().recordActivity(user.id, now.slice(0, 10), 'lesson')
   await recomputeModule(user.id, body.moduleId)
+
+  // XP is granted here, from the event the server just recorded, never from
+  // anything the client sent. Only a completion pays, and the award key means
+  // toggling a lesson off and on again pays nothing further.
+  if (body.status === 'completed') {
+    const awards = await awardsForLessonCompletion(user.id, body.lessonId, body.moduleId)
+    await grant(user.id, awards, now)
+    await grant(user.id, await evaluateStreak(user.id), now)
+    await grant(user.id, await evaluateSeals(user.id), now)
+  }
 
   return json(await snapshotFor(user.id))
 })
