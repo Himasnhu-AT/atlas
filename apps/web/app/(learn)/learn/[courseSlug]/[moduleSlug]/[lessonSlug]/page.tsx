@@ -9,8 +9,10 @@ import { LessonSidebar } from '@/components/lesson-sidebar'
 import { CompleteButton } from '@/components/complete-button'
 import { ExerciseCallout } from '@/components/exercise-callout'
 import { everyLesson, findCourse, findLesson, loadLesson, neighbours } from '@/lib/content'
+import { accessFor, canOpen } from '@/lib/server/access'
 import { currentUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
+import { Paywall } from '@/components/paywall'
 
 type Params = Promise<{ courseSlug: string; moduleSlug: string; lessonSlug: string }>
 
@@ -46,6 +48,12 @@ export default async function LessonPage({ params }: { params: Params }) {
 
   // Reading is open to everyone. Only progress state needs a session.
   const user = await currentUser()
+
+  // The gate. Enforced here, on the server, where the body actually is: a
+  // client-side check would ship the lesson and then hide it, which is not a
+  // gate, it is a curtain.
+  const access = await accessFor(user?.id)
+  const unlocked = canOpen(access, course, module)
   const completed = user
     ? (await store().progressFor(user.id)).lessons.some(
         (row) => row.lessonId === lesson.id && row.status === 'completed',
@@ -86,9 +94,13 @@ export default async function LessonPage({ params }: { params: Params }) {
 
             <hr className="mt-10 mb-12 border-rule" />
 
-            <LessonBody html={compiled.html} />
+            {!unlocked ? (
+              <Paywall courseName={course.name} signedIn={access.signedIn} />
+            ) : (
+              <LessonBody html={compiled.html} />
+            )}
 
-            {lesson.exercise && (
+            {unlocked && lesson.exercise && (
               <ExerciseCallout
                 exerciseId={lesson.exercise.id}
                 timeboxMinutes={lesson.exercise.timeboxMinutes}

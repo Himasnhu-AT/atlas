@@ -20,6 +20,10 @@ create table if not exists users (
   avatar_url     text,
   password_hash  text not null,
   password_salt  text not null,
+  -- What this account may open. No payment provider is wired to it yet: the
+  -- column exists so the boundary is enforced in one place from the start
+  -- rather than retrofitted through every route later.
+  plan           text not null default 'free' check (plan in ('free', 'member')),
   created_at     timestamptz not null default now(),
   last_seen_at   timestamptz
 );
