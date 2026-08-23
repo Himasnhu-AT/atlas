@@ -17,7 +17,7 @@ The exit status is 0 unless the arguments are unusable. A failed check is data,
 not a crash. Standard library only, like everything else students run.
 
 Usage:
-    python3 validate_exercise.py --dir <exercise-dir> --mockllm <path>
+    python3 validate_exercise.py --dir <exercise-dir> --lib <course-lib-dir>
         [--scaffold scaffold.py] [--reference reference.py] [--test test.py]
         [--timeout 60]
 """
@@ -37,10 +37,36 @@ import tempfile
 # student's attempt and the reference solution.
 SOLUTION_FILENAME = "solution.py"
 
-# Everything an exercise is allowed to import. `mockllm` is copied into the
-# workspace by the build, `solution` is the student's own file. Nothing else,
-# because the platform's promise is that Python 3.10 is the only requirement.
-LOCAL_MODULES = frozenset({"mockllm", "solution"})
+# `solution` is the student's own file. The rest of what an exercise may import
+# comes from its course's lib directory, which the build copies into the
+# workspace: the AI course ships `mockllm`, another course ships something else.
+# Nothing beyond that, because the platform's promise is that Python 3.10 is the
+# only requirement.
+BASE_LOCAL_MODULES = frozenset({"solution"})
+
+
+def local_modules(lib_dir) -> frozenset:
+    """Module names a course makes available by copying files into the workspace."""
+    if not lib_dir or not os.path.isdir(lib_dir):
+        return BASE_LOCAL_MODULES
+    names = {
+        os.path.splitext(name)[0]
+        for name in os.listdir(lib_dir)
+        if name.endswith(".py") and not name.startswith(".")
+    }
+    return BASE_LOCAL_MODULES | names
+
+
+def copy_lib(lib_dir, dest) -> None:
+    """Copy a course's lib files into an exercise workspace."""
+    if not lib_dir or not os.path.isdir(lib_dir):
+        return
+    for name in os.listdir(lib_dir):
+        if name == "__pycache__" or name.startswith("."):
+            continue
+        source = os.path.join(lib_dir, name)
+        if os.path.isfile(source):
+            shutil.copy(source, os.path.join(dest, name))
 
 # sys.stdlib_module_names is 3.10+, exact, and costs nothing to maintain.
 STDLIB = frozenset(sys.stdlib_module_names)
@@ -189,7 +215,7 @@ def _near(name: str, candidates) -> str:
 # The checks
 
 
-def check_imports(name: str, tree: ast.Module) -> list:
+def check_imports(name: str, tree: ast.Module, locals_allowed: frozenset) -> list:
     """
     Root import names only, never dotted ones.
 
@@ -208,11 +234,12 @@ def check_imports(name: str, tree: ast.Module) -> list:
         else:
             continue
         for root, lineno in roots:
-            if not root or root in STDLIB or root in LOCAL_MODULES:
+            if not root or root in STDLIB or root in locals_allowed:
                 continue
+            allowed = ", ".join(sorted(locals_allowed))
             problems.append(
                 f"{name} line {lineno}: imports {root!r}, which is not available. "
-                f"Exercises run with the standard library, mockllm, and solution "
+                f"Exercises run with the standard library plus {allowed} "
                 f"and nothing else, because installing anything is not an option."
             )
     return problems
@@ -306,7 +333,7 @@ def check_structure(test_tree, scaffold_tree, reference_tree) -> list:
     return problems
 
 
-def check_scaffold_fails(exercise_dir, mockllm, scaffold, test, timeout) -> list:
+def check_scaffold_fails(exercise_dir, lib_dir, scaffold, test, timeout) -> list:
     """
     The scaffold must not pass its own test.
 
@@ -322,7 +349,7 @@ def check_scaffold_fails(exercise_dir, mockllm, scaffold, test, timeout) -> list
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns("__pycache__"),
         )
-        shutil.copy(mockllm, os.path.join(scratch, "mockllm.py"))
+        copy_lib(lib_dir, scratch)
         shutil.copy(os.path.join(scratch, scaffold), os.path.join(scratch, SOLUTION_FILENAME))
 
         environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
@@ -367,13 +394,14 @@ def check_scaffold_fails(exercise_dir, mockllm, scaffold, test, timeout) -> list
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dir", required=True)
-    parser.add_argument("--mockllm", required=True)
+    parser.add_argument("--lib", default="")
     parser.add_argument("--scaffold", default="scaffold.py")
     parser.add_argument("--reference", default="reference.py")
     parser.add_argument("--test", default="test.py")
     parser.add_argument("--timeout", type=float, default=60.0)
     args = parser.parse_args()
 
+    locals_allowed = local_modules(args.lib)
     problems = []
     trees = {}
 
@@ -390,7 +418,7 @@ def main() -> int:
             problems.append(problem)
         else:
             trees[name] = tree
-            problems.extend(check_imports(name, tree))
+            problems.extend(check_imports(name, tree, locals_allowed))
 
     reference_tree = trees.get(args.reference)
     scaffold_tree = trees.get(args.scaffold)
@@ -413,7 +441,7 @@ def main() -> int:
     if scaffold_tree is not None and test_tree is not None:
         problems.extend(
             check_scaffold_fails(
-                args.dir, args.mockllm, args.scaffold, args.test, args.timeout
+                args.dir, args.lib, args.scaffold, args.test, args.timeout
             )
         )
 

@@ -28,17 +28,38 @@ export type User = z.infer<typeof User>
  */
 export const ModuleRecord = z.object({
   id: z.string(),
+  courseId: z.string(),
   slug: z.string(),
   name: z.string(),
   version: z.string(),
   isActive: z.boolean(),
   prerequisites: z.array(z.string()),
-  track: z.enum(['base', 'cli', 'agent', 'frameworks', 'projects']),
+  /**
+   * A grouping inside one course, and deliberately a plain string.
+   *
+   * It used to be `base | cli | agent | frameworks | projects`, which are words
+   * that only mean anything to the AI course. Each course declares its own
+   * tracks in its `course.yaml`, the content build checks a module against its
+   * own course's list, and the registry only stores what the build already
+   * validated.
+   */
+  track: z.string().min(1),
   order: z.number().int().nonnegative(),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
   estimatedHours: z.number().positive(),
 })
 export type ModuleRecord = z.infer<typeof ModuleRecord>
+
+/** A course as the registry knows it. Metadata only, like `ModuleRecord`. */
+export const CourseRecord = z.object({
+  id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  version: z.string(),
+  isActive: z.boolean(),
+  order: z.number().int().nonnegative(),
+})
+export type CourseRecord = z.infer<typeof CourseRecord>
 
 export const LessonProgress = z.object({
   lessonId: z.string(),

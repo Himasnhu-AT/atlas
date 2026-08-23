@@ -1,35 +1,56 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import manifest from '@learn/learning/manifest'
+import {
+  activeCourses as activeCoursesOf,
+  activeModules as activeModulesOf,
+  allActiveModules,
+  findLessonById,
+  getCourse,
+  getLesson,
+  getModule,
+  lessonSequence as lessonSequenceOf,
+  neighbours as neighboursOf,
+  trackOf,
+  type CourseEntry,
+  type Manifest,
+  type ModuleEntry,
+} from '@learn/learning'
+import rawManifest from '@learn/learning/manifest'
 
 /**
  * Reading the built content from the server.
  *
  * The manifest is imported directly, so navigation costs nothing at runtime.
- * Lesson bodies are read from disk on demand and cached, because inlining
- * nineteen compiled MDX documents into the server bundle would be wasteful when
- * a request needs exactly one.
+ * Lesson bodies are read from disk on demand and cached, because inlining every
+ * compiled document into the server bundle would be wasteful when a request
+ * needs exactly one.
+ *
+ * The navigation itself lives in `@learn/learning` and is only bound to this
+ * manifest here. It used to be reimplemented in this file, which is how the web
+ * and the desktop app were able to disagree about reading order.
  */
+
+/**
+ * TypeScript infers a JSON import structurally, so unions the schema constrains
+ * (`difficulty`, and every optional field) widen to `string` on the way in. The
+ * file is written by the content build straight from `Manifest`, and the build
+ * refuses to emit one that does not parse, so this is the boundary where the
+ * declared type is reattached rather than a claim about unvalidated data.
+ */
+const manifest = rawManifest as unknown as Manifest
 
 export { manifest }
 
 export interface CompiledLesson {
   id: string
   moduleId: string
+  courseId: string
   html: string
   exerciseFiles?: Record<string, string>
 }
 
-const LESSON_DIR = path.join(
-  process.cwd(),
-  '..',
-  '..',
-  'packages',
-  'learning',
-  'dist',
-  'lessons',
-)
+const LESSON_DIR = path.join(process.cwd(), '..', '..', 'packages', 'learning', 'dist', 'lessons')
 
 const cache = new Map<string, CompiledLesson>()
 
@@ -51,38 +72,32 @@ export async function loadLesson(lessonId: string): Promise<CompiledLesson | nul
   }
 }
 
-export function activeModules() {
-  return manifest.modules.filter((module) => module.isActive).sort((a, b) => a.order - b.order)
-}
+export const activeCourses = () => activeCoursesOf(manifest)
+export const findCourse = (slug: string) => getCourse(manifest, slug)
+export const activeModules = (course: CourseEntry) => activeModulesOf(course)
+export const everyModule = () => allActiveModules(manifest)
+export const findModule = (course: CourseEntry, slug: string) => getModule(course, slug)
+export const lessonSequence = (course: CourseEntry) => lessonSequenceOf(course)
+export const neighbours = (course: CourseEntry, lessonId: string) => neighboursOf(course, lessonId)
+export const findLesson = (course: CourseEntry, moduleSlug: string, lessonSlug: string) =>
+  getLesson(course, moduleSlug, lessonSlug) ?? null
+export const locateLesson = (lessonId: string) => findLessonById(manifest, lessonId)
+export const track = (course: CourseEntry, module: ModuleEntry) => trackOf(course, module)
 
-export function findModule(slug: string) {
-  return activeModules().find((module) => module.slug === slug)
-}
-
-export function findLesson(moduleSlug: string, lessonSlug: string) {
-  const module = findModule(moduleSlug)
-  const lesson = module?.lessons.find((entry) => entry.slug === lessonSlug)
-  return module && lesson ? { module, lesson } : null
-}
-
-/** Flat reading order, for prev/next and static generation. */
-export function lessonSequence() {
-  return activeModules().flatMap((module) =>
-    [...module.lessons]
-      .sort((a, b) => a.order - b.order)
-      .map((lesson) => ({ module, lesson })),
+/** Every (course, module, lesson) triple, for static generation across courses. */
+export function everyLesson() {
+  return activeCourses().flatMap((course) =>
+    lessonSequenceOf(course).map(({ module, lesson }) => ({ course, module, lesson })),
   )
 }
 
-/** Prerequisite ids resolved to the names a student would recognise. */
-export function prerequisiteNames(ids: string[]): string {
-  const byId = new Map(activeModules().map((module) => [module.id, module.name]))
+/**
+ * Prerequisite ids resolved to the names a student would recognise.
+ *
+ * Scoped to one course, because a prerequisite cannot cross a course boundary
+ * and the build refuses one that tries.
+ */
+export function prerequisiteNames(course: CourseEntry, ids: string[]): string {
+  const byId = new Map(activeModulesOf(course).map((module) => [module.id, module.name]))
   return ids.map((id) => byId.get(id) ?? id).join(' and ')
-}
-
-export function neighbours(lessonId: string) {
-  const sequence = lessonSequence()
-  const index = sequence.findIndex((entry) => entry.lesson.id === lessonId)
-  if (index === -1) return { previous: undefined, next: undefined }
-  return { previous: sequence[index - 1], next: sequence[index + 1] }
 }

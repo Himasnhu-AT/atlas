@@ -2,39 +2,16 @@ import type { Metadata } from 'next'
 
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
-import { Eyebrow, PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
-import { Reveal } from '@/components/reveal'
-import { activeModules, prerequisiteNames } from '@/lib/content'
+import { PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
+import { activeCourses, activeModules } from '@/lib/content'
 
 export const metadata: Metadata = {
-  title: 'Curriculum',
-  description:
-    'Eleven modules, from what a language model does to a project you could put in front of someone.',
-}
-
-const TRACKS: Record<string, { label: string; note: string }> = {
-  base: {
-    label: 'Shared base',
-    note: 'Everyone starts here, whatever you build afterwards.',
-  },
-  agent: {
-    label: 'Agent track',
-    note: 'Where you build the thing: tools, loops, retrieval, orchestration.',
-  },
-  cli: { label: 'CLI track', note: 'Working with agents from the terminal.' },
-  frameworks: {
-    label: 'Understanding frameworks',
-    note: 'Rebuild what LangGraph, CrewAI and the Agents SDK do, small enough to hold in your head.',
-  },
-  projects: {
-    label: 'Real-life projects',
-    note: 'End to end builds, the kind you would actually put in front of someone.',
-  },
+  title: 'Courses',
+  description: 'Every course on Atlas, and what each one asks you to build.',
 }
 
 export default function CatalogPage() {
-  const modules = activeModules()
-  const tracks = [...new Set(modules.map((module) => module.track))]
+  const courses = activeCourses()
 
   return (
     <>
@@ -43,50 +20,39 @@ export default function CatalogPage() {
       <main id="main" className="pt-20 pb-28 sm:pt-24">
         <Wrap>
           <PageHeader
-            eyebrow="What you will build"
+            eyebrow="The catalogue"
             title={
               <>
-                The <em className="italic text-accent">curriculum</em>
+                Pick a <em className="italic text-accent">course</em>
               </>
             }
-            lead="Start at module 0 and work down. Everything after the shared base assumes the modules before it, and the app enforces that."
+            lead="Each one is self contained. Nothing in a course depends on having finished another, so start with whichever you actually want."
           />
 
-          {tracks.map((track) => {
-            const meta = TRACKS[track] ?? { label: track, note: '' }
-            return (
-              <section key={track} className="mt-20 first:mt-16">
-                <Reveal>
-                  <Eyebrow>{meta.label}</Eyebrow>
-                  {meta.note && (
-                    <p className="mt-3 max-w-[52ch] text-ink-soft">{meta.note}</p>
-                  )}
-                </Reveal>
+          <RuledList>
+            {courses.map((course, index) => {
+              const modules = activeModules(course)
+              const lessons = modules.reduce((n, m) => n + m.lessons.length, 0)
+              const exercises = modules.reduce(
+                (n, m) => n + m.lessons.filter((l) => l.exercise).length,
+                0,
+              )
+              const hours = modules.reduce((n, m) => n + m.estimatedHours, 0)
 
-                <RuledList>
-                  {modules
-                    .filter((module) => module.track === track)
-                    .map((module, index) => (
-                      <RuledRow
-                        key={module.id}
-                        index={index}
-                        aside={String(module.order).padStart(2, '0')}
-                        title={module.name}
-                        meta={`${module.lessons.length} lessons · ${module.estimatedHours}h · ${module.difficulty}`}
-                        href={`/learn/${module.slug}`}
-                      >
-                        <p>{module.summary}</p>
-                        {module.prerequisites.length > 0 && (
-                          <p className="mt-2 text-caption text-muted">
-                            After {prerequisiteNames(module.prerequisites)}
-                          </p>
-                        )}
-                      </RuledRow>
-                    ))}
-                </RuledList>
-              </section>
-            )
-          })}
+              return (
+                <RuledRow
+                  key={course.id}
+                  index={index}
+                  aside={String(course.order + 1).padStart(2, '0')}
+                  title={course.name}
+                  meta={`${modules.length} modules · ${lessons} lessons · ${exercises} exercises · ${Math.round(hours)}h`}
+                  href={`/learn/${course.slug}`}
+                >
+                  <p>{course.summary}</p>
+                </RuledRow>
+              )
+            })}
+          </RuledList>
         </Wrap>
       </main>
 

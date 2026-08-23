@@ -1,0 +1,27 @@
+id: ai-agents
+slug: ai-agents
+name: AI agent engineering
+summary: "A model call is stateless, so every useful system is a loop you own. Build the loop, then everything hard about it: tools, memory, retrieval, orchestration, and how you know any of it worked."
+version: 1.0.0
+order: 0
+isActive: true
+
+# Tracks are declared per course, not globally. A course names the shape its own
+# modules come in; nothing outside this file needs to know these words exist.
+tracks:
+  - id: base
+    name: Base
+    note: The shared foundation every other track assumes.
+  - id: agent
+    name: Agent
+    note: The loop, and what you put in it.
+  - id: frameworks
+    name: Frameworks
+    note: Two runtimes rebuilt in miniature, which is what makes their docs readable.
+  - id: projects
+    name: Projects
+    note: Everything applied end to end.
+
+# Copied into every exercise workspace in this course, rather than installed. A
+# student needs nothing but a Python interpreter to run their first test.
+lib: lib

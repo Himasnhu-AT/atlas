@@ -1,4 +1,4 @@
-import type { LessonEntry, Manifest, ModuleEntry } from '@learn/learning'
+import type { CourseEntry, LessonEntry, Manifest, ModuleEntry } from '@learn/learning'
 import manifest from '@learn/learning/manifest'
 
 /**
@@ -9,37 +9,53 @@ import manifest from '@learn/learning/manifest'
  * copy can be fetched from the API later without changing anything below.
  */
 
-const course = manifest as Manifest
+const catalogue = manifest as unknown as Manifest
 
 // A missing or malformed manifest used to throw here at import time, which
 // unmounts everything and leaves a blank window with no clue why. Two ways it
 // happens: `pnpm content` has not run, or Vite pre-bundled this package and
 // mangled the JSON default export (see `optimizeDeps.exclude` in vite.config).
-if (!course || !Array.isArray(course.modules)) {
+if (!catalogue || !Array.isArray(catalogue.courses)) {
   throw new Error(
     'The course manifest is missing or malformed. Run `pnpm content`, and check that ' +
       '@learn/learning is listed in optimizeDeps.exclude in vite.config.ts.',
   )
 }
 
-export const courseModules: readonly ModuleEntry[] = [...course.modules]
-  .filter((module) => module.isActive)
+export const courses: readonly CourseEntry[] = [...catalogue.courses]
+  .filter((entry) => entry.isActive)
   .sort((a, b) => a.order - b.order)
 
-export const contentVersion = course.contentVersion
+export function modulesOf(course: CourseEntry): readonly ModuleEntry[] {
+  return [...course.modules].filter((m) => m.isActive).sort((a, b) => a.order - b.order)
+}
+
+export const contentVersion = catalogue.contentVersion
 
 export interface LessonRef {
+  course: CourseEntry
   module: ModuleEntry
   lesson: LessonEntry
-  /** Position in the flattened, course-wide reading order. */
+  /** Position in the flattened reading order across every course. */
   index: number
 }
 
-export const lessonSequence: readonly LessonRef[] = courseModules
-  .flatMap((module) =>
-    [...module.lessons]
-      .sort((a, b) => a.order - b.order)
-      .map((lesson) => ({ module, lesson })),
+/**
+ * Reading order across the whole catalogue, courses in catalogue order.
+ *
+ * `neighboursOf` walks this, so "next" does step from the last lesson of one
+ * course into the first of the next. That is deliberate here and not on the web:
+ * this app is a practice surface with one lesson open at a time, and stopping
+ * dead at a course boundary would leave the Next button disabled with more work
+ * available. The header always names the course, so nobody is moved silently.
+ */
+export const lessonSequence: readonly LessonRef[] = courses
+  .flatMap((course) =>
+    modulesOf(course).flatMap((module) =>
+      [...module.lessons]
+        .sort((a, b) => a.order - b.order)
+        .map((lesson) => ({ course, module, lesson })),
+    ),
   )
   .map((ref, index) => ({ ...ref, index }))
 
@@ -52,18 +68,22 @@ export const firstExerciseRef: LessonRef | undefined = lessonSequence.find(
 export const totalLessons = lessonSequence.length
 export const totalExercises = lessonSequence.filter((ref) => ref.lesson.exercise).length
 
-export function getModuleBySlug(slug: string | undefined): ModuleEntry | undefined {
+export function findCourseBySlug(slug: string | undefined): CourseEntry | undefined {
   if (!slug) return undefined
-  return courseModules.find((module) => module.slug === slug)
+  return courses.find((course) => course.slug === slug)
 }
 
 export function findLessonRef(
+  courseSlug: string | undefined,
   moduleSlug: string | undefined,
   lessonSlug: string | undefined,
 ): LessonRef | undefined {
-  if (!moduleSlug || !lessonSlug) return undefined
+  if (!courseSlug || !moduleSlug || !lessonSlug) return undefined
   return lessonSequence.find(
-    (ref) => ref.module.slug === moduleSlug && ref.lesson.slug === lessonSlug,
+    (ref) =>
+      ref.course.slug === courseSlug &&
+      ref.module.slug === moduleSlug &&
+      ref.lesson.slug === lessonSlug,
   )
 }
 
@@ -83,8 +103,8 @@ export function neighboursOf(ref: LessonRef): LessonNeighbours {
   }
 }
 
-export function practicePath(moduleSlug: string, lessonSlug: string): string {
-  return `/practice/${moduleSlug}/${lessonSlug}`
+export function practicePath(ref: LessonRef): string {
+  return `/practice/${ref.course.slug}/${ref.module.slug}/${ref.lesson.slug}`
 }
 
 /**
@@ -98,7 +118,11 @@ export function practicePath(moduleSlug: string, lessonSlug: string): string {
 export function exerciseDir(ref: LessonRef): string | undefined {
   const { exercise } = ref.lesson
   if (!exercise) return undefined
-  return `exercises/${ref.module.slug}/${exercise.id}`
+  // Namespaced by course as well as module. Exercise ids are unique across the
+  // catalogue by rule now, but the path says which course a directory belongs to
+  // without having to look the id up, and a learner opening the sandbox should
+  // see their work grouped the way the catalogue is.
+  return `exercises/${ref.course.slug}/${ref.module.slug}/${exercise.id}`
 }
 
 /** The learner's working file. Fixed, because the test imports from it. */

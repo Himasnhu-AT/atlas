@@ -18,7 +18,7 @@ export default function App() {
   return (
     <Routes>
       <Route index element={<ResumeRedirect />} />
-      <Route path="practice/:moduleSlug/:lessonSlug" element={<Practice />} />
+      <Route path="practice/:courseSlug/:moduleSlug/:lessonSlug" element={<Practice />} />
       <Route path="project" element={<ProjectPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -41,5 +41,5 @@ function ResumeRedirect() {
     )
   }
 
-  return <Navigate to={practicePath(target.module.slug, target.lesson.slug)} replace />
+  return <Navigate to={practicePath(target)} replace />
 }

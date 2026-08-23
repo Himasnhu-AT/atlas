@@ -44,6 +44,8 @@ import { parse as parseYaml } from 'yaml'
 
 import { CONTENT_TOKENS } from '../src/links'
 import {
+  type CourseEntry,
+  CourseMeta,
   type LessonEntry,
   LessonFrontmatter,
   type Manifest,
@@ -54,15 +56,8 @@ import {
 const execFileAsync = promisify(execFile)
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const MODULES_DIR = path.join(ROOT, 'modules')
+const COURSES_DIR = path.join(ROOT, 'courses')
 const DIST_DIR = path.join(ROOT, 'dist')
-
-/**
- * The mock model client every exercise imports. It is copied into each
- * exercise's workspace rather than installed, so a student needs nothing but a
- * Python interpreter to run their first test.
- */
-const MOCKLLM_PATH = path.join(ROOT, 'lib', 'mockllm.py')
 
 /**
  * The student's working file. `scaffold.py` is copied to this name when the
@@ -71,6 +66,27 @@ const MOCKLLM_PATH = path.join(ROOT, 'lib', 'mockllm.py')
  * reference solution.
  */
 const SOLUTION_FILENAME = 'solution.py'
+
+/**
+ * A course's support library: the files copied into every exercise workspace in
+ * that course rather than installed, so a student needs nothing but a Python
+ * interpreter to run their first test.
+ *
+ * The AI course ships `mockllm.py` this way. A course declares the directory in
+ * its `course.yaml`, and nothing outside that course sees it.
+ */
+type CourseLib = Record<string, string>
+
+async function readCourseLib(courseDir: string, libDir: string): Promise<CourseLib> {
+  const dir = path.join(courseDir, libDir)
+  if (!existsSync(dir)) return {}
+  const lib: CourseLib = {}
+  for (const name of await readdir(dir)) {
+    if (name === '__pycache__' || name.startsWith('.')) continue
+    lib[name] = await readFile(path.join(dir, name), 'utf8')
+  }
+  return lib
+}
 
 /**
  * The rest of the exercise gate, in Python because it is checking Python. It
@@ -122,9 +138,9 @@ function slugify(text: string): string {
     .replace(/\s+/g, '-')
 }
 
-async function readModuleDirs(): Promise<string[]> {
-  if (!existsSync(MODULES_DIR)) return []
-  const entries = await readdir(MODULES_DIR, { withFileTypes: true })
+async function readDirs(parent: string): Promise<string[]> {
+  if (!existsSync(parent)) return []
+  const entries = await readdir(parent, { withFileTypes: true })
   return entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => e.name)
@@ -138,12 +154,15 @@ async function readModuleDirs(): Promise<string[]> {
 async function verifyReference(
   exerciseDir: string,
   spec: { reference: string; test: string },
+  lib: CourseLib,
   where: string,
 ): Promise<void> {
-  const scratch = await mkdtemp(path.join(tmpdir(), 'learn-verify-'))
+  const scratch = await mkdtemp(path.join(tmpdir(), 'atlas-verify-'))
   try {
     await cp(exerciseDir, scratch, { recursive: true })
-    await cp(MOCKLLM_PATH, path.join(scratch, 'mockllm.py'))
+    for (const [name, contents] of Object.entries(lib)) {
+      await writeFile(path.join(scratch, name), contents)
+    }
     await cp(path.join(scratch, spec.reference), path.join(scratch, SOLUTION_FILENAME))
 
     const { stdout, stderr } = await execFileAsync('python3', [spec.test], {
@@ -198,6 +217,7 @@ type ValidatorResult = { problems: string[]; parsed: string[] }
 async function validateExercise(
   exerciseDir: string,
   spec: { scaffold: string; reference: string; test: string },
+  libDir: string,
   where: string,
 ): Promise<string[] | null> {
   let raw: string
@@ -208,8 +228,8 @@ async function validateExercise(
         VALIDATOR_PATH,
         '--dir',
         exerciseDir,
-        '--mockllm',
-        MOCKLLM_PATH,
+        '--lib',
+        libDir,
         '--scaffold',
         spec.scaffold,
         '--reference',
@@ -314,12 +334,18 @@ const indent = (text: string) =>
     .map((line) => `      ${line}`)
     .join('\n')
 
-async function buildModule(dir: string): Promise<ModuleEntry | null> {
-  const moduleDir = path.join(MODULES_DIR, dir)
+async function buildModule(
+  course: { id: string; dir: string; tracks: { id: string }[] },
+  lib: CourseLib,
+  libDir: string,
+  dir: string,
+): Promise<ModuleEntry | null> {
+  const moduleDir = path.join(COURSES_DIR, course.dir, 'modules', dir)
   const metaPath = path.join(moduleDir, 'module.yaml')
+  const at = `courses/${course.dir}/modules/${dir}`
 
   if (!existsSync(metaPath)) {
-    fail(`modules/${dir}`, 'missing module.yaml')
+    fail(at, 'missing module.yaml')
     return null
   }
 
@@ -332,7 +358,7 @@ async function buildModule(dir: string): Promise<ModuleEntry | null> {
   } catch (error) {
     const detail = (error as Error).message.split('\n')[0]
     fail(
-      `modules/${dir}/module.yaml`,
+      `${at}/module.yaml`,
       `is not valid YAML: ${detail}. A value containing ": " must be quoted.`,
     )
     return null
@@ -341,14 +367,25 @@ async function buildModule(dir: string): Promise<ModuleEntry | null> {
   const metaResult = ModuleMeta.safeParse(rawMeta)
   if (!metaResult.success) {
     for (const issue of metaResult.error.issues) {
-      fail(`modules/${dir}/module.yaml`, `${issue.path.join('.') || '(root)'} ${issue.message}`)
+      fail(`${at}/module.yaml`, `${issue.path.join('.') || '(root)'} ${issue.message}`)
     }
     return null
   }
   const meta = metaResult.data
 
+  // A module names a track, and the track has to be one its own course declared.
+  // This is what replaces the old global enum: the check is real, but the
+  // vocabulary is the course's own.
+  if (!course.tracks.some((t) => t.id === meta.track)) {
+    fail(
+      `${at}/module.yaml`,
+      `track "${meta.track}" is not declared by course ${course.id}. ` +
+        `It declares: ${course.tracks.map((t) => t.id).join(', ')}.`,
+    )
+  }
+
   const files = (await readdir(moduleDir)).filter((f) => f.endsWith('.mdx')).sort()
-  if (files.length === 0) fail(`modules/${dir}`, 'no .mdx lessons')
+  if (files.length === 0) fail(at, 'no .mdx lessons')
 
   const lessons: LessonEntry[] = []
   const compiled: {
@@ -359,7 +396,7 @@ async function buildModule(dir: string): Promise<ModuleEntry | null> {
   }[] = []
 
   for (const file of files) {
-    const where = `modules/${dir}/${file}`
+    const where = `${at}/${file}`
     const raw = await readFile(path.join(moduleDir, file), 'utf8')
     const { data, content } = matter(raw)
 
@@ -419,17 +456,17 @@ async function buildModule(dir: string): Promise<ModuleEntry | null> {
         if (missing.length > 0) {
           fail(where, `exercise ${spec.id} is missing ${missing.join(', ')}`)
         } else {
-          const at = `${where} (exercise ${spec.id})`
-          const parsed = await validateExercise(exerciseDir, spec, at)
+          const exerciseAt = `${where} (exercise ${spec.id})`
+          const parsed = await validateExercise(exerciseDir, spec, libDir, exerciseAt)
           // A file that will not parse cannot fail its test in any informative
           // way, so the syntax error stands on its own. A null result means the
           // validator itself could not run, and the reference check still should.
           const parseable =
             parsed === null ||
             (parsed.includes(spec.reference) && parsed.includes(spec.test))
-          if (parseable) await verifyReference(exerciseDir, spec, at)
+          if (parseable) await verifyReference(exerciseDir, spec, lib, exerciseAt)
 
-          exerciseFiles = { 'mockllm.py': await readFile(MOCKLLM_PATH, 'utf8') }
+          exerciseFiles = { ...lib }
           for (const name of await readdir(exerciseDir)) {
             if (name === '__pycache__') continue
             exerciseFiles[name] = await readFile(path.join(exerciseDir, name), 'utf8')
@@ -442,6 +479,7 @@ async function buildModule(dir: string): Promise<ModuleEntry | null> {
     lessons.push({
       ...front,
       moduleId: meta.id,
+      courseId: course.id,
       slug,
       headings,
       wordCount: content.split(/\s+/).filter(Boolean).length,
@@ -450,20 +488,20 @@ async function buildModule(dir: string): Promise<ModuleEntry | null> {
   }
 
   lessons.sort((a, b) => a.order - b.order)
-  assertUnique(lessons.map((l) => l.id), `modules/${dir}`, 'duplicate lesson id')
-  assertUnique(lessons.map((l) => l.order), `modules/${dir}`, 'duplicate lesson order')
+  assertUnique(lessons.map((l) => l.id), at, 'duplicate lesson id')
+  assertUnique(lessons.map((l) => l.order), at, 'duplicate lesson order')
 
   if (!process.argv.includes('--check')) {
     await mkdir(path.join(DIST_DIR, 'lessons'), { recursive: true })
     for (const lesson of compiled) {
       await writeFile(
         path.join(DIST_DIR, 'lessons', `${lesson.id}.json`),
-        JSON.stringify({ ...lesson, moduleId: meta.id }),
+        JSON.stringify({ ...lesson, moduleId: meta.id, courseId: course.id }),
       )
     }
   }
 
-  return { ...meta, lessons }
+  return { ...meta, courseId: course.id, lessons }
 }
 
 function assertUnique(values: unknown[], where: string, message: string) {
@@ -475,12 +513,12 @@ function assertUnique(values: unknown[], where: string, message: string) {
 }
 
 /**
- * `order` places a module in the whole course, not inside its track. Two
- * modules claiming one is the collision two people adding tracks at the same
- * time produce, and it decides what the catalog renders first, so the message
- * names both sides.
+ * `order` places a module in its course, not inside its track. Two modules
+ * claiming one is the collision two people adding tracks at the same time
+ * produce, and it decides what the catalogue renders first, so the message names
+ * both sides.
  */
-function checkOrders(modules: ModuleEntry[]) {
+function checkOrders(modules: ModuleEntry[], where: string) {
   const byOrder = new Map<number, string[]>()
   for (const module of modules) {
     byOrder.set(module.order, [...(byOrder.get(module.order) ?? []), module.id])
@@ -491,15 +529,15 @@ function checkOrders(modules: ModuleEntry[]) {
     let free = 0
     while (taken.has(free)) free += 1
     fail(
-      'modules',
+      where,
       `order ${order} is claimed by ${ids.join(' and ')}. Order is global across ` +
-        `every track, so one of them takes ${free} instead.`,
+        `every track in a course, so one of them takes ${free} instead.`,
     )
   }
 }
 
 /** Prerequisites must name real modules, and must not form a cycle. */
-function checkPrerequisites(modules: ModuleEntry[]) {
+function checkPrerequisites(modules: ModuleEntry[], where: string) {
   const byId = new Map(modules.map((m) => [m.id, m]))
 
   for (const module of modules) {
@@ -514,7 +552,7 @@ function checkPrerequisites(modules: ModuleEntry[]) {
   const visit = (id: string, trail: string[]): void => {
     if (state.get(id) === 'done') return
     if (state.get(id) === 'visiting') {
-      fail('prerequisites', `cycle: ${[...trail, id].join(' -> ')}`)
+      fail(`${where} prerequisites`, `cycle: ${[...trail, id].join(' -> ')}`)
       return
     }
     state.set(id, 'visiting')
@@ -522,6 +560,36 @@ function checkPrerequisites(modules: ModuleEntry[]) {
     state.set(id, 'done')
   }
   for (const module of modules) visit(module.id, [])
+}
+
+/**
+ * A prerequisite may not reach into another course.
+ *
+ * Courses are the unit a student chooses, so one that cannot be started until
+ * some module of an unrelated course is finished is not a course, it is a later
+ * chapter of that one. `checkPrerequisites` already runs per course and would
+ * report a cross-course prerequisite as "does not exist", which is true but
+ * unhelpful, so this says what actually went wrong.
+ */
+function checkCourseBoundaries(courses: CourseEntry[]) {
+  const owner = new Map<string, string>()
+  for (const course of courses) {
+    for (const module of course.modules) owner.set(module.id, course.id)
+  }
+  for (const course of courses) {
+    for (const module of course.modules) {
+      for (const prereq of module.prerequisites) {
+        const from = owner.get(prereq)
+        if (from && from !== course.id) {
+          fail(
+            `module ${module.id}`,
+            `prerequisite "${prereq}" belongs to course ${from}. A prerequisite ` +
+              `may not cross a course boundary: a course has to be startable on its own.`,
+          )
+        }
+      }
+    }
+  }
 }
 
 /** Internal links are written as `lesson:<module-id>.<slug>`. */
@@ -537,36 +605,107 @@ function checkCrossLinks(modules: ModuleEntry[], bodies: Map<string, string>) {
   }
 }
 
+/**
+ * A course, parsed and built. Returns null when `course.yaml` is missing or
+ * malformed, so one bad course reports as a content problem rather than taking
+ * the whole build down with a stack trace.
+ */
+async function buildCourse(dir: string, bodies: Map<string, string>): Promise<CourseEntry | null> {
+  const courseDir = path.join(COURSES_DIR, dir)
+  const metaPath = path.join(courseDir, 'course.yaml')
+  const at = `courses/${dir}`
+
+  if (!existsSync(metaPath)) {
+    fail(at, 'missing course.yaml')
+    return null
+  }
+
+  let rawMeta: unknown
+  try {
+    rawMeta = parseYaml(await readFile(metaPath, 'utf8'))
+  } catch (error) {
+    const detail = (error as Error).message.split('\n')[0]
+    fail(`${at}/course.yaml`, `is not valid YAML: ${detail}. A value containing ": " must be quoted.`)
+    return null
+  }
+
+  const metaResult = CourseMeta.safeParse(rawMeta)
+  if (!metaResult.success) {
+    for (const issue of metaResult.error.issues) {
+      fail(`${at}/course.yaml`, `${issue.path.join('.') || '(root)'} ${issue.message}`)
+    }
+    return null
+  }
+  const meta = metaResult.data
+
+  assertUnique(meta.tracks.map((t) => t.id), `${at}/course.yaml`, 'duplicate track id')
+
+  const libDir = path.join(courseDir, meta.lib)
+  const lib = await readCourseLib(courseDir, meta.lib)
+
+  const moduleDirs = await readDirs(path.join(courseDir, 'modules'))
+  if (moduleDirs.length === 0) {
+    fail(at, 'no modules/ directory, or no modules in it')
+    return null
+  }
+
+  const modules: ModuleEntry[] = []
+  for (const moduleDirName of moduleDirs) {
+    const moduleDir = path.join(courseDir, 'modules', moduleDirName)
+    for (const file of (await readdir(moduleDir)).filter((f) => f.endsWith('.mdx'))) {
+      const { data, content } = matter(await readFile(path.join(moduleDir, file), 'utf8'))
+      if (typeof data.id === 'string') bodies.set(data.id, content)
+    }
+    const built = await buildModule({ ...meta, dir }, lib, libDir, moduleDirName)
+    if (built) modules.push(built)
+  }
+
+  modules.sort((a, b) => a.order - b.order)
+  assertUnique(modules.map((m) => m.id), at, 'duplicate module id')
+  checkOrders(modules, at)
+  checkPrerequisites(modules, at)
+
+  return { ...meta, modules }
+}
+
 async function main() {
   const check = process.argv.includes('--check')
 
   if (!check) await rm(DIST_DIR, { recursive: true, force: true })
 
-  const dirs = await readModuleDirs()
+  const dirs = await readDirs(COURSES_DIR)
   if (dirs.length === 0) {
-    console.error('No modules found in modules/. Nothing to build.')
+    console.error('No courses found in courses/. Nothing to build.')
     process.exit(1)
   }
 
-  const modules: ModuleEntry[] = []
   const bodies = new Map<string, string>()
-
+  const courses: CourseEntry[] = []
   for (const dir of dirs) {
-    const moduleDir = path.join(MODULES_DIR, dir)
-    for (const file of (await readdir(moduleDir)).filter((f) => f.endsWith('.mdx'))) {
-      const raw = await readFile(path.join(moduleDir, file), 'utf8')
-      const { data, content } = matter(raw)
-      if (typeof data.id === 'string') bodies.set(data.id, content)
-    }
-    const built = await buildModule(dir)
-    if (built) modules.push(built)
+    const built = await buildCourse(dir, bodies)
+    if (built) courses.push(built)
   }
 
-  modules.sort((a, b) => a.order - b.order)
-  assertUnique(modules.map((m) => m.id), 'modules', 'duplicate module id')
-  checkOrders(modules)
-  checkPrerequisites(modules)
-  checkCrossLinks(modules, bodies)
+  courses.sort((a, b) => a.order - b.order)
+  assertUnique(courses.map((c) => c.id), 'courses', 'duplicate course id')
+  assertUnique(courses.map((c) => c.slug), 'courses', 'duplicate course slug')
+  assertUnique(courses.map((c) => c.order), 'courses', 'duplicate course order')
+
+  const allModules = courses.flatMap((c) => c.modules)
+
+  // Module and exercise ids are the natural keys the platform stores progress
+  // and awards against, so they have to be unique across the whole catalogue and
+  // not merely within a course. Neither was checked before there was more than
+  // one course, and exercise ids were unique by luck rather than by rule.
+  assertUnique(allModules.map((m) => m.id), 'courses', 'duplicate module id across courses')
+  assertUnique(
+    allModules.flatMap((m) => m.lessons.flatMap((l) => (l.exercise ? [l.exercise.id] : []))),
+    'courses',
+    'duplicate exercise id across courses',
+  )
+
+  checkCrossLinks(allModules, bodies)
+  checkCourseBoundaries(courses)
 
   if (problems.length > 0) {
     console.error(`\nContent build failed with ${problems.length} problem(s):\n`)
@@ -576,14 +715,18 @@ async function main() {
   }
 
   const contentVersion = createHash('sha256')
-    .update(modules.map((m) => `${m.id}@${m.version}`).join('|'))
+    .update(
+      courses
+        .map((c) => `${c.id}@${c.version}:${c.modules.map((m) => `${m.id}@${m.version}`).join(',')}`)
+        .join('|'),
+    )
     .digest('hex')
     .slice(0, 12)
 
   const manifest: Manifest = {
     contentVersion,
     builtAt: new Date().toISOString(),
-    modules,
+    courses,
   }
 
   if (!check) {
@@ -591,14 +734,14 @@ async function main() {
     await writeFile(path.join(DIST_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2))
   }
 
-  const lessonCount = modules.reduce((n, m) => n + m.lessons.length, 0)
-  const exerciseCount = modules.reduce(
+  const lessonCount = allModules.reduce((n, m) => n + m.lessons.length, 0)
+  const exerciseCount = allModules.reduce(
     (n, m) => n + m.lessons.filter((l) => l.exercise).length,
     0,
   )
   console.log(
-    `${check ? 'Checked' : 'Built'} ${modules.length} modules, ${lessonCount} lessons, ` +
-      `${exerciseCount} exercises. Content version ${contentVersion}.`,
+    `${check ? 'Checked' : 'Built'} ${courses.length} course(s), ${allModules.length} modules, ` +
+      `${lessonCount} lessons, ${exerciseCount} exercises. Content version ${contentVersion}.`,
   )
 }
 

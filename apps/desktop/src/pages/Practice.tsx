@@ -36,8 +36,8 @@ import { useProgress } from '../lib/progress'
 
 /** Router glue: resolve the URL to a lesson, then hand off to the IDE. */
 export default function Practice() {
-  const { moduleSlug, lessonSlug } = useParams()
-  const lessonRef = findLessonRef(moduleSlug, lessonSlug)
+  const { courseSlug, moduleSlug, lessonSlug } = useParams()
+  const lessonRef = findLessonRef(courseSlug, moduleSlug, lessonSlug)
 
   if (!lessonRef) return <Navigate to="/" replace />
   return <PracticeView lessonRef={lessonRef} />
@@ -233,7 +233,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
   }, [markComplete, lesson.id, module.id, done])
 
   const goTo = useCallback(
-    (ref: LessonRef) => navigate(practicePath(ref.module.slug, ref.lesson.slug)),
+    (ref: LessonRef) => navigate(practicePath(ref)),
     [navigate],
   )
 

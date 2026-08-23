@@ -26,22 +26,44 @@ create table if not exists users (
 
 create index if not exists users_email_lower_idx on users (lower(email));
 
--- Module registry -------------------------------------------------------
+-- Course and module registry --------------------------------------------
 -- Written only by a deploy-time sync from the content manifest.
+
+create table if not exists courses (
+  id         text primary key,
+  slug       text not null unique,
+  name       text not null,
+  version    text not null,
+  is_active  boolean not null default true,
+  "order"    integer not null,
+  updated_at timestamptz not null default now()
+);
 
 create table if not exists modules (
   id              text primary key,
-  slug            text not null unique,
+  course_id       text not null references courses (id) on delete cascade,
+  slug            text not null,
   name            text not null,
   version         text not null,
   is_active       boolean not null default true,
   prerequisites   text[] not null default '{}',
-  track           text not null check (track in ('base', 'cli', 'agent', 'frameworks', 'projects')),
+  -- `track` is a grouping inside one course and deliberately carries no CHECK.
+  -- It used to be constrained to the AI course's five words, which every later
+  -- course would have had to either misuse or widen. A course declares its own
+  -- tracks in `course.yaml`, and the content build refuses a module naming one
+  -- its own course did not declare, so the constraint lives where the
+  -- vocabulary does.
+  track           text not null,
   "order"         integer not null,
   difficulty      text not null check (difficulty in ('beginner', 'intermediate', 'advanced')),
   estimated_hours numeric not null,
-  updated_at      timestamptz not null default now()
+  updated_at      timestamptz not null default now(),
+  -- Slugs only have to be unique inside a course: two courses may each have a
+  -- `foundations`. The URL always carries both, so this is the real key.
+  unique (course_id, slug)
 );
+
+create index if not exists modules_course_idx on modules (course_id, "order");
 
 -- Progress --------------------------------------------------------------
 
@@ -143,6 +165,7 @@ $$;
 -- actually enforces ownership. They matter if a key ever leaks or if a future
 -- client connects directly.
 
+alter table courses           enable row level security;
 alter table users             enable row level security;
 alter table module_progress   enable row level security;
 alter table lesson_progress   enable row level security;
@@ -180,5 +203,11 @@ end $$;
 do $$
 begin
   create policy modules_readable on modules for select using (true);
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  create policy courses_readable on courses for select using (true);
 exception when duplicate_object then null;
 end $$;

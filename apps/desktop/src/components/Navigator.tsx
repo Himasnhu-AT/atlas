@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { LessonSidebar, cn } from '@learn/ui'
-import { courseModules, findLessonRefById, type LessonRef } from '../lib/content'
+import { courses, findLessonRefById, modulesOf, type LessonRef } from '../lib/content'
 
 export interface NavigatorProps {
   activeRef: LessonRef
@@ -18,14 +18,20 @@ export interface NavigatorProps {
  * editor buffer — nothing changes until a lesson is clicked.
  */
 export function Navigator({ activeRef, isComplete, onSelectLesson, onCollapse }: NavigatorProps) {
-  const [browsingSlug, setBrowsingSlug] = useState(activeRef.module.slug)
+  // Keyed on module id, not slug: slugs only have to be unique inside a course,
+  // so two courses may both have a `foundations`.
+  const [browsingId, setBrowsingId] = useState(activeRef.module.id)
 
   // Following a prev/next jump into another module should move the rail with it.
   useEffect(() => {
-    setBrowsingSlug(activeRef.module.slug)
-  }, [activeRef.module.slug])
+    setBrowsingId(activeRef.module.id)
+  }, [activeRef.module.id])
 
-  const browsing = courseModules.find((module) => module.slug === browsingSlug) ?? activeRef.module
+  const everyModule = courses.flatMap((course) =>
+    modulesOf(course).map((module) => ({ course, module })),
+  )
+  const browsing = everyModule.find((entry) => entry.module.id === browsingId)?.module ??
+    activeRef.module
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col border-r border-rule bg-paper-raised">
@@ -35,18 +41,22 @@ export function Navigator({ activeRef, isComplete, onSelectLesson, onCollapse }:
         </label>
         <select
           id="module-picker"
-          value={browsing.slug}
-          onChange={(event) => setBrowsingSlug(event.target.value)}
+          value={browsing.id}
+          onChange={(event) => setBrowsingId(event.target.value)}
           className={cn(
             'h-8 min-w-0 flex-1 rounded-field border border-rule bg-paper-sunken px-2',
             'text-xs font-medium text-ink outline-none',
             'focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40',
           )}
         >
-          {courseModules.map((module) => (
-            <option key={module.slug} value={module.slug}>
-              {String(module.order).padStart(2, '0')} — {module.name}
-            </option>
+          {courses.map((course) => (
+            <optgroup key={course.id} label={course.name}>
+              {modulesOf(course).map((module) => (
+                <option key={module.id} value={module.id}>
+                  {String(module.order).padStart(2, '0')} — {module.name}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <button
