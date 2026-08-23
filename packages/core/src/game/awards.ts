@@ -11,7 +11,7 @@
  * course prices itself.
  */
 
-export type AwardKind = 'lesson' | 'exercise' | 'module' | 'quest' | 'streak' | 'seal'
+export type AwardKind = 'lesson' | 'exercise' | 'module' | 'quest' | 'week' | 'seal'
 
 /**
  * Bumped when any weight below changes.
@@ -19,7 +19,7 @@ export type AwardKind = 'lesson' | 'exercise' | 'module' | 'quest' | 'streak' | 
  * Stored on every award so a total can be explained later, and so a client
  * showing an optimistic number can tell it was computed under older rules.
  */
-export const RULES_VERSION = 1
+export const RULES_VERSION = 2
 
 export interface Award {
   kind: AwardKind
@@ -60,12 +60,27 @@ export interface ExerciseLike {
   timeboxMinutes: number
 }
 
-/** One XP per measured minute of reading. Ranges from 12 to 60. */
+/**
+ * A flat, small acknowledgement that a lesson was read.
+ *
+ * Deliberately not one XP per measured minute, which is where this started.
+ * "Mark complete" is self-reported and takes one click, so paying by length made
+ * a sixty-minute lesson worth sixty XP to anyone willing to click through it,
+ * and put a third of the whole economy behind a button that verifies nothing.
+ * Every platform that shipped a farmable currency has since removed it or
+ * stopped paying for reading altogether.
+ *
+ * Flat and small keeps the acknowledgement, keeps the ten lessons that carry no
+ * exercise worth something, and moves the weight to work that is actually
+ * checked: exercises are graded, and they are now about 85% of the economy.
+ */
+export const LESSON_POINTS = 5
+
 export function lessonAward(lesson: LessonLike, module: ModuleLike): Award {
   return {
     kind: 'lesson',
     awardKey: `lesson:${lesson.id}`,
-    points: Math.round(lesson.estimatedMinutes),
+    points: LESSON_POINTS,
     courseId: module.courseId,
   }
 }
@@ -150,20 +165,36 @@ export function questAward(questId: string, serverDay: string, weekly: boolean):
   }
 }
 
-const STREAK_STEP = 7
-const STREAK_UNIT = 25
-const STREAK_CAP = 200
+export const WEEK_MET_POINTS = 60
 
 /**
- * A milestone every seventh day, worth more the longer the run, capped so a
- * streak cannot become the cheapest XP in the game.
+ * Meeting the week's self-set target, paid once for that week.
+ *
+ * Keyed by the week rather than by a running count, so it pays for the week that
+ * was actually worked and there is nothing to lose by missing the next one.
  */
-export function streakAward(days: number): Award | null {
-  if (days < STREAK_STEP || days % STREAK_STEP !== 0) return null
+export function weekMetAward(weekStart: string): Award {
   return {
-    kind: 'streak',
-    awardKey: `streak:${days}`,
-    points: Math.min(STREAK_CAP, STREAK_UNIT * (days / STREAK_STEP)),
+    kind: 'week',
+    awardKey: `week:${weekStart}`,
+    points: WEEK_MET_POINTS,
+  }
+}
+
+const WEEK_MILESTONES = [4, 12, 26, 52] as const
+
+/**
+ * A milestone for a run of met weeks.
+ *
+ * Sparse on purpose. These mark a habit that genuinely formed rather than
+ * metering out a reward often enough to make missing one feel like a loss.
+ */
+export function weekMilestoneAward(weeksInARow: number): Award | null {
+  if (!WEEK_MILESTONES.includes(weeksInARow as (typeof WEEK_MILESTONES)[number])) return null
+  return {
+    kind: 'week',
+    awardKey: `weeks:${weeksInARow}`,
+    points: 50 * (WEEK_MILESTONES.indexOf(weeksInARow as (typeof WEEK_MILESTONES)[number]) + 1),
   }
 }
 

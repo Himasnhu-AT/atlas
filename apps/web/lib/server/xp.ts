@@ -9,7 +9,6 @@ import {
   type SealEvidence,
   SEALS,
   exerciseAwards,
-  freezesEarned,
   isoWeekOf,
   lessonAward,
   levelProgress,
@@ -20,8 +19,9 @@ import {
   questsForDay,
   romanFor,
   sealAward,
-  streakAward,
-  streakState,
+  weekMetAward,
+  weekMilestoneAward,
+  weeklyProgress,
 } from '@atlas/core'
 
 import { activeCourses, everyModule, exerciseIndex } from '@/lib/content'
@@ -201,11 +201,8 @@ export async function sealEvidence(userId: string): Promise<SealEvidence> {
     }
   }
 
-  const streak = streakState(
-    snapshot.activity,
-    serverDay(),
-    freezesEarned(snapshot.activity),
-  )
+  const week = weeklyProgress(snapshot.activity, serverDay(), game.weeklyTarget)
+  const weeksMet = week.weeksInARow + (week.met ? 1 : 0)
 
   return {
     passedExercises,
@@ -216,8 +213,8 @@ export async function sealEvidence(userId: string): Promise<SealEvidence> {
     completedLessons,
     coursesTouched,
     coursesCompleted,
-    streakDays: Math.max(streak.days, game.longestStreak),
-    freezesSpent: streak.freezesSpent,
+    weeksInARow: week.weeksInARow,
+    weeksMet: Math.max(weeksMet, game.bestWeeks),
     catalogue: {
       exerciseIds: [...index.keys()],
       lessonIds: modules.flatMap((m) => m.lessons.map((l) => l.id)),
@@ -246,18 +243,31 @@ export async function evaluateSeals(userId: string): Promise<Award[]> {
   return awards
 }
 
-/** Streak milestone, if today's streak just crossed one. */
-export async function evaluateStreak(userId: string): Promise<Award[]> {
-  const snapshot = await store().progressFor(userId)
-  const streak = streakState(snapshot.activity, serverDay(), freezesEarned(snapshot.activity))
+/**
+ * The week's target, checked.
+ *
+ * Pays for the week that was actually worked, plus a sparse milestone for a run
+ * of them. There is nothing here that takes anything away: a missed week simply
+ * does not pay, which is the difference between a goal and a streak.
+ */
+export async function evaluateWeek(userId: string): Promise<Award[]> {
+  const [snapshot, game] = await Promise.all([
+    store().progressFor(userId),
+    store().gameFor(userId),
+  ])
+  const week = weeklyProgress(snapshot.activity, serverDay(), game.weeklyTarget)
 
-  const game = await store().gameFor(userId)
-  if (streak.days > game.longestStreak) {
-    await store().updateGame(userId, { longestStreak: streak.days })
+  if (week.bestWeeks > game.bestWeeks) {
+    await store().updateGame(userId, { bestWeeks: week.bestWeeks })
   }
 
-  const award = streakAward(streak.days)
-  return award ? [award] : []
+  const awards: Award[] = []
+  if (week.met) awards.push(weekMetAward(week.weekStart))
+
+  const milestone = weekMilestoneAward(week.weeksInARow)
+  if (milestone) awards.push(milestone)
+
+  return awards
 }
 
 /**
@@ -333,7 +343,7 @@ export async function gameStateFor(userId: string): Promise<GameState> {
   ])
 
   const level = levelProgress(game.totalXp)
-  const streak = streakState(snapshot.activity, day, freezesEarned(snapshot.activity))
+  const week = weeklyProgress(snapshot.activity, day, game.weeklyTarget)
 
   const claimed = new Set(awards.map((a) => a.awardKey))
   const [dailyCounts, weeklyCounts] = await Promise.all([
@@ -357,7 +367,7 @@ export async function gameStateFor(userId: string): Promise<GameState> {
   })
 
   const weekly = questForWeek(userId, isoWeek)
-  const weeklyProgress = questProgress(weekly, weeklyCounts)
+  const weeklyQuest = questProgress(weekly, weeklyCounts)
   const quests = [
     ...daily,
     {
@@ -365,8 +375,8 @@ export async function gameStateFor(userId: string): Promise<GameState> {
       period: weekly.period,
       title: weekly.title,
       target: weekly.target,
-      progress: weeklyProgress.progress,
-      complete: weeklyProgress.complete,
+      progress: weeklyQuest.progress,
+      complete: weeklyQuest.complete,
       claimed: claimed.has(`quest:${weekly.id}:${isoWeek}`),
       points: 150,
       claimKey: `quest:${weekly.id}:${isoWeek}`,
@@ -427,12 +437,16 @@ export async function gameStateFor(userId: string): Promise<GameState> {
         roman: romanFor(level.rank.tier),
       },
     },
-    streak: {
-      days: streak.days,
-      rawDays: streak.rawDays,
-      freezesAvailable: streak.freezesAvailable,
-      freezesSpent: streak.freezesSpent,
-      longest: Math.max(game.longestStreak, streak.days),
+    week: {
+      target: week.target,
+      daysActive: week.daysActive,
+      met: week.met,
+      weekStart: week.weekStart,
+      weeksInARow: week.weeksInARow,
+      bestWeeks: Math.max(game.bestWeeks, week.bestWeeks),
+      // False until the learner has chosen rather than been handed a default.
+      // A goal nobody set is just a target imposed with extra steps.
+      chosen: game.weeklyTargetChosen,
     },
     quests,
     seals,

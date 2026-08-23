@@ -27,8 +27,10 @@ export interface SealEvidence {
   coursesTouched: ReadonlySet<string>
   /** Course ids completed end to end. */
   coursesCompleted: ReadonlySet<string>
-  streakDays: number
-  freezesSpent: number
+  /** Consecutive weeks the learner met their own target. */
+  weeksInARow: number
+  /** Weeks the target was met, ever. */
+  weeksMet: number
   /** The catalogue, so "all of them" seals know what all means. */
   catalogue: {
     exerciseIds: readonly string[]
@@ -129,33 +131,35 @@ export const SEALS: readonly Seal[] = [
     // course, and the one that says out loud that breadth is welcome here.
     earned: (e) => e.coursesTouched.size >= 2,
   },
+  // Weeks, not days. These used to be seven, thirty and a hundred consecutive
+  // days, which asks a learner never to take two days off in three months.
   {
-    id: 'week',
-    name: 'A week',
-    requirement: 'Work seven days running',
-    points: 40,
-    earned: (e) => e.streakDays >= 7,
-  },
-  {
-    id: 'month',
-    name: 'A month',
-    requirement: 'Work thirty days running',
-    points: 120,
-    earned: (e) => e.streakDays >= 30,
-  },
-  {
-    id: 'hundred',
-    name: 'A hundred',
-    requirement: 'Work a hundred days running',
-    points: 400,
-    earned: (e) => e.streakDays >= 100,
-  },
-  {
-    id: 'kept-the-chain',
-    name: 'Kept the chain',
-    requirement: 'Have a freeze save your streak',
+    id: 'first-week',
+    name: 'First week',
+    requirement: 'Meet your weekly target once',
     points: 30,
-    earned: (e) => e.freezesSpent >= 1,
+    earned: (e) => e.weeksMet >= 1,
+  },
+  {
+    id: 'four-weeks',
+    name: 'Four weeks',
+    requirement: 'Meet your weekly target four weeks running',
+    points: 90,
+    earned: (e) => e.weeksInARow >= 4,
+  },
+  {
+    id: 'a-season',
+    name: 'A season',
+    requirement: 'Meet your weekly target twelve weeks running',
+    points: 200,
+    earned: (e) => e.weeksInARow >= 12,
+  },
+  {
+    id: 'a-year',
+    name: 'A year',
+    requirement: 'Meet your weekly target fifty-two weeks running',
+    points: 500,
+    earned: (e) => e.weeksInARow >= 52,
   },
 ]
 
@@ -179,8 +183,8 @@ export function emptyEvidence(): SealEvidence {
     completedLessons: new Set(),
     coursesTouched: new Set(),
     coursesCompleted: new Set(),
-    streakDays: 0,
-    freezesSpent: 0,
+    weeksInARow: 0,
+    weeksMet: 0,
     catalogue: { exerciseIds: [], lessonIds: [] },
   }
 }

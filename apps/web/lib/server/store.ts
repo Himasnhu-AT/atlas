@@ -64,14 +64,27 @@ export interface ExerciseStats {
 
 export interface GameRecord {
   totalXp: number
-  longestStreak: number
+  /** Days a week the learner asked of themselves. */
+  weeklyTarget: number
+  /**
+   * Whether the learner actually chose that target.
+   *
+   * A default is offered so the surface has something to show, but a goal
+   * nobody set is a target imposed with extra steps, so the UI says so until
+   * they pick one.
+   */
+  weeklyTargetChosen: boolean
+  /** Longest run of weeks whose target was met. */
+  bestWeeks: number
   leaderboardOptIn: boolean
   timezone: string
 }
 
 export const EMPTY_GAME: GameRecord = {
   totalXp: 0,
-  longestStreak: 0,
+  weeklyTarget: 3,
+  weeklyTargetChosen: false,
+  bestWeeks: 0,
   leaderboardOptIn: false,
   timezone: 'UTC',
 }
@@ -598,7 +611,9 @@ class SupabaseStore implements Store {
     if (!data) return { ...EMPTY_GAME }
     return {
       totalXp: data.total_xp ?? 0,
-      longestStreak: data.longest_streak ?? 0,
+      weeklyTarget: data.weekly_target ?? EMPTY_GAME.weeklyTarget,
+      weeklyTargetChosen: data.weekly_target_chosen ?? false,
+      bestWeeks: data.best_weeks ?? 0,
       leaderboardOptIn: data.leaderboard_opt_in ?? false,
       timezone: data.timezone ?? 'UTC',
     }
@@ -607,7 +622,9 @@ class SupabaseStore implements Store {
   async updateGame(userId: string, patch: Partial<GameRecord>) {
     const row: Record<string, unknown> = { user_id: userId, updated_at: new Date().toISOString() }
     if (patch.totalXp !== undefined) row.total_xp = patch.totalXp
-    if (patch.longestStreak !== undefined) row.longest_streak = patch.longestStreak
+    if (patch.weeklyTarget !== undefined) row.weekly_target = patch.weeklyTarget
+    if (patch.weeklyTargetChosen !== undefined) row.weekly_target_chosen = patch.weeklyTargetChosen
+    if (patch.bestWeeks !== undefined) row.best_weeks = patch.bestWeeks
     if (patch.leaderboardOptIn !== undefined) row.leaderboard_opt_in = patch.leaderboardOptIn
     if (patch.timezone !== undefined) row.timezone = patch.timezone
 
