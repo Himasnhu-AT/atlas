@@ -81,3 +81,11 @@ consecutive-failure limit, and a report of what happened.
 
 The test kills the runner partway through and resumes it, then checks the final state matches
 running it straight through.
+
+
+## Seen in production
+
+Spotify describe the machinery around running forecasts repeatedly in
+[How we built infrastructure to run user forecasts](https://engineering.atspotify.com/2022/06/how-we-built-infrastructure-to-run-user-forecasts-at-spotify/).
+The forecasting is not the point. Read it for what they built around the job so that running it
+again was routine rather than an event.

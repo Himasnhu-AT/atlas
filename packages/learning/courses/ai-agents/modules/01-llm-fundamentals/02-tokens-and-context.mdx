@@ -168,3 +168,12 @@ The rule people get wrong is what to do when a message does not fit. Stop there,
 skipping it and continuing to look for a smaller message further back. A conversation with a
 hole in the middle is worse than a shorter one, because the model reads it as continuous and
 has no way to know something was removed.
+
+
+## Seen in production
+
+GitHub's engineering team wrote up how Copilot assembles what it sends the model in
+[Inside GitHub: working with the LLMs behind GitHub Copilot](https://github.blog/2023-05-17-inside-github-working-with-the-llms-behind-github-copilot/).
+Read it for the part where they decide what to cut. Their budget problem is the one in this
+lesson with a much harder constraint attached, because the context has to be assembled in the
+milliseconds before you finish typing.
