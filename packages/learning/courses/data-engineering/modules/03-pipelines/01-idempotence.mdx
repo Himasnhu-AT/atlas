@@ -1,0 +1,81 @@
+---
+id: de-pipelines.idempotence
+title: Idempotence
+summary: A job you cannot safely run twice is a job you cannot safely run at all, because sooner or later something will run it twice and it will not be you.
+order: 1
+estimatedMinutes: 25
+---
+
+Every pipeline you write will run more than once on the same input. Not because you designed
+it to, but because the scheduler retried after a timeout, or somebody re-ran yesterday to
+check something, or a deploy replayed a queue.
+
+So the question is not whether it happens. It is what happens when it does.
+
+## The definition, and the useful version of it
+
+Formally, an operation is idempotent when running it twice has the same effect as running it
+once.
+
+The useful version for a pipeline is narrower and more demanding: **the state of the target
+after N runs of the same input is the same as after one run**, for any N, and for a run that
+died halfway through and was restarted.
+
+That last clause is where most of the difficulty is. A load that is idempotent when it
+completes can still be a disaster when it is interrupted, and interruption is the normal case
+in anything long-running.
+
+## What breaks it
+
+An unconditional `INSERT` breaks it: run twice, get two rows. The previous module's primary
+key turns that from silent duplication into a loud failure, which is better and is still not
+idempotent — the job crashes instead of succeeding.
+
+A running total breaks it worse. `UPDATE totals SET amount = amount + ?` is correct exactly
+once, and every re-run inflates a number that nothing in the table marks as wrong.
+
+Appending to a file breaks it. Sending an email breaks it, and cannot be fixed by anything
+here, which is why the last stage of a pipeline should be the only one that talks to the
+outside world.
+
+## What makes it work
+
+**Write with a key.** An upsert keyed on the natural identity of the row makes the second run
+a no-op or a correction rather than a duplicate. This is why the previous module spent a
+lesson on conflict handling.
+
+**Make the unit of work a partition.** Instead of "load the new orders", make it "load the
+orders for 2026-03-06", and make that operation replace everything it owns:
+
+```sql
+DELETE FROM orders WHERE placed_at = ?;
+-- then insert that day's rows
+```
+
+Delete-then-insert inside one transaction is idempotent by construction, it repairs a
+partition that was previously loaded wrong, and it is much easier to reason about than a
+row-by-row merge. The cost is that it rewrites the whole partition every time, and that the
+partition column has to be something the source actually determines. If the boundary is a time
+the row arrived rather than a time recorded in the row, two runs will disagree about which
+partition a row belongs to and you have lost the property you were buying.
+
+**Derive, do not accumulate.** A total computed from the rows is right after any number of
+runs. A total incremented as rows arrive is right after exactly one.
+
+## Idempotent is not the same as safe to re-run
+
+Worth separating, because they get conflated.
+
+Delete-then-insert for a day is idempotent. It is also destructive: re-running it with a
+broken extract replaces a good partition with a bad one. Idempotence says the result depends
+only on the input, and says nothing at all about whether the input is any good.
+
+That is the argument for the previous module's validator running before the write, and for the
+next module's checks running after it. Idempotence makes a re-run predictable. It does not
+make it correct.
+
+## What the rest of this module does
+
+A watermark, so an incremental load knows what it has already seen. A backfill that can be run
+over a range of days repeatedly without accumulating anything. And a runner that can be killed
+halfway and resumed, because that is the case everything above is really about.

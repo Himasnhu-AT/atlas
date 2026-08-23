@@ -1,0 +1,68 @@
+---
+id: de-pipelines.backfills
+title: Backfills
+summary: Re-running a pipeline over the past is the same operation as running it over today, and if it is not, one of the two is wrong.
+order: 3
+estimatedMinutes: 30
+exercise:
+  id: backfill
+  timeboxMinutes: 30
+---
+
+Sooner or later a bug ships, and a month of output is wrong. Fixing the code is the easy half.
+The other half is re-running it over thirty days of history without making things worse.
+
+## The backfill and the daily run should be the same code
+
+The failure mode here is a separate `backfill.py` that grew alongside the real pipeline,
+diverged from it, and is now the only thing anyone trusts to touch history.
+
+If a run is parameterised by the partition it covers, there is no separate script. Today's run
+is `run("2026-03-06")`. A backfill is that in a loop.
+
+```python
+for day in days_between("2026-02-01", "2026-03-06"):
+    run(day)
+```
+
+Which means everything the previous two lessons argued for is what makes a backfill possible
+at all. A run that owns a partition and replaces it is re-runnable over any partition. A run
+that appends is not, and its backfill has to be written separately, which is where the
+divergence starts.
+
+## Order, and whether it matters
+
+If partitions are independent, order does not matter and you can run them in parallel. If a
+day's output depends on the day before it — a running balance, a slowly changing dimension,
+anything cumulative — order matters absolutely and parallelism is not available.
+
+Say which one you have, in the code. A backfill that happens to be run in order and quietly
+requires it is a trap for whoever parallelises it later to make it finish before the morning.
+
+## Backfills are the operation most likely to break production
+
+They are big, they run against the same tables the daily job uses, and they are run by hand at
+an unusual hour by somebody who is already having a bad day.
+
+Three things help. Make it **resumable**, so a failure at day 20 of 30 does not mean starting
+over. Make it **report per partition**, so "it worked" is a list of days with row counts and
+not a single exit code. And make it possible to run against a **copy** first, which mostly
+means not hard-coding the target table.
+
+## Deleting is part of it
+
+A partition that used to have rows and now has none is a real result, and a backfill has to be
+able to produce it. If your write is "insert the rows for this day", a day that should now be
+empty keeps its old rows forever and nothing points at them.
+
+Delete-then-insert handles this without thinking about it. A pure upsert does not, and needs a
+deliberate delete of the rows that were not in the new input. That case — data that used to
+exist and should stop existing — is the one most likely to be missed, because it never comes
+up while the pipeline is working.
+
+## What the exercise asks
+
+A day range generator, a runner that processes one partition idempotently, a backfill that
+loops it and reports per day, and the handling for a partition that is now empty.
+
+The test that matters runs the backfill twice and checks the table is identical afterwards.

@@ -1,0 +1,82 @@
+---
+id: de-contracts.freshness
+title: Freshness
+summary: A pipeline that runs successfully and loads nothing looks exactly like one that runs successfully. Freshness is the check that tells them apart, and it is the one most often missing.
+order: 2
+estimatedMinutes: 30
+exercise:
+  id: freshness
+  timeboxMinutes: 30
+---
+
+Every check in the last lesson looks at the data that arrived. None of them notice when
+nothing arrives at all.
+
+A pipeline whose source stopped sending will run, find zero new rows, write zero rows, and
+exit successfully every night for a month. Every dashboard keeps rendering. The numbers stop
+moving, which looks like a quiet period, and quiet periods are a thing that happens.
+
+## Freshness is about the newest row, not the last run
+
+The obvious check is "did the job run today". It is nearly worthless: the job ran, that is the
+problem.
+
+The useful check is on the data:
+
+```sql
+SELECT max(placed_at) FROM orders;
+```
+
+If the newest order is from four days ago and orders arrive continuously, the pipeline has been
+succeeding at nothing since Tuesday.
+
+Those two facts belong together, because between them they say which failure it is:
+
+| Job ran | Data fresh | What it means |
+|---|---|---|
+| yes | yes | fine |
+| yes | no | the pipeline is fine and the source stopped |
+| no | yes | the scheduler is broken and the data is not stale yet |
+| no | no | the scheduler broke a while ago |
+
+Only the first row is good, and the other three want three different people.
+
+## Lag has to allow for how the data actually arrives
+
+"Fresh" is not one number. A source that delivers hourly is stale after two hours. One that
+delivers a nightly batch at 2am is fine at 11pm with data from twenty-two hours ago and
+alarming at 3am with the same data.
+
+So a freshness threshold has to know the cadence, and often the calendar. A weekday-only feed
+is stale on Monday morning if you measure hours since the last row, and perfectly healthy if
+you measure business hours. The most common false alarm in this whole area is a Monday morning
+page for a feed that has never run at the weekend.
+
+## Volume freshness
+
+The subtler version. The data is arriving and there is less of it than there should be.
+
+A source sending 10,000 orders a day starts sending 400 because one region's integration
+broke. The newest row is from a minute ago, so a freshness check passes. The row count for the
+day is 400, so a row count check against yesterday fires — which is the last lesson's check
+doing this lesson's job, and is why the two belong in the same report.
+
+## The check that runs when nothing happened
+
+The awkward property of a freshness check is that it has to run when the pipeline does not.
+
+If it is a step at the end of the job, and the job did not run, the check did not run either
+and reports nothing. Silence then means both "everything is fine" and "everything is on fire",
+which is the failure this whole lesson is about, arriving one level up.
+
+So freshness belongs on its own schedule, separate from the pipeline it watches. It is the one
+check that has to be external.
+
+## What the exercise asks
+
+Compute the age of the newest row, decide staleness against a cadence, combine the job's last
+run with the data's age into one verdict that names which of the four cases you are in, and
+handle the weekend exclusion.
+
+The verdict matters more than the number. "Stale" sends somebody to the wrong place half the
+time; "the pipeline is fine and the source stopped" sends them to the right one.

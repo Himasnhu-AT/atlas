@@ -1,0 +1,78 @@
+---
+id: de-contracts.counting-is-a-test
+title: Counting is a test
+summary: Almost every useful data check is a count and a threshold. The sophistication is in choosing what to count, not in the statistics.
+order: 1
+estimatedMinutes: 25
+exercise:
+  id: row-checks
+  timeboxMinutes: 25
+---
+
+A pipeline that fails loudly is a good afternoon. A pipeline that succeeds while producing
+wrong numbers can go unnoticed for a quarter, and by then every report built on it is wrong
+too.
+
+The difference between those two outcomes is usually one thing: whether anybody counted.
+
+## The checks worth having are boring
+
+People expect data quality to involve anomaly detection. Almost all of the value is in
+checks a competent person would write in an afternoon.
+
+**Row count in range.** Yesterday had 9,800 rows, today has 12. Something broke upstream. This
+one check catches more real incidents than everything else combined, because "the extract was
+empty or truncated" is by far the most common failure.
+
+**No nulls where nulls are impossible.** `order_id` is never null. If one appears, a
+constraint is missing or a load path is bypassing it.
+
+**Unique where uniqueness is assumed.** Every downstream sum depends on `order_id` being
+unique, and it is the previous modules' entire subject.
+
+**Values in a known set.** `status` is one of five things. A sixth appearing is the source
+adding a state nobody told you about, which is a normal event and one you want to hear about
+on the day rather than when somebody asks why the funnel does not add up.
+
+**Sum in range.** Revenue for a day is not double yesterday's and not a hundredth of it.
+Catches the double-counting join and the truncated extract at the same time.
+
+## Thresholds are the hard part
+
+The check is easy. Choosing the number is not, and getting it wrong in either direction
+destroys the check.
+
+Too tight and it fires on a bank holiday, then on a promotion, then on a Tuesday, and within a
+month somebody has muted the channel. An alert that is usually wrong is worse than no alert,
+because it teaches people to ignore the one that is right.
+
+Too loose and it never fires, which is the same as not having it and costs a false sense of
+safety on top.
+
+The practical answer is a **relative** threshold against recent history rather than an
+absolute one. "Within 50% of the median of the last seven runs" survives growth, seasonality
+and the day somebody runs a campaign, where "at least 9,000 rows" is stale within a quarter and
+wrong every December.
+
+Start loose, tighten when something gets through. A check that has never fired is not
+necessarily working.
+
+## Where checks run
+
+**Before the write**, and you can refuse to publish bad data at all. That is the strongest
+position and it needs somewhere to stage the data first.
+
+**After the write**, and the bad data is already there, but you know, and you can tell people
+before they build on it.
+
+Both are much better than the third option, which is a dashboard nobody opens.
+
+The check that catches the most is the cheapest: compare this run's row count to the last, and
+say something when it moved a lot. Everything else is refinement.
+
+## What the exercise asks
+
+Five checks and a runner that reports all of their results rather than stopping at the first
+failure — the same reasoning as the row validator two modules back, for the same reason.
+Somebody is about to ask "is today's data usable", and the answer to that is never "check
+three failed".

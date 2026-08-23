@@ -1,0 +1,11 @@
+id: de-pipelines
+slug: pipelines
+name: Pipelines
+summary: "Running a job once is easy. Running it again tomorrow, and again over last month, and again after it died halfway, is the job. Idempotence, watermarks, backfills and resumable runs."
+version: 1.0.0
+track: pipelines
+order: 3
+isActive: true
+prerequisites: [de-storage]
+difficulty: intermediate
+estimatedHours: 3.5
