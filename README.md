@@ -193,6 +193,7 @@ written down in `docs/CURRICULUM.md`.
 | `pnpm build:desktop` | Package the desktop app |
 | `pnpm content` | Build and validate the course |
 | `pnpm typecheck` | TypeScript across every package |
+| `pnpm test:core` | The game engine: level curve, award keys, quests, seals, streaks |
 | `pnpm test:rust` | The Rust test suite |
 | `pnpm lint:rust` | Clippy, warnings as errors |
 

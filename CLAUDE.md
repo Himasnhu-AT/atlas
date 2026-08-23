@@ -111,8 +111,9 @@ thing rather than announcing it. State tradeoffs plainly instead of selling.
 ## Checks
 
 ```bash
-pnpm content        # validate the course
+pnpm content        # validate the courses
 pnpm typecheck      # TypeScript, every package
+pnpm test:core      # the game engine, which is pure and worth over-testing
 pnpm test:rust      # Rust suite
 pnpm lint:rust      # clippy, warnings as errors
 ```
