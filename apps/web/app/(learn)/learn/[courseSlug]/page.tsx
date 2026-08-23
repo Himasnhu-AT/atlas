@@ -6,6 +6,8 @@ import { SiteFooter } from '@/components/site-footer'
 import { Eyebrow, PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
 import { Reveal } from '@/components/reveal'
 import { activeCourses, activeModules, findCourse, prerequisiteNames } from '@/lib/content'
+import { accessFor, canOpen } from '@/lib/server/access'
+import { currentUser } from '@/lib/server/session'
 
 export function generateStaticParams() {
   return activeCourses().map((course) => ({ courseSlug: course.slug }))
@@ -31,6 +33,8 @@ export default async function CoursePage({
   if (!course) notFound()
 
   const modules = activeModules(course)
+  const user = await currentUser()
+  const access = await accessFor(user?.id)
 
   // Tracks come from the course's own `course.yaml`. They used to be a hardcoded
   // map in this file, which is why every course would otherwise have had to
@@ -71,7 +75,11 @@ export default async function CoursePage({
                       index={index}
                       aside={String(module.order).padStart(2, '0')}
                       title={module.name}
-                      meta={`${module.lessons.length} lessons · ${module.estimatedHours}h · ${module.difficulty}`}
+                      meta={
+                        canOpen(access, course, module)
+                          ? `${module.lessons.length} lessons · ${module.estimatedHours}h · ${module.difficulty}`
+                          : `${module.lessons.length} lessons · ${module.estimatedHours}h · members`
+                      }
                       href={`/learn/${course.slug}/${module.slug}`}
                     >
                       <p>{module.summary}</p>

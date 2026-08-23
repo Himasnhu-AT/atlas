@@ -51,6 +51,17 @@ There is no `tailwind.config.js` and there never should be.
 (`transpilePackages` in Next, plain workspace resolution in Vite). Relative imports inside
 them must not carry `.ts` extensions, because Next rejects those.
 
+**The free/paid boundary is one function.** `apps/web/lib/server/access.ts` decides what a plan
+may open, and every surface that could leak content calls it. A boundary spread across route
+handlers is a boundary with a hole in it, and the hole is always the newest handler. Free is
+each course's first declared track, so the rule is a content decision in `course.yaml` rather
+than a list of ids here that goes stale. There is no payment provider: `users.plan` is set by
+hand, deliberately, until there is something worth charging for.
+
+The desktop app bundles every lesson so it works offline, so the gate does not reach it. The
+place it can be enforced is the content sync, and that is named in `access.ts` rather than
+half-built.
+
 ## The security boundary
 
 Clients never touch the database. The Supabase service key lives only in
