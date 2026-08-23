@@ -13,6 +13,7 @@ import type {
   ProgressSnapshot,
   User,
 } from '@atlas/core'
+import { boardScore } from '@atlas/core'
 
 /**
  * The only module that talks to persistent storage.
@@ -87,6 +88,14 @@ export interface GameRecord {
   /** Longest run of weeks whose target was met. */
   bestWeeks: number
   leaderboardOptIn: boolean
+  /**
+   * Set by hand to take somebody off the board without touching their account.
+   *
+   * The threat model says no automated banning: `stdout_tail` is already
+   * recorded and a human settles a case in a minute, whereas a heuristic
+   * accuses people who genuinely wrote the same solution.
+   */
+  leaderboardExcluded?: boolean
   timezone: string
 }
 
@@ -511,13 +520,19 @@ class LocalStore implements Store {
     const rows: LeaderboardEntry[] = []
 
     for (const [userId, game] of Object.entries(data.game)) {
-      if (!game.leaderboardOptIn) continue
+      if (!game.leaderboardOptIn || game.leaderboardExcluded) continue
       const user = data.users[userId]
       if (!user) continue
 
-      const weeklyXp = (data.awards[userId] ?? [])
-        .filter((award) => award.awardedAt >= since)
-        .reduce((sum, award) => sum + award.points, 0)
+      // Grouped by the day the award was received, then each day clamped. See
+      // `boardScore`: the cap is on the standing, never on the ledger.
+      const byDay: Record<string, number> = {}
+      for (const award of data.awards[userId] ?? []) {
+        if (award.awardedAt < since) continue
+        const day = award.awardedAt.slice(0, 10)
+        byDay[day] = (byDay[day] ?? 0) + award.points
+      }
+      const weeklyXp = boardScore(byDay)
 
       rows.push({ userId, displayName: user.displayName, weeklyXp, totalXp: game.totalXp })
     }
@@ -932,23 +947,36 @@ class SupabaseStore implements Store {
       .from('user_game')
       .select('user_id, total_xp')
       .eq('leaderboard_opt_in', true)
+      .not('leaderboard_excluded', 'is', true)
 
     const ids = ((optedIn ?? []) as Record<string, unknown>[]).map((r) => r.user_id as string)
     if (ids.length === 0) return []
 
     const [{ data: awards }, { data: users }] = await Promise.all([
-      client.from('xp_awards').select('user_id, points').in('user_id', ids).gte('awarded_at', since),
+      client
+        .from('xp_awards')
+        .select('user_id, points, awarded_at')
+        .in('user_id', ids)
+        .gte('awarded_at', since),
       client.from('users').select('id, display_name').in('id', ids),
     ])
 
     const names = new Map(
       ((users ?? []) as Record<string, unknown>[]).map((r) => [r.id as string, r.display_name as string]),
     )
-    const weekly = new Map<string, number>()
+    // Per user, per day, then clamped. See `boardScore`: an uncapped week is
+    // the one thing a public board makes worth faking.
+    const byUserDay = new Map<string, Record<string, number>>()
     for (const row of (awards ?? []) as Record<string, unknown>[]) {
       const id = row.user_id as string
-      weekly.set(id, (weekly.get(id) ?? 0) + ((row.points as number) ?? 0))
+      const day = String(row.awarded_at ?? '').slice(0, 10)
+      const days = byUserDay.get(id) ?? {}
+      days[day] = (days[day] ?? 0) + ((row.points as number) ?? 0)
+      byUserDay.set(id, days)
     }
+
+    const weekly = new Map<string, number>()
+    for (const [id, days] of byUserDay) weekly.set(id, boardScore(days))
 
     return ((optedIn ?? []) as Record<string, unknown>[])
       .map((r) => ({

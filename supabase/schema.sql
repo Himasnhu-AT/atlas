@@ -178,6 +178,12 @@ create table if not exists user_game (
   weekly_target_chosen boolean not null default false,
   best_weeks           integer not null default 0,
   leaderboard_opt_in boolean not null default false,
+  -- Set by hand to take somebody off the board without touching their account.
+  -- Deliberately not automated: grading is client-side and must stay that way,
+  -- so any heuristic that guesses at cheating also accuses people who genuinely
+  -- wrote the same solution. `stdout_tail` is recorded and a human settles a
+  -- case in a minute.
+  leaderboard_excluded boolean not null default false,
   -- IANA zone, captured at signup. The server assigns the day a piece of
   -- activity belongs to, so a client clock cannot decide what day it is.
   timezone           text not null default 'UTC',
