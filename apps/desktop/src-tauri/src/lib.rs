@@ -10,10 +10,13 @@
 //! already has open, exactly as if they had typed it themselves.
 
 mod analysis;
+mod auth;
 mod grader;
+mod outbox;
 mod preflight;
 mod project;
 mod pty;
+mod sync;
 mod workspace;
 
 use anyhow::{bail, Context, Result};
@@ -62,6 +65,9 @@ fn run_exercise(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Opens the pairing URL in the system browser. Scoped to https in
+        // capabilities/default.json; it cannot execute anything.
+        .plugin(tauri_plugin_shell::init())
         .manage(pty::PtyManager::default())
         .manage(project::ProjectState::default())
         .setup(|app| {
@@ -98,6 +104,15 @@ pub fn run() {
             project::project_write,
             project::project_root,
             analysis::project_analyse,
+            auth::auth_store,
+            auth::auth_account,
+            auth::auth_token,
+            auth::auth_clear,
+            sync::sync_queue,
+            sync::sync_pending,
+            sync::sync_drain,
+            sync::sync_pair_start,
+            sync::sync_pair_poll,
             run_exercise,
         ])
         .run(tauri::generate_context!())

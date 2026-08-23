@@ -1,14 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { syncQueue } from './ipc'
+
+/** What the grader reports, as the API's `NewAttempt` wants it. */
+export interface AttemptReport {
+  passed: boolean
+  testsPassed: number
+  testsTotal: number
+  durationMs: number
+  stdoutTail?: string
+}
+
 /**
  * Progress tracking for the desktop app.
  *
  * Local first, always. The app is offline-capable by design, so completion is
- * written to localStorage immediately and works with no account. When a server
- * is configured and the learner is signed in, the same events are mirrored to
- * the API on a best-effort basis; a failed sync never blocks or reverts the
- * local state, because losing a tick because the wifi dropped is worse than a
- * dashboard being a few minutes stale.
+ * written to localStorage immediately and works with no account.
+ *
+ * Every event is also queued to a Rust-owned outbox, whether or not anyone is
+ * signed in. That is the change from the fire-and-forget `fetch` this replaces,
+ * which needed a live server and a session at the moment of the event and
+ * silently dropped everything otherwise. It also had never worked in
+ * development at all: the Tauri CSP allowed the Vite port and not the API's, so
+ * every request was blocked and the bare `catch {}` ate the violation.
+ *
+ * Queueing unconditionally means somebody who practises offline for three weeks
+ * and then makes an account is credited for all of it, because the backlog is
+ * still there when they pair.
  */
 
 const STORAGE_KEY = 'atlas.progress.v1'
@@ -40,26 +58,17 @@ function write(value: LocalProgress): void {
   }
 }
 
-/** Where the API lives. Unset means the app runs purely offline. */
-function apiBase(): string | null {
-  const configured = import.meta.env.VITE_API_URL
-  return typeof configured === 'string' && configured.trim() !== '' ? configured : null
-}
-
-async function mirror(path: string, body: unknown): Promise<void> {
-  const base = apiBase()
-  if (!base) return
-
-  try {
-    await fetch(`${base}${path}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(body),
-    })
-  } catch {
-    // Offline, or not signed in. Local state is authoritative either way.
-  }
+/**
+ * Hand an event to the outbox.
+ *
+ * Never throws into the caller. Failing to queue must not undo work the learner
+ * actually did, and the local state is authoritative for what they have
+ * finished either way.
+ */
+function queue(kind: string, payload: unknown): void {
+  void syncQueue(kind, payload).catch((error) => {
+    console.warn('[desktop] could not queue an event for sync', error)
+  })
 }
 
 export function useProgress() {
@@ -88,7 +97,7 @@ export function useProgress() {
         return next
       })
 
-      void mirror('/api/progress', {
+      queue('lesson.progress', {
         lessonId,
         moduleId,
         status: complete ? 'completed' : 'in_progress',
@@ -117,7 +126,7 @@ export function useProgress() {
       return next
     })
 
-    void mirror('/api/exercises/state', { exerciseId, currentCode, peeked: true })
+    queue('exercise.peeked', { exerciseId, currentCode, peeked: true })
   }, [])
 
   const hasPeeked = useCallback(
@@ -125,16 +134,38 @@ export function useProgress() {
     [state.peeked],
   )
 
-  const recordAttempt = useCallback((exerciseId: string, passed: boolean) => {
-    setState((previous) => {
-      const next = {
-        ...previous,
-        attempts: { ...previous.attempts, [exerciseId]: { passed, at: new Date().toISOString() } },
-      }
-      write(next)
-      return next
-    })
-  }, [])
+  /**
+   * A graded run.
+   *
+   * This is the event the whole outbox exists for: grading happens here and
+   * nowhere else, so if this does not reach the server then two thirds of the
+   * economy never does. It used to be recorded locally and nothing more.
+   */
+  const recordAttempt = useCallback(
+    (exerciseId: string, report: AttemptReport) => {
+      setState((previous) => {
+        const next = {
+          ...previous,
+          attempts: {
+            ...previous.attempts,
+            [exerciseId]: { passed: report.passed, at: new Date().toISOString() },
+          },
+        }
+        write(next)
+        return next
+      })
+
+      queue('attempt.recorded', {
+        exerciseId,
+        passed: report.passed,
+        testsPassed: report.testsPassed,
+        testsTotal: report.testsTotal,
+        durationMs: report.durationMs,
+        stdoutTail: report.stdoutTail?.slice(-4000),
+      })
+    },
+    [],
+  )
 
   const lastAttempt = useCallback(
     (exerciseId: string) => state.attempts[exerciseId],
