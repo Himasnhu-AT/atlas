@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { formatDuration, type LessonRef } from '../lib/content'
+import { findLessonRefById, formatDuration, type LessonRef } from '../lib/content'
 import { loadLesson } from '../lib/lessons'
 
 export interface LessonPaneProps {
   lessonRef: LessonRef
   done: boolean
+  /** Follow a cross-lesson link from inside the rendered body. */
+  onNavigate?: (ref: LessonRef) => void
 }
 
 /** Centre-top pane: the lesson itself. */
-export function LessonPane({ lessonRef, done }: LessonPaneProps) {
+export function LessonPane({ lessonRef, done, onNavigate }: LessonPaneProps) {
   const { module, lesson } = lessonRef
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -47,6 +49,26 @@ export function LessonPane({ lessonRef, done }: LessonPaneProps) {
 
   const position = module.lessons.findIndex((candidate) => candidate.id === lesson.id) + 1
 
+  /**
+   * Cross-lesson links, which the content build emits as
+   * `<a href="/learn/..." data-lesson="<id>">`.
+   *
+   * The `href` is the web app's path and is the right thing to ship in the HTML,
+   * but following it here would navigate the Tauri webview out of the app and
+   * into a page that does not exist inside the bundle. So the click is caught,
+   * the id is resolved against the bundled catalogue, and the app routes itself.
+   * A link whose target is not in this build falls through to doing nothing
+   * rather than blanking the window.
+   */
+  function handleBodyClick(event: React.MouseEvent<HTMLDivElement>) {
+    const anchor = (event.target as HTMLElement).closest?.('a[data-lesson]')
+    if (!anchor) return
+
+    event.preventDefault()
+    const target = findLessonRefById(anchor.getAttribute('data-lesson') ?? '')
+    if (target) onNavigate?.(target)
+  }
+
   return (
     <div ref={scrollRef} className="h-full min-h-0 w-full overflow-y-auto bg-paper">
       {/* Set the way the site sets a lesson: eyebrow, serif title, serif lead,
@@ -83,7 +105,13 @@ export function LessonPane({ lessonRef, done }: LessonPaneProps) {
           // The content build produced this HTML from markdown in this repo,
           // with highlighting already applied. It is our own build output, not
           // anything a user supplied.
-          <div className="prose-learn" dangerouslySetInnerHTML={{ __html: html }} />
+          // The click handler only intercepts anchors the build marked with
+          // `data-lesson`; everything else in the body behaves normally.
+          <div
+            className="prose-learn"
+            onClick={handleBodyClick}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
         )}
       </article>
     </div>

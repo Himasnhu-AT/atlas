@@ -1,5 +1,5 @@
 import { manifest } from '@/lib/content'
-import { json, route } from '@/lib/server/respond'
+import { json, preflight, route } from '@/lib/server/respond'
 
 /**
  * The manifest the desktop app diffs against its bundled copy to decide what to
@@ -42,3 +42,6 @@ export const GET = route(async () =>
     ),
   }),
 )
+
+/** CORS preflight, so the desktop app can send an Authorization header. */
+export const OPTIONS = preflight
