@@ -95,7 +95,7 @@ export interface GameRecord {
    * recorded and a human settles a case in a minute, whereas a heuristic
    * accuses people who genuinely wrote the same solution.
    */
-  leaderboardExcluded?: boolean
+  leaderboardExcluded: boolean
   timezone: string
 }
 
@@ -105,6 +105,7 @@ export const EMPTY_GAME: GameRecord = {
   weeklyTargetChosen: false,
   bestWeeks: 0,
   leaderboardOptIn: false,
+  leaderboardExcluded: false,
   timezone: 'UTC',
 }
 
@@ -858,6 +859,7 @@ class SupabaseStore implements Store {
       weeklyTargetChosen: data.weekly_target_chosen ?? false,
       bestWeeks: data.best_weeks ?? 0,
       leaderboardOptIn: data.leaderboard_opt_in ?? false,
+      leaderboardExcluded: data.leaderboard_excluded ?? false,
       timezone: data.timezone ?? 'UTC',
     }
   }
@@ -869,6 +871,8 @@ class SupabaseStore implements Store {
     if (patch.weeklyTargetChosen !== undefined) row.weekly_target_chosen = patch.weeklyTargetChosen
     if (patch.bestWeeks !== undefined) row.best_weeks = patch.bestWeeks
     if (patch.leaderboardOptIn !== undefined) row.leaderboard_opt_in = patch.leaderboardOptIn
+    if (patch.leaderboardExcluded !== undefined)
+      row.leaderboard_excluded = patch.leaderboardExcluded
     if (patch.timezone !== undefined) row.timezone = patch.timezone
 
     await this.client().from('user_game').upsert(row, { onConflict: 'user_id' })
