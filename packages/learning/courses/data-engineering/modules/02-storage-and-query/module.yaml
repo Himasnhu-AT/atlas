@@ -1,0 +1,11 @@
+id: de-storage
+slug: storage-and-query
+name: Storage and query
+summary: "A list of dicts cannot enforce anything. A table can, and the moment you have one you can ask questions, which is when you find out what the join has been quietly dropping."
+version: 1.0.0
+track: handling
+order: 2
+isActive: true
+prerequisites: [de-cleaning]
+difficulty: intermediate
+estimatedHours: 3

@@ -1,0 +1,86 @@
+---
+id: de-storage.loading-a-table
+title: Loading a table
+summary: Creating the table, inserting in one transaction, and deciding what a duplicate key means. Every one of those is a decision the load makes on your behalf if you do not make it.
+order: 2
+estimatedMinutes: 30
+exercise:
+  id: load-table
+  timeboxMinutes: 30
+---
+
+The extract has a duplicate. Order 1003 appears twice, identically, because the export was
+retried after a timeout.
+
+That single fact is most of this lesson, because a `PRIMARY KEY` on `order_id` turns it from
+something nobody noticed into something the load has to have an opinion about.
+
+## The four things an insert can do about a conflict
+
+sqlite spells them out, which is unusually honest of it.
+
+`INSERT` raises. The load stops on the duplicate, nothing is committed, and somebody finds out
+immediately. Loud, and correct when a duplicate should be impossible.
+
+`INSERT OR IGNORE` keeps the first row and drops the second. Right when the duplicate is a
+retried export and the rows are identical. Wrong, and silently so, when they are not: it keeps
+whichever arrived first, which is nothing to do with which is correct.
+
+It is also broader than it looks, and this catches people. `OR IGNORE` ignores **every**
+constraint violation, not just the duplicate key. A row with a NULL in a `NOT NULL` column is
+skipped just as quietly, and the row simply never arrives:
+
+```python
+c.execute("INSERT OR IGNORE INTO t VALUES (2, NULL)")   # accepted, row gone
+c.execute("INSERT INTO t VALUES (2, NULL) ON CONFLICT(id) DO NOTHING")
+# IntegrityError: NOT NULL constraint failed
+```
+
+Naming the conflict target is the difference between forgiving one specific thing and
+forgiving anything that goes wrong. The second spelling is longer and is the one to reach for,
+because the whole point of putting constraints in the schema was to be told when they break.
+
+`INSERT OR REPLACE` keeps the last. Right when the source sends corrections and the newest
+version wins. It also deletes and re-inserts the row, so anything referencing it with
+`ON DELETE CASCADE` goes too, which surprises people.
+
+An **upsert**, `ON CONFLICT ... DO UPDATE`, updates named columns and leaves the rest. It is
+the one you usually want for an incremental load, and it is what module 3 is built on.
+
+There is no default that is right, which is why picking one is a decision and not a detail.
+For this extract the duplicate rows are identical, so `IGNORE` is honest — but only after
+you have checked that they are identical, which is the function the exercise asks you to
+write.
+
+## Constraints are a promise, so put them in
+
+```sql
+CREATE TABLE orders (
+    order_id   INTEGER PRIMARY KEY,
+    customer   TEXT NOT NULL,
+    placed_at  TEXT NOT NULL,
+    quantity   INTEGER,
+    total      TEXT NOT NULL,
+    status     TEXT NOT NULL
+) STRICT;
+```
+
+`quantity` is nullable and everything else is not, which is the module 1 decision written into
+the schema: an order can ship without us knowing how many items, and it cannot exist without a
+customer.
+
+`total` is `TEXT`. Money is stored as a string of the exact decimal, because sqlite has no
+decimal type and `REAL` is a float. A column of floats holding money drifts, and the drift
+surfaces as a report that is out by a cent nobody can explain.
+
+`placed_at` is `TEXT` holding ISO 8601, which sqlite compares correctly as strings because ISO
+dates sort lexicographically. That is the whole reason the format is worth normalising to.
+
+## What the exercise asks
+
+Create the table, load validated rows in one transaction, decide what to do about the
+duplicate, and report what the load did: rows in, rows written, rows skipped and why.
+
+That report is not decoration. A load that says "done" tells you nothing. A load that says
+"10 in, 9 written, 1 skipped as a duplicate of an identical row" is a load you can leave
+running unattended.

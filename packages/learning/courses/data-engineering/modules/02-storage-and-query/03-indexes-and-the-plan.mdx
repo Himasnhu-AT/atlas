@@ -1,0 +1,80 @@
+---
+id: de-storage.indexes-and-the-plan
+title: Indexes and the plan
+summary: The query planner will tell you exactly what it is about to do, in one line, and almost nobody asks. Learning to read that line is the cheapest performance skill there is.
+order: 3
+estimatedMinutes: 30
+exercise:
+  id: query-plan
+  timeboxMinutes: 25
+---
+
+A query that is slow is usually not slow because of the data volume. It is slow because it is
+reading every row to find a few, and the database will tell you that if you ask.
+
+```sql
+EXPLAIN QUERY PLAN SELECT * FROM orders WHERE customer = ?;
+```
+
+```
+SCAN orders
+```
+
+`SCAN` means every row. On ten rows that is free. On ten million it is the whole problem, and
+the query looks identical either way, which is why this gets shipped.
+
+Add an index and ask again:
+
+```sql
+CREATE INDEX orders_customer ON orders (customer);
+```
+
+```
+SEARCH orders USING INDEX orders_customer (customer=?)
+```
+
+`SEARCH` means it jumped to the rows it needed. That is the entire skill: **`SCAN` is reading
+everything, `SEARCH` is not**, and one word tells you which.
+
+## An index is not free
+
+It is a second copy of the column, kept sorted, updated on every write. So an index makes
+reads faster and writes slower, and takes disk.
+
+For a pipeline that means the load and the queries want different things. A bulk load into an
+indexed table pays the index maintenance on every row, so dropping the indexes, loading, and
+recreating them is often dramatically faster and is a normal thing to do.
+
+The other half of "not free" is that an index only helps a query shaped the way the index is.
+An index on `(customer)` does not help `WHERE lower(customer) = ?`, because the index holds
+`customer` and the query asks about a function of it. Wrapping an indexed column in a function
+is the most common way to accidentally turn a `SEARCH` back into a `SCAN`, and nothing warns
+you.
+
+## Composite indexes have an order, and it matters
+
+An index on `(customer, placed_at)` helps a query filtering on `customer`, and one filtering
+on both. It does not help a query filtering only on `placed_at`.
+
+The reason is the same as a phone book sorted by surname then first name: you can find every
+Patel, and every Patel called Aditi, and you cannot find every Aditi. Leftmost prefix, and it
+is worth remembering because the fix for a slow query is often reordering the columns of an
+index that already exists.
+
+## Measure the query you have
+
+The planner tells you the shape. It does not tell you the time, and the two do not always
+agree: a `SCAN` of a small table is faster than a `SEARCH` that has to fetch scattered rows.
+sqlite knows this and will sometimes choose a scan on purpose.
+
+So the rule is not "always index". It is: look at the plan, and if you are going to change
+something, time it before and after on data the size of the real thing.
+
+## What the exercise asks
+
+Read a plan and say whether it scans or searches, create the index a query needs, and confirm
+the query returns the same rows either way.
+
+That last part is the one people skip. An index is meant to change the speed and nothing else,
+and a query returning different results with an index than without it means something is wrong
+with the query, not the index.

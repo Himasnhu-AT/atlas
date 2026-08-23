@@ -1,0 +1,11 @@
+id: de-cleaning
+slug: cleaning-and-validation
+name: Cleaning and validation
+summary: "Every value arrives as a string and something has to decide what it means. Coercion that guesses, a schema that reports instead of throwing, and a quarantine so a bad row is kept where somebody can look at it."
+version: 1.0.0
+track: handling
+order: 1
+isActive: true
+prerequisites: [de-records]
+difficulty: beginner
+estimatedHours: 2.5

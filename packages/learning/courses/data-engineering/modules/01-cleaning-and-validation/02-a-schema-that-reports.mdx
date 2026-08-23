@@ -1,0 +1,82 @@
+---
+id: de-cleaning.a-schema-that-reports
+title: A schema that reports
+summary: Validation that raises tells you about one row. Validation that collects tells you about the extract, which is the thing you actually need to make a decision about.
+order: 2
+estimatedMinutes: 30
+exercise:
+  id: row-schema
+  timeboxMinutes: 30
+---
+
+You have coercions that can say they failed. Now you need something that applies them to a
+whole row, and then to ten thousand rows, and tells you what it found.
+
+## Raising is the wrong shape here
+
+The instinct from application code is to validate and throw.
+
+```python
+def validate(row):
+    if not row["order_id"]:
+        raise ValueError("missing order_id")
+```
+
+In a web request that is right: one request, one user, one thing that went wrong, stop. In a
+data load it is the wrong shape, because the unit of work is not one row. Somebody is about to
+ask you "is this extract usable?" and the answer to that is never "row 4 has no order_id". The
+answer is "9,997 rows are fine, 2 have no order id, 1 has a quantity nobody can read, and here
+is which ones".
+
+So the validator returns a report instead of raising. Same checks, different return type, and
+the difference is whether you can answer the question you will actually be asked.
+
+## What a field rule needs to say
+
+For each field, three things: what it should be, whether it may be missing, and what to do
+when it is not what it should be.
+
+```python
+{"name": "quantity", "coerce": to_int, "required": False}
+```
+
+`required` is doing more work than it looks. A required field that is missing is a broken row.
+An optional field that is present and unreadable is also a broken row, but for a different
+reason, and the report has to keep them apart — one says the source is not sending you
+something, the other says the source is sending you nonsense.
+
+## Errors have to be locatable
+
+An error that says "invalid quantity" is nearly useless on a ten-million-row file. An error
+needs to name the row, the field, and the value it choked on.
+
+```python
+{"row": 6, "field": "quantity", "value": "unknown", "problem": "not an integer"}
+```
+
+`row` is the number the source has, not the position in your filtered list. Renumbering after
+you drop rows is a small convenience that makes every error message point at the wrong line,
+and you will not notice until somebody opens the file and finds a perfectly good row where you
+said the problem was.
+
+Keep the offending value in the report. It is the difference between a ticket somebody can act
+on and one that starts with a request for more information.
+
+## Valid rows and broken rows both come back
+
+The validator returns both. Not the valid ones with a count of failures, and not a boolean.
+Both lists.
+
+That is what lets the caller decide, which is the point of the whole layer. A nightly load
+might take the valid rows and quarantine the rest. A one-off migration might refuse to
+proceed while anything is broken. A backfill might do the opposite and load everything,
+flagged. Those are all reasonable, and none of them can be chosen by the validator.
+
+## What the exercise asks
+
+A field rule, a row validator that applies rules and collects errors, and an extract validator
+that runs it over every row and returns valid rows, broken rows, and a summary of which fields
+went wrong how often.
+
+The summary is the thing you will actually look at first. One row failing is noise. Four
+hundred rows failing the same field is a change upstream.

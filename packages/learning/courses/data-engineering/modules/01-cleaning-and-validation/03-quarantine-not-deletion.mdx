@@ -1,0 +1,83 @@
+---
+id: de-cleaning.quarantine-not-deletion
+title: Quarantine, not deletion
+summary: Dropping a bad row makes the load succeed and the number wrong. Keeping it somewhere with the reason attached costs almost nothing and is the difference between a bug you can find and one you cannot.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: quarantine
+  timeboxMinutes: 25
+---
+
+The validator gives you valid rows and broken rows. The tempting next line is:
+
+```python
+load(valid)
+```
+
+and the broken ones are gone. The load succeeded. Everything downstream runs. Nobody
+finds out.
+
+## What a dropped row costs
+
+Say a hundred of ten thousand orders fail validation because an upstream change started
+sending `quantity` as `2 items` instead of `2`.
+
+If you drop them, the daily revenue figure is short by whatever those hundred orders were
+worth. The report renders, the number looks like a number, and it is wrong. Nobody
+investigates a number that looks fine.
+
+If you keep them, the revenue figure is still short — you have not fixed anything — but there
+are a hundred rows sitting in a quarantine table with `not an integer: '2 items'` next to
+them, and the next person to look knows exactly what happened and when it started.
+
+The second world is not more correct. It is more **findable**, and findability is what
+separates a data bug that gets fixed on Tuesday from one that gets fixed next quarter after
+somebody notices the annual total does not reconcile.
+
+## A quarantine row is the original plus the reason
+
+Keep the row exactly as it arrived. Not the partly-coerced version, not the row with the bad
+field blanked. The raw one.
+
+```python
+{
+    "row_number": 6,
+    "received_at": "2026-03-06T02:00:00Z",
+    "source": "orders_2026-03-06.csv",
+    "errors": [{"field": "quantity", "value": "unknown", "problem": "not an integer"}],
+    "raw": {"order_id": "1006", "quantity": "unknown", ...},
+}
+```
+
+The raw row is what makes the quarantine repairable. When somebody fixes the upstream system
+or decides `unknown` means one, the quarantined rows can be re-run through the same validator
+and loaded. If you kept a cleaned-up version, you have to go back to the source file, which
+may have been rotated away.
+
+## Quarantine is not an error log
+
+It is a table, or a file, that stays. Not a line in stdout that scrolls past, and not a
+warning in a log with a thirty-day retention.
+
+The test is whether you can answer "how many rows have we quarantined this month, and why" in
+one query. If the answer lives in a log aggregator you are hoping somebody thought to search,
+you do not have a quarantine, you have a habit of writing warnings.
+
+## The number that matters
+
+A quarantine only works if somebody looks. The thing to surface is not the count, which is
+noise on a good day, but the **rate**, and specifically a rate that moved.
+
+Two rows a day failing is a fact of life. Two hundred is a change. The check that catches it
+is not clever: yesterday's rate, today's rate, and a threshold. Module 4 makes it a real
+check; this lesson is where the number comes from.
+
+## What the exercise asks
+
+Build a quarantine record from a broken row, summarise a quarantine by field and problem, and
+write the comparison that says whether today's failure rate has moved enough to be worth
+somebody's attention.
+
+That last function is deliberately small and deliberately not clever. It is a threshold on a
+ratio. Almost every useful data check is.
