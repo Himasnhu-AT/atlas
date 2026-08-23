@@ -2,6 +2,46 @@
 
 Decisions are settled. Implementation is under way.
 
+## Where this came from
+
+Atlas started from one idea card, and the card is worth keeping because two of
+its claims are testable against what got built.
+
+> A gamified, code-first learning platform (write real code in browser and
+> locally) focused on one underserved developer domain, monetized as a low-cost
+> membership.
+>
+> Bootcamps charge $10-15K and video platforms deliver passive content with
+> terrible completion. A new entrant clones the interactive RPG-format wedge
+> into domains boot.dev ignores, platform engineering, Rust, data engineering,
+> at gym-membership pricing, competing on interactivity rather than course
+> count.
+
+What matches. The mechanics are cloned and the skin is not, which is the whole
+of DESIGN.md. Practice is real code graded by real tests rather than a quiz, and
+55 of them. Membership is a gate that is actually enforced server-side, with each
+course's first track free. Competing on interactivity rather than course count is
+why there are two courses and not twelve.
+
+Two places it diverges, recorded here rather than quietly forgotten.
+
+**"In browser and locally" is only locally.** Nothing executes code in the
+browser. A reader on the web gets the lesson, the scaffold, and a button that
+says open this in the desktop app, so trying a single exercise costs a download.
+That is a deliberate consequence of D3 and D11, which bought offline determinism
+and no API keys, and it is also the top of the funnel. The two are not actually
+in conflict: CPython compiled to WebAssembly runs the same `unittest` against the
+same `mockllm` with no server and no key, so the decision that produced this is
+worth revisiting on its merits rather than treated as settled.
+
+**"One underserved developer domain" became two, led by a well-served one.** The
+card named platform engineering, Rust and data engineering. Data engineering
+shipped and is five modules. The lead course is AI agent engineering at thirteen
+modules, which is not an underserved domain and was not on the card. It is a
+better course for having been written first, and the course-scoped architecture
+it forced is what makes a third cheap, but the positioning claim in the card is
+not the positioning that shipped.
+
 ## Decisions
 
 | # | Decision |
