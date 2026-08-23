@@ -19,6 +19,7 @@
     "build:desktop": "pnpm content && pnpm --filter @atlas/desktop tauri:build",
     "start": "pnpm --filter @atlas/web start",
     "typecheck": "pnpm -r --no-bail typecheck",
+    "test:core": "pnpm --filter @atlas/core test",
     "test:rust": "cd apps/desktop/src-tauri && cargo test",
     "lint:rust": "cd apps/desktop/src-tauri && cargo clippy --all-targets -- -D warnings",
     "lint": "oxlint .",
