@@ -239,6 +239,25 @@ create table if not exists devices (
   revoked_at   timestamptz
 );
 
+-- A pairing in flight, kept apart from `devices` because the lifetimes differ by
+-- orders of magnitude: this expires in ten minutes, a device lives for years.
+-- Mixing them means an index mostly full of dead rows.
+create table if not exists device_pairings (
+  -- The device code itself is never stored. The desktop holds it and proves
+  -- possession by presenting it; the server only ever compares hashes.
+  device_code_hash text primary key,
+  user_code        text not null unique,
+  name             text not null,
+  platform         text not null,
+  app_version      text not null,
+  user_id          text references users (id) on delete cascade,
+  approved_at      timestamptz,
+  created_at       timestamptz not null default now(),
+  expires_at       timestamptz not null
+);
+
+create index if not exists device_pairings_expiry_idx on device_pairings (expires_at);
+
 create table if not exists activity_days (
   user_id         text not null references users (id) on delete cascade,
   day             date not null,
@@ -274,6 +293,7 @@ alter table courses           enable row level security;
 alter table xp_awards         enable row level security;
 alter table user_game         enable row level security;
 alter table user_seals        enable row level security;
+alter table device_pairings   enable row level security;
 alter table users             enable row level security;
 alter table module_progress   enable row level security;
 alter table lesson_progress   enable row level security;

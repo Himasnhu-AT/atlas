@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
@@ -7,10 +8,11 @@ import { useEffect, useRef, useState } from 'react'
  * The account popover.
  *
  * Deliberately not `role="menu"`. That role promises arrow-key navigation and
- * managed focus between menuitems, and a popover holding one button does not
+ * managed focus between menuitems, and a popover holding two controls does not
  * need either. Claiming the role without honouring it is worse for a screen
- * reader than not claiming it: it announces a menu with no items. This is a
- * disclosure with a button inside, which is what it actually is.
+ * reader than not claiming it: it announces a menu that does not behave like
+ * one. This is a disclosure with a link and a button inside, which is what it
+ * actually is.
  */
 export function AccountMenu({ displayName, email }: { displayName: string; email: string }) {
   const [open, setOpen] = useState(false)
@@ -69,11 +71,18 @@ export function AccountMenu({ displayName, email }: { displayName: string; email
             <p className="truncate text-caption font-medium text-ink">{displayName}</p>
             <p className="truncate text-caption text-muted">{email}</p>
           </div>
+          <Link
+            href="/account/devices"
+            onClick={() => setOpen(false)}
+            className="block px-4 py-3 text-caption text-ink-soft transition-colors duration-200 ease-paper hover:bg-paper-sunken hover:text-ink"
+          >
+            Devices
+          </Link>
           <button
             type="button"
             onClick={signOut}
             disabled={signingOut}
-            className="w-full px-4 py-3 text-left text-caption text-ink-soft transition-colors duration-200 ease-paper hover:bg-paper-sunken hover:text-ink disabled:opacity-60"
+            className="w-full border-t border-rule px-4 py-3 text-left text-caption text-ink-soft transition-colors duration-200 ease-paper hover:bg-paper-sunken hover:text-ink disabled:opacity-60"
           >
             {signingOut ? 'Signing out…' : 'Sign out'}
           </button>
