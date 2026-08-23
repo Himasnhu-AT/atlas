@@ -12,7 +12,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { cookies } from 'next/headers'
 
-import type { User } from '@atlas/core'
+import { tokenNeedsRefresh, type User } from '@atlas/core'
 
 import { store, userId as deriveUserId, type StoredUser } from './store'
 
@@ -124,6 +124,8 @@ export interface TokenClaims {
   userId: string
   /** Present only on a token minted for a paired device. */
   deviceId?: string
+  /** Epoch ms this token stops verifying. */
+  expiresAt: number
 }
 
 export function readToken(token: string | undefined): TokenClaims | null {
@@ -149,9 +151,10 @@ export function readToken(token: string | undefined): TokenClaims | null {
 
   const [userId, expires, , deviceId] = payload.split('.')
   if (!userId || !expires) return null
-  if (Number(expires) < Date.now()) return null
+  const expiresAt = Number(expires)
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null
 
-  return { userId, deviceId: deviceId || undefined }
+  return { userId, deviceId: deviceId || undefined, expiresAt }
 }
 
 export async function setSessionCookie(token: string): Promise<void> {
@@ -230,3 +233,27 @@ export class UnauthorizedError extends Error {
 }
 
 export { deriveUserId }
+
+/**
+ * A replacement token for this request, or null if it does not need one.
+ *
+ * Stateless on purpose. The obvious implementation is for `currentUser` to
+ * stash what it minted in a module variable and have `route` pick it up, and
+ * that is a cross-request token leak: route handlers run concurrently in one
+ * process, so two requests interleaving between the stash and the read hand one
+ * user the other user's token. Reading the request again costs an HMAC verify
+ * and cannot do that.
+ *
+ * Only ever called after a handler has succeeded, so a token belonging to a
+ * deleted or revoked account has already been turned away with a 401.
+ */
+export function refreshedTokenFor(request: Request): { token: string; bearer: boolean } | null {
+  const header = request.headers.get('authorization')
+  if (!header?.startsWith('Bearer ')) return null
+
+  const claims = readToken(header.slice(7))
+  if (!claims || !tokenNeedsRefresh(claims.expiresAt, MAX_AGE_SECONDS * 1000, Date.now()))
+    return null
+
+  return { token: createToken(claims.userId, claims.deviceId), bearer: true }
+}

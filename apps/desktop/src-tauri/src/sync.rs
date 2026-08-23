@@ -152,6 +152,24 @@ async fn drain(app: AppHandle) -> Result<DrainResult> {
 
     let status = response.status();
 
+    // Read before the body is consumed. The server slides the session window on
+    // any authenticated request past the halfway mark of a token's life, and
+    // storing what it sends back is the whole of what keeps a device that is in
+    // use from being signed out on a fixed day.
+    //
+    // A failure to write it is not a failure to sync. The batch below still
+    // counts, and the next drain gets another replacement offered to it.
+    if let Some(refreshed) = response
+        .headers()
+        .get("x-atlas-session")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+    {
+        if let Err(error) = auth::replace_token(&app, &refreshed) {
+            eprintln!("could not store the refreshed session token: {error:#}");
+        }
+    }
+
     // A revoked or expired token. Say so loudly and stop: a silent 401 that
     // quietly stops the outbox is how someone's progress freezes for a month
     // with nothing anywhere reporting it.

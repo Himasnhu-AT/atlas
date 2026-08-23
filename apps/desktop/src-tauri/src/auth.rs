@@ -110,6 +110,33 @@ pub fn auth_store(
     Ok(account)
 }
 
+/// Replace the stored token, keeping the account it belongs to.
+///
+/// The server slides the session window: any authenticated request made with a
+/// token past the halfway mark of its life comes back carrying a replacement.
+/// Storing it is what makes the window mean anything. Without this a device in
+/// daily use is signed out on the thirtieth day regardless, and the first the
+/// learner hears of it is the outbox refusing to drain.
+///
+/// Not a `tauri::command`. The token must never be reachable from the webview,
+/// and nothing in the frontend has any reason to hand one over.
+pub fn replace_token<R: Runtime>(app: &AppHandle<R>, token: &str) -> Result<()> {
+    let Some(stored) = read_stored(app)? else {
+        // Signed out between the request going out and the reply coming back.
+        // Writing the token now would sign them back in behind their back.
+        return Ok(());
+    };
+
+    let path = credentials_path(app)?;
+    write_stored(
+        &path,
+        &Stored {
+            token: token.to_string(),
+            account: stored.account,
+        },
+    )
+}
+
 /// Who is signed in, without handing back the token.
 #[tauri::command]
 pub fn auth_account(app: AppHandle) -> Result<Option<Account>, String> {
@@ -190,6 +217,28 @@ mod tests {
         let back: Stored = serde_json::from_str(&raw).unwrap();
         assert_eq!(back.token, "tok-abc");
         assert_eq!(back.account.email, "reader@example.com");
+    }
+
+    #[test]
+    fn replacing_a_token_keeps_the_account() {
+        // The refresh path must not quietly change who is signed in, and must
+        // not resurrect a session somebody just signed out of.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("credentials.json");
+
+        let stored = sample();
+        write_stored(&path, &stored).unwrap();
+
+        let replaced = Stored {
+            token: "a-fresher-token".into(),
+            account: stored.account.clone(),
+        };
+        write_stored(&path, &replaced).unwrap();
+
+        let read: Stored = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(read.token, "a-fresher-token");
+        assert_eq!(read.account.email, stored.account.email);
+        assert_eq!(read.account.api_base, stored.account.api_base);
     }
 
     #[cfg(unix)]

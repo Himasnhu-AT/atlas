@@ -3,7 +3,7 @@ import 'server-only'
 import { NextResponse } from 'next/server'
 import { ZodError, type ZodType } from 'zod'
 
-import { UnauthorizedError } from './session'
+import { refreshedTokenFor, UnauthorizedError } from './session'
 
 /**
  * Uniform JSON responses and error mapping, so every route handler stays short
@@ -33,12 +33,23 @@ const ALLOWED_ORIGINS = new Set([
 
 const ALLOWED_HEADERS = 'authorization, content-type, idempotency-key'
 
+/**
+ * Where a replacement session token is delivered.
+ *
+ * A header rather than the body, because every route would otherwise have to
+ * remember to include it and one that forgot would quietly stop refreshing.
+ */
+export const REFRESH_HEADER = 'x-atlas-session'
+
 function corsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get('origin')
   if (!origin || !ALLOWED_ORIGINS.has(origin)) return {}
   return {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
+    // A cross-origin caller cannot read a response header it was not told
+    // about, and the desktop has to read this one to keep its session alive.
+    'access-control-expose-headers': REFRESH_HEADER,
     // The response varies by origin, so a cache must not serve one origin's
     // headers to another.
     vary: 'Origin',
@@ -128,7 +139,19 @@ export function route(
     }
 
     try {
-      return withCors(await handler(request, context))
+      const response = withCors(await handler(request, context))
+
+      // Slide the session window on a request that actually succeeded. A paired
+      // desktop in daily use then never runs into the thirty day expiry it was
+      // issued with, and one that has been closed for a month still expires on
+      // schedule. Skipped on a 401 so a token whose account has been deleted or
+      // revoked is not handed a fresh one on the way out.
+      if (response.status !== 401) {
+        const refreshed = refreshedTokenFor(request)
+        if (refreshed) response.headers.set(REFRESH_HEADER, refreshed.token)
+      }
+
+      return response
     } catch (error) {
       if (error instanceof UnauthorizedError) return withCors(fail(401, 'unauthorized'))
       if (error instanceof BadRequestError)
