@@ -39,7 +39,12 @@ export function ExerciseCallout({
         {testCount > 0
           ? `${testCount} tests, graded on your machine in about a second. `
           : 'Graded on your machine in about a second. '}
-        If you are stuck for {timeboxMinutes} minutes, the app offers the reference solution.
+        {/* The reference reveal is a deliberate, confirmed, recorded action, and
+            only the desktop app implements it. Promising it here, beside an
+            editor that will never offer it, would be promising the wrong app. */}
+        {browser?.runnable
+          ? `Stuck for ${timeboxMinutes} minutes? The desktop app will offer you the reference solution.`
+          : `If you are stuck for ${timeboxMinutes} minutes, the app offers the reference solution.`}
       </p>
 
       {scaffold && files && browser?.runnable ? (
