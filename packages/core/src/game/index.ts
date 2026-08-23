@@ -8,6 +8,7 @@
 
 export * from './awards'
 export * from './levels'
+export * from './map'
 export * from './quests'
 export * from './seals'
 export * from './state'

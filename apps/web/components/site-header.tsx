@@ -25,7 +25,8 @@ export async function SiteHeader() {
 
         <nav aria-label="Main" className="flex items-center gap-5 text-caption sm:gap-7">
           <NavLink href="/learn">Courses</NavLink>
-          <NavLink href="/download">Desktop</NavLink>
+          <NavLink href="/atlas">Atlas</NavLink>
+          {user && <NavLink href="/ledger">Ledger</NavLink>}
           {user && <NavLink href="/dashboard">Progress</NavLink>}
         </nav>
 
