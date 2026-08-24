@@ -31,16 +31,6 @@ import { boardScore } from '@atlas/core'
 export interface StoredUser extends User {
   passwordHash: string
   passwordSalt: string
-  /**
-   * What this account may open.
-   *
-   * There is no payment provider behind this yet, and deliberately so: a
-   * free/paid boundary is easy to add once there is something worth charging
-   * for, and a Stripe integration written before then is a guess with webhooks
-   * attached. The field exists so the boundary is enforced in one place from
-   * the start rather than retrofitted through every route later.
-   */
-  plan?: 'free' | 'member'
 }
 
 /** One row of the XP ledger, as the store writes it. */
@@ -658,7 +648,6 @@ class SupabaseStore implements Store {
       password_hash: user.passwordHash,
       password_salt: user.passwordSalt,
       created_at: user.createdAt,
-      plan: user.plan ?? 'free',
     })
     if (error) throw new Error(error.message)
   }
@@ -1130,7 +1119,6 @@ function rowToUser(row: Record<string, unknown>): StoredUser {
     createdAt: row.created_at as string,
     passwordHash: row.password_hash as string,
     passwordSalt: row.password_salt as string,
-    plan: (row.plan as StoredUser['plan']) ?? 'free',
   }
 }
 

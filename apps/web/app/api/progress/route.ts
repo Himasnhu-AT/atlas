@@ -50,12 +50,13 @@ export const PUT = route(async (request) => {
   }
 
   // The gate applies to progress, not only to the body. Hiding the button is UI
-  // and the endpoint is the boundary: without this a free account can mark a
-  // members-only lesson complete and be paid for content it was never sent.
+  // and the endpoint is the boundary: without this a reader can mark a module
+  // they have not reached complete and be paid for content never sent to them,
+  // and worse, unlock everything after it.
   const course = courseOfModule(manifest, module.id)
   const access = await accessFor(user.id)
   if (course && !canOpen(access, course, module)) {
-    throw new ForbiddenError(`${module.name} is not included in your plan`)
+    throw new ForbiddenError(`${module.name} opens once you have finished what comes before it`)
   }
 
   const now = new Date().toISOString()

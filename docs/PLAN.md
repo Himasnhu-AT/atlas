@@ -19,8 +19,9 @@ its claims are testable against what got built.
 
 What matches. The mechanics are cloned and the skin is not, which is the whole
 of DESIGN.md. Practice is real code graded by real tests rather than a quiz, and
-55 of them. Membership is a gate that is actually enforced server-side, with each
-course's first track free. Competing on interactivity rather than course count is
+55 of them. There is a gate that is actually enforced server-side, though it turned
+out to be a different one: a module opens when the modules before it are
+finished, rather than when an account has paid. Competing on interactivity rather than course count is
 why there are two courses and not twelve.
 
 Two places it diverges, recorded here rather than quietly forgotten.
@@ -393,7 +394,8 @@ be true before the next thing could start.
     outbox.
 12. The data engineering course, which is what proved the course-scoped `lib/`
     mechanism was real rather than theoretical.
-13. The membership gate.
+13. The gate, first as a membership boundary and then, once it was clear nothing
+    was for sale, as progression: finish what comes before.
 
 ## Working assumptions
 

@@ -59,16 +59,20 @@ There is no `tailwind.config.js` and there never should be.
 (`transpilePackages` in Next, plain workspace resolution in Vite). Relative imports inside
 them must not carry `.ts` extensions, because Next rejects those.
 
-**The free/paid boundary is one function.** `apps/web/lib/server/access.ts` decides what a plan
-may open, and every surface that could leak content calls it. A boundary spread across route
-handlers is a boundary with a hole in it, and the hole is always the newest handler. Free is
-each course's first declared track, so the rule is a content decision in `course.yaml` rather
-than a list of ids here that goes stale. There is no payment provider: `users.plan` is set by
-hand, deliberately, until there is something worth charging for.
+**The gate is progression, and it is one function.** `apps/web/lib/server/access.ts` decides
+what a reader may open, and every surface that could leak content calls it. A boundary spread
+across route handlers is a boundary with a hole in it, and the hole is always the newest
+handler. A module opens when the modules it names as prerequisites are finished, so the rule is
+a content decision in `module.yaml` rather than a list of ids here that goes stale. There is no
+plan, no payment provider and nothing to buy.
 
-The desktop app bundles every lesson so it works offline, so the gate does not reach it. The
-place it can be enforced is the content sync, and that is named in `access.ts` rather than
-half-built.
+Enforce it on writes too, not just on the body. `/api/progress` and `/api/attempts` both call
+the gate, because a reader who can mark an unreached lesson complete does not merely get paid
+for content nobody sent them, they unlock everything after it.
+
+The desktop app bundles every lesson so it works offline, so the gate does not reach it. That
+is a smaller problem than it was when the gate decided what somebody had paid for: skipping
+ahead in the practice app costs the learner their own footing and nobody else anything.
 
 ## The security boundary
 

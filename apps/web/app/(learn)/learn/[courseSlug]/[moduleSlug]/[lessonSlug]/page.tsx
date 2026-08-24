@@ -9,10 +9,10 @@ import { LessonSidebar } from '@/components/lesson-sidebar'
 import { CompleteButton } from '@/components/complete-button'
 import { ExerciseCallout } from '@/components/exercise-callout'
 import { everyLesson, findCourse, findLesson, loadLesson, neighbours } from '@/lib/content'
-import { accessFor, canOpen } from '@/lib/server/access'
+import { accessFor, blockedBy, canOpen } from '@/lib/server/access'
 import { currentUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
-import { Paywall } from '@/components/paywall'
+import { Locked } from '@/components/locked'
 
 type Params = Promise<{ courseSlug: string; moduleSlug: string; lessonSlug: string }>
 
@@ -95,7 +95,14 @@ export default async function LessonPage({ params }: { params: Params }) {
             <hr className="mt-10 mb-12 border-rule" />
 
             {!unlocked ? (
-              <Paywall courseName={course.name} signedIn={access.signedIn} />
+              <Locked
+                blockedBy={blockedBy(access, course, module).map((m) => ({
+                  name: m.name,
+                  slug: m.slug,
+                }))}
+                courseSlug={course.slug}
+                signedIn={access.signedIn}
+              />
             ) : (
               <LessonBody html={compiled.html} />
             )}

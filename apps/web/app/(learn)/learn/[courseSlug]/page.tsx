@@ -78,7 +78,7 @@ export default async function CoursePage({
                       meta={
                         canOpen(access, course, module)
                           ? `${module.lessons.length} lessons · ${module.estimatedHours}h · ${module.difficulty}`
-                          : `${module.lessons.length} lessons · ${module.estimatedHours}h · members`
+                          : `${module.lessons.length} lessons · ${module.estimatedHours}h · not yet`
                       }
                       href={`/learn/${course.slug}/${module.slug}`}
                     >
