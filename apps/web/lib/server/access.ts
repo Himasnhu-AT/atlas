@@ -2,89 +2,91 @@ import 'server-only'
 
 import type { CourseEntry, ModuleEntry } from '@atlas/learning'
 
-import { activeCourses } from '@/lib/content'
 import { store } from './store'
 
 /**
- * What a plan may open.
+ * What a reader may open, and why.
  *
  * One function, used by every surface that could leak content: the lesson page,
  * the exercise files, and anything added later. A boundary spread across route
  * handlers is a boundary with a hole in it, and the hole is always the newest
  * handler.
  *
- * There is no payment provider behind this. `users.plan` is set by hand until
- * there is something worth charging for, and writing a Stripe integration
- * before then is a guess with webhooks attached. What matters now is that the
- * decision lives in one place.
+ * The rule is progression, not payment. A module opens when the modules it
+ * declares as prerequisites are finished. There is nothing to buy, no plan, and
+ * no track that is worth more than another.
+ *
+ * That rule was already on the screen before it was enforced. `moduleStatus` in
+ * `@atlas/core` has always computed a locked state from prerequisites, and the
+ * dashboard has always drawn "Opens after Foundations" underneath a module a
+ * reader had not reached. It was advice. This makes it the answer.
  *
  * ## What this does not cover, and why that is written down here
  *
  * The desktop app bundles every lesson at build time so it works with no
- * network, which means this gate does not apply to it. That is not an oversight
- * to fix with a client-side check — a check in the app is advice, and the
- * content is already on the machine.
- *
- * The place it can be enforced is the content sync: ship the free modules in the
- * bundle and fetch the rest with the device's token, so the server decides. That
- * is a real change to how content reaches the desktop and it belongs with
- * whatever pays for it, so it is named here rather than half-built.
+ * network, so this gate does not reach it. That matters much less than it did
+ * when the gate decided what somebody had paid for: skipping ahead in the
+ * practice app costs the learner their own footing and nobody else anything.
+ * The web is where the sequence is enforced, and the desktop is a place to
+ * practise what you have reached.
  */
-
-/**
- * The free part of every course is its first track.
- *
- * Deliberately per course rather than "the first course is free". A learner who
- * arrives for data engineering should not have to work through an AI curriculum
- * to see whether they like the product, and a catalogue where most courses are
- * entirely locked reads as a brochure.
- *
- * A course's first declared track is the free one, which makes this a content
- * decision expressed in `course.yaml` rather than a list of ids maintained here
- * that would go stale the first time somebody adds a course.
- */
-export function freeTrackOf(course: CourseEntry): string | undefined {
-  return course.tracks[0]?.id
-}
-
-export function isFreeModule(course: CourseEntry, module: ModuleEntry): boolean {
-  return module.track === freeTrackOf(course)
-}
-
-/** Every module id a free account may open, across every course. */
-export function freeModuleIds(): Set<string> {
-  const ids = new Set<string>()
-  for (const course of activeCourses()) {
-    for (const module of course.modules) {
-      if (isFreeModule(course, module)) ids.add(module.id)
-    }
-  }
-  return ids
-}
 
 export interface Access {
-  plan: 'free' | 'member'
-  /** Signed in at all. Reading is open to everyone; this is about what. */
+  /** Signed in at all. Reading is open to everyone; this is about how far. */
   signedIn: boolean
+  /**
+   * Module ids this reader has finished.
+   *
+   * Empty when signed out, which is not a special case: a reader with no
+   * progress has finished nothing, so they get exactly the modules that ask for
+   * nothing. Every course starts with one.
+   */
+  completed: Set<string>
 }
 
 export async function accessFor(userId: string | undefined): Promise<Access> {
-  if (!userId) return { plan: 'free', signedIn: false }
-  const user = await store().findUserById(userId)
-  return { plan: user?.plan ?? 'free', signedIn: Boolean(user) }
+  if (!userId) return { signedIn: false, completed: new Set() }
+
+  const snapshot = await store().progressFor(userId)
+  return {
+    signedIn: true,
+    completed: new Set(
+      snapshot.modules.filter((row) => row.status === 'completed').map((row) => row.moduleId),
+    ),
+  }
 }
 
 /**
- * May this account open this module?
+ * May this reader open this module?
  *
  * Note what is NOT gated: the catalogue, the map, a module's lesson list, and
- * every lesson's title and summary. Somebody deciding whether to pay has to be
- * able to see what they would be paying for, and a locked table of contents is
- * a worse advert than an open one.
+ * every lesson's title and summary. Somebody deciding what to learn next has to
+ * be able to see where the road goes, and a course whose table of contents is
+ * hidden until you have earned it reads as a puzzle rather than a syllabus.
  *
- * What is gated is the lesson body and the exercise files, which is the thing
- * with the value in it.
+ * What is gated is the lesson body and the exercise files, so that arriving at
+ * module nine on your first day is not a thing that happens by accident.
+ *
+ * Prerequisites cannot cross a course boundary, so this never has to look
+ * outside the course it was handed.
  */
 export function canOpen(access: Access, course: CourseEntry, module: ModuleEntry): boolean {
-  return access.plan === 'member' || isFreeModule(course, module)
+  void course
+  return module.prerequisites.every((id) => access.completed.has(id))
+}
+
+/**
+ * The modules standing between this reader and that one, nearest first.
+ *
+ * Only the direct prerequisites, not the whole ancestry. Telling somebody on
+ * module one that they must finish eight modules is true and useless; telling
+ * them the one thing to do next is what they can act on.
+ */
+export function blockedBy(
+  access: Access,
+  course: CourseEntry,
+  module: ModuleEntry,
+): ModuleEntry[] {
+  const missing = module.prerequisites.filter((id) => !access.completed.has(id))
+  return course.modules.filter((candidate) => missing.includes(candidate.id))
 }

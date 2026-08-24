@@ -41,7 +41,7 @@ export const POST = route(async (request) => {
   const course = module && courseOfModule(manifest, module.id)
   const access = await accessFor(user.id)
   if (module && course && !canOpen(access, course, module)) {
-    throw new ForbiddenError(`${module.name} is not included in your plan`)
+    throw new ForbiddenError(`${module.name} opens once you have finished what comes before it`)
   }
 
   await store().recordAttempt(user.id, {
