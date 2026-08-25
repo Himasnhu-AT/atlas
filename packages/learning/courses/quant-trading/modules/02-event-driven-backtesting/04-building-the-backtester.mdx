@@ -1,0 +1,37 @@
+---
+id: quant-backtesting.building-the-backtester
+title: Building the event backtester
+summary: Combine event queues, strategies, execution handlers, and portfolio accounting into a zero-leakage simulation engine.
+order: 4
+estimatedMinutes: 30
+exercise:
+  id: event-backtester
+  timeboxMinutes: 40
+---
+
+A complete backtesting system combines market data ingestion, strategy logic, target sizing, execution modeling, and portfolio accounting into an event pipeline.
+
+## The simulation sequence
+
+For each incoming market data event at timestamp $t$:
+
+1. **Update state**: Cache the latest bid, ask, and mid prices for the asset universe.
+2. **Evaluate strategy**: Invoke the strategy callback with the current tick and ledger. The strategy inspects historical and current indicators to emit `SignalEvent` targets (target portfolio weight in $[-1.0, 1.0]$).
+3. **Rebalance and order generation**: The portfolio manager calculates the desired target share quantity:
+
+$$
+Q_{\text{target}} = \frac{\text{Total Equity} \times W_{\text{target}}}{P_{\text{mid}}}
+$$
+
+The required trade quantity is the difference between target shares and current shares: $\Delta Q = Q_{\text{target}} - Q_{\text{current}}$. If the trade value exceeds a minimum rebalance threshold, an `OrderEvent` is dispatched.
+
+4. **Execution**: The execution handler simulates broker fills, applying commission schedules and slippage.
+5. **Ledger update & equity snapshot**: The resulting `FillEvent` updates cash and positions in the ledger, and a mark-to-market snapshot is recorded.
+
+## Eliminating lookahead bias
+
+Because strategy code receives only the current tick and the ledger state, it cannot access future bars or unclosed prices. The resulting equity curve accurately reflects what an identical strategy would have achieved running against live broker APIs.
+
+## Exercise: assemble the backtester
+
+In this exercise, you will implement `EventBacktester` that executes a strategy callback over a list of `MarketDataEvent` ticks, generating an equity curve tracking total equity and cash over time.

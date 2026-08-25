@@ -1,0 +1,48 @@
+---
+id: quant-risk.optimal-liquidation
+title: Optimal liquidation and market impact
+summary: Balance market impact costs against volatility risk using the Almgren-Chriss optimal execution model.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: almgren-chriss
+  timeboxMinutes: 35
+---
+
+Liquidating a large position of $X$ shares presents a fundamental trade-off:
+* **Liquidating rapidly** consumes limit order book liquidity, causing severe temporary and permanent market impact.
+* **Liquidating slowly** reduces price impact, but exposes the remaining unhedged inventory to market volatility risk.
+
+## The Almgren-Chriss framework
+
+The **Almgren-Chriss model** finds the execution schedule that minimizes expected transaction cost plus a penalty for variance risk.
+
+For total shares $X$, $N$ discrete time intervals of length $\tau$ (total time $T = N \tau$), asset volatility $\sigma$, temporary impact coefficient $\eta$, and trader risk aversion $\lambda$:
+
+The urgency parameter $\kappa$ is:
+
+$$
+\kappa \approx \sqrt{\frac{\lambda \sigma^2}{\eta}}
+$$
+
+The optimal remaining position $x_k$ at time step $k \in [0, N]$ is:
+
+$$
+x_k = X \cdot \frac{\sinh(\kappa (T - k \tau))}{\sinh(\kappa T)}
+$$
+
+## Limiting cases
+
+1. **Risk-neutral trader ($\lambda \to 0$ or $\kappa \to 0$)**:
+   The trajectory simplifies to a straight line (Time-Weighted Average Price / TWAP):
+
+$$
+x_k = X \cdot \left(1 - \frac{k}{N}\right)
+$$
+
+2. **Highly risk-averse trader ($\lambda \to \infty$)**:
+   The trajectory decays aggressively in early periods to extinguish inventory risk immediately, accepting higher initial impact costs.
+
+## Exercise: generate Almgren-Chriss liquidation schedules
+
+In this exercise, you will implement `almgren_chriss_trajectory(total_shares, num_intervals, tau, sigma, eta, lambda_risk)` returning the vector of remaining shares $x_0, x_1, \dots, x_N$.

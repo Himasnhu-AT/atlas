@@ -9,8 +9,7 @@ exercise:
   timeboxMinutes: 25
 ---
 
-The file in the last lesson was flat: every row had the same fields and every field was a
-string. Most data you receive over an API is not.
+Flat files treat every column as a scalar, often serialized as text. API payloads frequently deliver structured, hierarchical documents:
 
 ```json
 {
@@ -24,54 +23,33 @@ string. Most data you receive over an API is not.
 }
 ```
 
-This is better than CSV in two ways that matter. `1499.00` is a number rather than a string
-that looks like one, so nobody downstream has to guess whether the comma was a thousands
-separator or a decimal point. And the structure is explicit: the customer is one thing, the
-items are a list of things.
+This format provides two distinct advantages over CSV. Numeric values such as `1499.00` retain native numeric semantics without delimiter ambiguity. Sub-objects such as `customer` and nested collections such as `items` maintain explicit boundaries.
 
-It is worse in one way that matters more. It is not a row, and something has to make it one.
+Converting hierarchical documents into tabular records requires specific structural decisions.
 
-## Flattening is a decision
+## Flattening is a structural decision
 
-There is no single right way to turn that document into rows, and the wrong choice is not
-detectable later.
+Transforming nested structures into relational rows requires selecting an appropriate representation strategy:
 
-Flatten the nesting with dotted keys and you get one row: `customer.email`,
-`customer.country`, `total`. That is fine until you reach `items`, which is a list of two
-things, and a row cannot hold two of a thing without pretending.
+1. **Dotted key flattening:** Nested dictionary keys become flat column names, producing columns such as `customer.email` and `customer.country`. This strategy handles single nested objects, but fails on array fields like `items`.
+2. **Record explosion:** Unnesting arrays into multiple rows emits one record per array element. For order 1003, this produces two rows, one for `A-1` and one for `B-7`. While item details remain distinct, root-level attributes like `total` are duplicated across rows. An unweighted sum across `total` yields 2998 instead of 1499.
+3. **Serialized storage:** Storing the array as raw JSON text within a single column retains root-level cardinality, but obscures nested attributes from relational query engines.
 
-Explode the list and you get one row per item: order 1003 appears twice, once for `A-1` and
-once for `B-7`. Now the shape is honest about the items and dishonest about the total, because
-`1499.00` is now on both rows. Anyone who sums `total` gets 2998.
+The standard relational pattern splits this data across two related entities: an `orders` parent table and an `order_items` child table linked by foreign key. When flattening occurs earlier in a pipeline, data engineers must track aggregation levels to prevent double-counting.
 
-Keep the list as JSON in a text column and the row is honest, but the items are now invisible
-to every query, which means the first person who needs them writes their own parser.
+## Type preservation and edge cases in JSON
 
-The usual answer is the boring one: two tables, orders and order items, with the order id on
-both. That is what a relational model is for, and module 2 builds it. The point here is that
-the decision happens at flattening time, and by the time somebody notices the total was
-double counted, the pipeline has been running for months.
+JSON supports strings, numbers, booleans, arrays, objects, and `null`. While this reduces string-parsing ambiguities, type handling still presents edge cases:
 
-## Types survive, until they do not
-
-JSON has numbers, strings, booleans and null. That looks like it solves the coercion problem
-the next module is about. It half does.
-
-`null` and a missing key are different things and JSON can express both, which is genuinely
-useful: "we know the quantity and it is nothing" is not "we never received a quantity". Most
-pipelines flatten that distinction on the first hop, and the information is gone.
-
-Numbers are where it gets thin. JSON has one numeric type and no precision guarantee, so
-`1499.00` may arrive as `1499` and money stored as a float will eventually be out by a cent.
-Anything financial is a string or an integer of minor units, and that decision belongs at the
-edge where the document is parsed, not three stages later.
+- **Missing keys versus null values:** A missing key indicates the attribute was omitted at the source, while an explicit `null` indicates the value was known to be empty. Flattening transformations often collapse this distinction into a single null representation.
+- **Floating-point precision:** JSON numbers do not enforce fixed decimal precision. Monetary quantities deserialized into floating-point variables can introduce fractional rounding errors. Financial applications store monetary amounts as string representations of exact decimals or as integers in minor currency units (such as cents).
 
 ## What the exercise asks
 
-Flatten a nested document to dotted keys, explode a list field into one row per element while
-keeping the parent's identity, and write the check that catches the double counting: given
-rows that came from an explode, confirm that summing a parent-level field gives a number that
-is too big.
+Implement three operations:
 
-That last one is the habit worth taking away. The bug is not hard to fix. It is hard to
-notice, so you write something that notices it.
+1. Flatten nested dictionaries using dotted key paths.
+2. Explode nested list fields into distinct rows while preserving parent identifiers.
+3. Construct a validation check that identifies inflation when summing parent attributes across exploded rows.
+
+Detecting grain mismatches early prevents silent aggregation bugs in downstream transformations.

@@ -1,0 +1,54 @@
+---
+id: quant-risk.value-at-risk
+title: Value at Risk and Expected Shortfall
+summary: Measure portfolio tail risk using parametric and historical Value at Risk and Expected Shortfall (CVaR).
+order: 1
+estimatedMinutes: 20
+exercise:
+  id: var-cvar-calculator
+  timeboxMinutes: 25
+---
+
+Standard deviation treats upside gains and downside losses symmetrically. Institutional risk management focuses specifically on downside tail losses.
+
+## Value at Risk (VaR)
+
+**Value at Risk (VaR)** estimates the maximum expected loss over a specific horizon at a given confidence level $1 - \alpha$ (e.g. 95% or 99%):
+
+$$
+P(\text{Loss} \le \text{VaR}_\alpha) = 1 - \alpha
+$$
+
+A daily 95% VaR of 2.0% means that on 95 out of 100 trading days, the portfolio loss will not exceed 2.0%.
+
+Two common estimation methods:
+1. **Historical VaR**: Non-parametric percentile lookup from sorted historical returns.
+2. **Parametric (Gaussian) VaR**: For mean $\mu$ and standard deviation $\sigma$:
+
+$$
+\text{VaR}_\alpha = -(\mu + z_\alpha \sigma)
+$$
+
+Where $z_\alpha = \Phi^{-1}(\alpha)$ is the standard normal quantile (e.g. $z_{0.05} \approx -1.645$).
+
+## The failure of VaR and Expected Shortfall (CVaR)
+
+VaR provides no information about what happens on the 5 days out of 100 when losses breach the threshold. A portfolio could lose 2.1% or 50.0%; both count identically as a single VaR breach. Furthermore, VaR is not mathematically subadditive, meaning combining two portfolios can produce a VaR greater than the sum of their individual VaRs.
+
+**Expected Shortfall (Conditional VaR / CVaR)** measures the expected loss conditional on the loss exceeding the VaR threshold:
+
+$$
+\text{CVaR}_\alpha = E[\text{Loss} \mid \text{Loss} \ge \text{VaR}_\alpha]
+$$
+
+In a Gaussian distribution:
+
+$$
+\text{CVaR}_\alpha = -\mu + \sigma \frac{\phi(z_\alpha)}{\alpha}
+$$
+
+Expected Shortfall is a coherent risk measure that penalizes fat tails.
+
+## Exercise: calculate VaR and CVaR
+
+In this exercise, you will implement both historical and parametric VaR and CVaR estimators.

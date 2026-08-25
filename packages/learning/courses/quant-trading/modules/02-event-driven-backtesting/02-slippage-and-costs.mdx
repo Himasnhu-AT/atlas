@@ -1,0 +1,41 @@
+---
+id: quant-backtesting.slippage-and-costs
+title: Slippage and transaction costs
+summary: Model spread crossing, linear broker commissions, and volume participation caps in order execution.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: execution-handler
+  timeboxMinutes: 30
+---
+
+Transaction costs are the single largest difference between theoretical backtest results and live trading performance. Many backtests reporting Sharpe ratios above 3.0 collapse into negative returns once realistic fees and market impact are modeled.
+
+## Components of execution friction
+
+When executing an order, the total cost comprises three distinct layers:
+
+1. **Exchange and broker commissions**: Fixed fees per share or basis points of trade notional value (1 bps = 0.01% = 0.0001). Most brokers enforce a minimum ticket fee per trade.
+2. **Spread crossing cost**: Buying at the prevailing ask and selling at the prevailing bid.
+3. **Market impact and slippage**: The adverse price movement caused by the execution itself. Large orders eat through available depth, moving the price away from the trader.
+
+## Volume participation limits
+
+In real markets, an order cannot exceed the total volume traded in the market during that interval without drastically moving the price.
+
+A realistic execution simulator enforces a **Participation of Volume (POV)** constraint:
+
+$$
+Q_{\text{filled}} = \min(Q_{\text{requested}}, \; V_{\text{bar}} \times \text{max\_participation\_rate})
+$$
+
+If a strategy submits an order for 10,000 shares on a bar where only 5,000 shares traded, a 10% POV cap fills at most 500 shares, leaving the remainder unfilled or queued for subsequent intervals.
+
+## Exercise: build an execution handler
+
+In this exercise, you will implement an `ExecutionHandler` that:
+
+1. Enforces volume participation limits based on incoming bar/tick volume.
+2. Applies fixed basis-point slippage on top of prevailing bid/ask prices.
+3. Computes commission with a minimum ticket fee floor.
+4. Generates a typed `FillEvent` recording filled quantity, fill price, commission, and slippage.

@@ -1,0 +1,32 @@
+---
+id: quant-validation.triple-barrier-labeling
+title: The triple-barrier labeling method
+summary: Replace fixed-horizon classification with path-dependent profit-take, stop-loss, and vertical timeout barriers.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: triple-barrier
+  timeboxMinutes: 30
+---
+
+Standard supervised machine learning in finance labels observations using fixed-time horizon returns: $y_t = \text{sign}(P_{t+h} - P_t)$.
+
+Fixed-horizon labeling ignores intra-horizon path dynamics: a trade that moves within 0.1% of a stop loss before recovering at step $t+h$ receives a positive label, even though a real trader or automated risk rule would have been liquidated along the path.
+
+## The three barriers
+
+The **triple-barrier method** dynamically tracks price evolution across three simultaneous boundaries:
+
+1. **Upper horizontal barrier (Profit Take)**: $P_{\text{upper}} = P_t \cdot (1 + \text{PT})$. If touched first, label $y_t = +1$.
+2. **Lower horizontal barrier (Stop Loss)**: $P_{\text{lower}} = P_t \cdot (1 - \text{SL})$. If touched first, label $y_t = -1$.
+3. **Vertical barrier (Time Expiration)**: $t + H$. If neither horizontal barrier is touched within $H$ steps, the position is closed at market, and label $y_t = 0$.
+
+## Benefits of path-dependent labeling
+
+* Labels reflect actual execution logic rather than idealized point-to-point measurements.
+* The model learns to predict whether a setup provides sufficient momentum to hit target thresholds before triggering risk stops.
+* It eliminates artificial noise from trades that wander aimlessly without reaching either statistical boundary.
+
+## Exercise: implement triple-barrier labeling
+
+In this exercise, you will implement `apply_triple_barrier(prices, pt_pct, sl_pct, max_holding_period)` returning a list of integer labels (`+1`, `-1`, or `0`) for every observation in the series.

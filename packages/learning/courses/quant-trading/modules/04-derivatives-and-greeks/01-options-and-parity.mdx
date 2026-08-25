@@ -1,0 +1,45 @@
+---
+id: quant-options.options-and-parity
+title: Options and put-call parity
+summary: Non-linear derivative payoffs, no-arbitrage bounds, and the theoretical foundation of put-call parity.
+order: 1
+estimatedMinutes: 20
+---
+
+A stock or future has a linear payoff: gaining \$1 for every \$1 increase in asset price, and losing \$1 for every \$1 decline.
+
+An **option** provides an asymmetric, non-linear payoff structure.
+
+## European option payoffs
+
+For an option with strike price $K$ expiring at time $T$:
+
+A **European call option** grants the right, but not the obligation, to purchase the underlying asset at strike price $K$ at expiration:
+
+$$
+\text{Payoff}_{\text{call}} = \max(0, \; S_T - K)
+$$
+
+A **European put option** grants the right, but not the obligation, to sell the underlying asset at strike price $K$ at expiration:
+
+$$
+\text{Payoff}_{\text{put}} = \max(0, \; K - S_T)
+$$
+
+An option's total market price decomposes into two components:
+1. **Intrinsic value**: The value if exercised immediately ($S - K$ for calls, $K - S$ for puts, bounded at zero).
+2. **Time value (extrinsic value)**: The premium paid for the probability that the underlying asset moves further in-the-money before expiration.
+
+## Put-call parity
+
+For European options on non-dividend-paying assets with risk-free rate $r$ and time to maturity $T$, holding a long call and a short put with identical strike $K$ and maturity $T$ replicates a forward contract:
+
+$$
+C - P = S_0 - K e^{-r T}
+$$
+
+If market option prices violate this equation, an arbitrageur executes a synthetic conversion or reversal trade:
+* If $C - P > S_0 - K e^{-r T}$: Sell the overpriced call, buy the underpriced put, buy the stock, and borrow $K e^{-r T}$ cash.
+* If $C - P < S_0 - K e^{-r T}$: Buy the call, sell the put, short the stock, and lend $K e^{-r T}$ cash.
+
+Both synthetic portfolios deliver a risk-free locked-in profit at expiration regardless of where the underlying stock price finishes.

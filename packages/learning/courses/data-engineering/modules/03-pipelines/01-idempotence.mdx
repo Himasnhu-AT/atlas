@@ -6,76 +6,49 @@ order: 1
 estimatedMinutes: 25
 ---
 
-Every pipeline you write will run more than once on the same input. Not because you designed
-it to, but because the scheduler retried after a timeout, or somebody re-ran yesterday to
-check something, or a deploy replayed a queue.
+Data pipelines regularly execute multiple times across the same input dataset. Schedulers retry failed tasks after network timeouts, backfill jobs reprocess historical partitions, and deployment rollouts replay queue messages.
 
-So the question is not whether it happens. It is what happens when it does.
+Pipeline designs must account for repeated executions without producing side effects or corrupting state.
 
-## The definition, and the useful version of it
+## Defining pipeline idempotence
 
-Formally, an operation is idempotent when running it twice has the same effect as running it
-once.
+An operation is idempotent when executing it multiple times produces the identical final system state as executing it once.
 
-The useful version for a pipeline is narrower and more demanding: **the state of the target
-after N runs of the same input is the same as after one run**, for any N, and for a run that
-died halfway through and was restarted.
+In data engineering, this definition requires a specific property: the state of the target datastore after $N$ runs over the same input must match the state after a single successful run, even if previous attempts were interrupted halfway through.
 
-That last clause is where most of the difficulty is. A load that is idempotent when it
-completes can still be a disaster when it is interrupted, and interruption is the normal case
-in anything long-running.
+Handling unexpected interruptions during execution is essential for building resilient batch architectures.
 
-## What breaks it
+## Operations that break idempotence
 
-An unconditional `INSERT` breaks it: run twice, get two rows. The previous module's primary
-key turns that from silent duplication into a loud failure, which is better and is still not
-idempotent — the job crashes instead of succeeding.
+Several common write patterns violate idempotence:
 
-A running total breaks it worse. `UPDATE totals SET amount = amount + ?` is correct exactly
-once, and every re-run inflates a number that nothing in the table marks as wrong.
+- **Unconditional inserts:** Appending records on every run produces duplicate rows. While primary key constraints prevent silent duplication, naive inserts cause subsequent runs to fail with integrity errors rather than succeeding idempotently.
+- **Incremental updates:** Statements like `UPDATE totals SET amount = amount + ?` are valid only during the initial run. Each subsequent retry inflates aggregate metrics without leaving an audit trail of the overcount.
+- **Unbounded file appends:** Appending batch output to existing files duplicates data on every retry.
+- **Premature side effects:** Triggering external notifications (such as webhook posts or emails) mid-pipeline causes duplicate alerts during retries. External side effects should occur only after storage transactions commit.
 
-Appending to a file breaks it. Sending an email breaks it, and cannot be fixed by anything
-here, which is why the last stage of a pipeline should be the only one that talks to the
-outside world.
+## Patterns for idempotent data processing
 
-## What makes it work
+Three structural patterns ensure idempotent pipeline behavior:
 
-**Write with a key.** An upsert keyed on the natural identity of the row makes the second run
-a no-op or a correction rather than a duplicate. This is why the previous module spent a
-lesson on conflict handling.
-
-**Make the unit of work a partition.** Instead of "load the new orders", make it "load the
-orders for 2026-03-06", and make that operation replace everything it owns:
+1. **Keyed upserts:** Using primary keys with conflict resolution (`ON CONFLICT DO UPDATE`) allows re-runs to update existing rows with corrections instead of inserting duplicates.
+2. **Partition replacement:** Defining units of work by explicit partitions (such as a calendar date) allows pipelines to atomically replace the partition:
 
 ```sql
 DELETE FROM orders WHERE placed_at = ?;
 -- then insert that day's rows
 ```
 
-Delete-then-insert inside one transaction is idempotent by construction, it repairs a
-partition that was previously loaded wrong, and it is much easier to reason about than a
-row-by-row merge. The cost is that it rewrites the whole partition every time, and that the
-partition column has to be something the source actually determines. If the boundary is a time
-the row arrived rather than a time recorded in the row, two runs will disagree about which
-partition a row belongs to and you have lost the property you were buying.
+Executing a partition delete followed by inserts within a single database transaction guarantees idempotence by construction. It repairs malformed partitions on replay and avoids complex row-level merging logic. The partition boundary must rely on an immutable business timestamp from the record rather than the ingestion execution time.
 
-**Derive, do not accumulate.** A total computed from the rows is right after any number of
-runs. A total incremented as rows arrive is right after exactly one.
+3. **Derivation over accumulation:** Deriving metrics directly from underlying transactional records ensures consistent results across repeated runs.
 
-## Idempotent is not the same as safe to re-run
+## Distinction between idempotence and data safety
 
-Worth separating, because they get conflated.
+Idempotence ensures that pipeline execution is deterministic given a specific input. However, idempotence does not guarantee that the input itself is valid.
 
-Delete-then-insert for a day is idempotent. It is also destructive: re-running it with a
-broken extract replaces a good partition with a bad one. Idempotence says the result depends
-only on the input, and says nothing at all about whether the input is any good.
+For example, re-running a partition replacement with an empty or truncated input file empties the target partition. Idempotent execution must be paired with pre-write validation to verify extract integrity before committing changes to production storage.
 
-That is the argument for the previous module's validator running before the write, and for the
-next module's checks running after it. Idempotence makes a re-run predictable. It does not
-make it correct.
+## Upcoming pipeline patterns
 
-## What the rest of this module does
-
-A watermark, so an incremental load knows what it has already seen. A backfill that can be run
-over a range of days repeatedly without accumulating anything. And a runner that can be killed
-halfway and resumed, because that is the case everything above is really about.
+Subsequent lessons introduce watermarks for tracking incremental progress, historical backfills across date partitions, and resumable execution frameworks for interrupted jobs.

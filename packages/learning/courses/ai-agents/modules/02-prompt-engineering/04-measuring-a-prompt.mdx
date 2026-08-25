@@ -9,48 +9,23 @@ exercise:
   timeboxMinutes: 25
 ---
 
-Everything in the first three lessons was a claim about what makes a prompt better. This lesson
-is the part that decides whether any of those claims is true of your prompt, on your task, with
-your model. Without it you are not engineering a prompt, you are decorating one.
+Modifying a system prompt to fix a single edge case often introduces unintended regressions elsewhere in the input space. An automated evaluation suite measures prompt changes against a consistent benchmark, providing immediate feedback on performance shifts before deployment.
 
-The workflow that produces the problem is the one everybody has: someone reports a bad output,
-you add a line to the system message, you paste the bad input back in, the output is now good,
-you ship. Every step is reasonable and the result is unreliable, because you verified the change
-on exactly the case that motivated it.
+## The regression problem in prompt editing
 
-## The specific way it goes wrong
-
-A prompt is one artefact serving every input. A line added to fix one input applies to all of
-them.
-
-Say tickets that mention a chargeback are being labelled `billing` when your team wants
-`escalation`. You add a line:
+Prompts serve as a shared prefix for every input. Adding an ad-hoc instruction to fix a specific bug shifts output probabilities across all inputs:
 
 ```python
 SYSTEM_V2 = SYSTEM_V1 + "\nA chargeback is always an escalation."
 ```
 
-The reported case is now correct. The mechanism that fixed it is the one from
-[anatomy of a prompt](lesson:ai-prompt-engineering.anatomy-of-a-prompt):
-the token `escalation` is now in the prefix of every call, and a label that appears in the
-instructions is more probable than one that does not. That mechanism does not know which ticket
-you were thinking of. The ticket about being charged twice reads as urgent and mentions money,
-so `escalation` is now the more available label there too, and it flips. So does the one about a
-delayed bank transfer, for the same reason and with no more warning.
+While this modification correctly routes chargeback inquiries to `escalation`, the increased salience of the token `escalation` may cause urgent billing inquiries (such as duplicate charges) to flip incorrectly from `billing` to `escalation`.
 
-You fixed one case and broke two, and every part of that is ordinary.
+Verifying a prompt fix only on the input that motivated it creates a false sense of progress. Evaluating candidate prompts against a persistent test set exposes regressions immediately.
 
-The arithmetic is what makes this persistent. One case fixed is visible, immediate, and yours.
-Two cases broken are invisible, delayed, and get reported as a new bug by someone else in a
-fortnight. The change looks like a pure win at the moment you make it, and the only way it looks
-otherwise is if you check the other cases at that moment.
+## Constructing a minimal evaluation suite
 
-That is the entire argument for an eval. Not rigour, not process. You need to see the other
-cases at the moment you make the change.
-
-## The smallest useful eval
-
-A case is an input and something you expect to be true of the output.
+An evaluation suite defines a collection of test cases pairing inputs with expected assertion graders:
 
 ```python
 CASES = [
@@ -61,31 +36,20 @@ CASES = [
 ]
 ```
 
-Four is already useful. Ten is enough to catch the failure above. Saying so plainly matters
-because people postpone evals until they can build the proper version, and the proper version
-never gets built while the guessing continues.
+A small suite of ten high-quality test cases based on real historical issues provides significant regression protection. Ground truth annotations should come from verified domain data rather than model-generated labels.
 
-Ten honest cases beat a hundred generated ones for a precise reason. A case is worth having only
-if the expectation attached to it is one you believe, which means somebody who knows the task
-decided what the right answer was. Ask a model to invent a hundred cases and you get inputs that
-resemble your task carrying expectations from the same kind of system you are testing, agreeing
-with itself. Generated inputs are useful raw material. The labels have to come from you.
+## Deterministic output graders
 
-The best source of cases is your bug tracker. Every case in a mature suite should be traceable
-to something that actually went wrong once.
+Deterministic programmatic checks execute quickly and yield consistent results:
 
-## What you can grade without a model
-
-The graders worth writing first are the ones with no judgement in them.
-
-| Grader | Checks | Good for |
+| Grader | Assertion logic | Application domain |
 | --- | --- | --- |
-| `exact_match(expected)` | Output equals the expected string | Classification, routing, extracted values |
-| `matches_schema(spec)` | Parses as JSON with the right field types | Anything structured |
-| `contains_all(terms)` | Every term appears | An answer that must mention the order id |
-| `rejects(term)` | A term does not appear | A refusal that must not name a competitor |
+| `exact_match(expected)` | Verifies output equals expected string | Classification, routing, extracted codes |
+| `matches_schema(spec)` | Verifies JSON parsing and field types | Structured payloads |
+| `contains_all(terms)` | Verifies every required substring is present | Key information inclusion |
+| `rejects(term)` | Verifies forbidden substring is absent | Content filtering, competitor mentions |
 
-Each of those is a few lines. Written out, the first one is all of this:
+Graders return `None` when an assertion passes, and a diagnostic string explaining the mismatch when it fails:
 
 ```python
 Grader = Callable[[str], str | None]
@@ -99,55 +63,24 @@ def exact_match(expected: str) -> Grader:
     return grade
 ```
 
-Two things about that shape, because the rest of the graders are built the same way. Calling
-`exact_match("billing")` checks nothing; it builds a grader that has `"billing"` baked into it
-and hands it back, which is what lets a case carry a list of graders that each already know
-what they are looking for. And a grader answers with `None` when the check holds and a short
-reason when it does not, rather than with `True` and `False`. That is the difference between a
-failing run that says `chargeback: expected 'escalation', got 'billing'` and one that says
-`chargeback: False`.
+Programmatic graders provide instant, deterministic feedback. Semantic quality evaluations (such as assessing summary tone or faithfulness) require model-based evaluators, which are covered in subsequent modules.
 
-They run in microseconds and give the same answer every time. Reach for them before anything
-cleverer, and shape the task so they apply: asking for a label rather than a paragraph makes
-the output gradeable as well as parseable, which is an argument for structured output beyond
-the parsing.
+## Comparing baseline and candidate prompts
 
-What they cannot do is judge quality. Whether a summary is faithful, whether a reply is polite
-enough, whether an explanation is correct, none of that reduces to a substring. The usual move
-is a second model call with a rubric, which is a real technique with real problems: the judge
-needs its own evaluation against human labels before you can trust it, and judges have known
-biases towards longer and more confident answers. Later modules build one. Exhaust the
-deterministic checks first, because much of what people reach for a judge to grade is checkable.
+### Pass rate as a comparative metric
 
-## Comparing two versions
-
-### Pass rate is a comparison, not a score
-
-Run the suite, count the cases where every grader held, divide. Run it again with the other
-prompt, holding everything else fixed.
+Evaluate baseline and candidate prompts on the identical test suite:
 
 ```python
 baseline = run_eval(client, prompt_v1, CASES)     # 0.75, chargeback fails
 candidate = run_eval(client, prompt_v2, CASES)    # 0.75, chargeback passes now
 ```
 
-Both runs score 0.75, and the change you made was neither a success nor a no-op. It moved which
-cases pass. The pass rate is the one number that cannot tell you that, which is the first thing
-worth learning about it.
+Both runs report a 0.75 pass rate, yet the underlying behavior shifted. Summary statistics alone obscure which individual test cases improved or regressed.
 
-The number on its own means little. A pass rate of 0.8 on ten cases you chose is not 80% correct
-on your traffic, and treating it as a score to maximise leads to adding easy cases, which raises
-the number and tells you less.
+### Tracking explicit regressions
 
-What the number is for is the difference between two runs of the same suite. That comparison is
-meaningful in a way the absolute value is not, because everything except the prompt was held
-constant. Chasing the score is what people do with an eval they built to look responsible.
-Comparing two versions is what people do with an eval they built because they had to decide
-something.
-
-### Regression is the alert worth having
-
-Which is why `compare` reports names and not just an average. On the two runs above:
+The evaluation comparison reports itemized diffs:
 
 ```python
 result = compare(baseline, candidate)
@@ -157,64 +90,18 @@ result.pass_rate_delta    # 0.0
 result.better             # False
 ```
 
-There is the fix and there is its cost, on one screen, before the change ships. `double charge`
-is the ticket about being billed twice, which used to label `billing` and now labels
-`escalation`, because that is what adding the word did. Nobody would have found that by pasting
-the chargeback ticket back in, and nobody was going to go looking for it.
+A candidate prompt is marked `better` only if it improves overall accuracy without introducing regressions on previously passing cases (`regressed` is empty). This rule prevents silent degradation on critical test paths.
 
-A case that used to pass and now does not is the most actionable signal in the whole exercise.
-It is specific, it names an input you can paste into a client, and it is exactly the class of
-damage the workflow at the top of this lesson does invisibly. Note also what you now know that a
-pass rate alone would have hidden: the delta is zero, so the summary statistic says nothing
-happened, and two named cases say otherwise.
+## Scope and limitations of static suites
 
-The bank transfer ticket, meanwhile, also broke and is not in this suite, so nothing here
-reports it. That is not a flaw in the tooling. It is the limit of the method, and it is the next
-section.
+Evaluation suites reflect observed failure modes. To maintain suite coverage:
+1. Capture production failures as new test cases before applying prompt fixes.
+2. Include negative test cases (such as out-of-scope inquiries or polite refusals) to ensure the prompt does not over-generalize to produce eager, ungrounded answers.
 
-It also justifies a rule that feels harsh and is not. A candidate that regressed anything is not
-better, even when its pass rate went up. Trading a case away is sometimes right, but it should
-be a decision somebody makes with the case in front of them rather than an outcome absorbed into
-an average. Building that refusal into the comparison is what forces the conversation.
+## Exercise specification
 
-## What an eval does not tell you
-
-An eval measures what you thought to check, and that is a real limit rather than a caveat.
-
-Your cases are the failures you have already seen, so the suite is blind to the failure modes
-nobody has hit yet. The bank transfer ticket above is the shape of it. A green run means you
-have not reintroduced anything on the list. It does not mean the prompt is good, and the
-distance between those two statements is exactly the part of your traffic you have never
-written a case for.
-
-Two habits keep it honest, and they attack different halves of the problem.
-
-Add a case when something goes wrong in production, before fixing it. Writing the case first
-means you watch it fail, which is the only proof that the case actually tests the thing, and it
-means the suite grows along the axis your users are finding rather than the axis you imagined.
-A suite built this way converges on your real failure distribution. One built in an afternoon
-converges on what you could think of in an afternoon.
-
-Keep a few cases whose correct outcome is a refusal or an out of scope label. Without them,
-every grader in the suite rewards producing an answer, and a prompt that answers everything
-confidently scores higher than one that knows when to stop. This is the same trap as a rubric
-that rewards escalating, and it is worth checking for deliberately, because the suite will not
-tell you it has it.
-
-None of this is expensive. The harness in this exercise is the same shape as the persona harness
-in module 9, which grades a whole conversation instead of one reply.
-
-## Your exercise
-
-Build the harness: a `Case`, four grader factories, `run_eval`, and `compare`.
-
-A grader takes the model's output and returns nothing when the check holds, or a short reason
-when it does not, so a failing case reports why rather than reporting false. `run_eval` walks the
-cases in order against a scripted client and collects per case results and a pass rate.
-`compare` takes two results over the same cases and reports which regressed, which improved, and
-whether the candidate is better.
-
-The tests check that a case fails when any one of its graders fails, that an empty suite scores
-zero rather than one, that comparing results over different case sets raises rather than
-guessing, and that a candidate with a higher pass rate and one regression is still not better.
-The part people get wrong is that last one.
+Implement an evaluation harness:
+1. `exact_match`, `contains_all`, `rejects`: create deterministic grading functions.
+2. `Case`: dataclass holding case name, input text, and a list of graders.
+3. `run_eval`: execute a prompt against all cases using `MockClient`, recording pass status and aggregate pass rates.
+4. `compare`: evaluate two test run summaries, calculating `pass_rate_delta`, identifying `regressed` and `improved` cases, and determining whether the candidate is strictly `better` (higher pass rate with zero regressions).

@@ -1,0 +1,40 @@
+---
+id: quant-microstructure.limit-order-book
+title: Limit order book
+summary: Build an in-memory limit order book with price-time priority, O(1) cancellations, and crossing market order execution.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: limit-order-book
+  timeboxMinutes: 35
+---
+
+A limit order book tracks all unexecuted limit orders submitted by market participants.
+
+To handle high message throughput, matching engines organize bids and asks in sorted price levels, where each price level maintains a FIFO queue of resting orders.
+
+## Representation of order book state
+
+An order book maintains two sides:
+
+* **Bids**: Buy orders sorted in descending order of price. The highest bid is the best bid.
+* **Asks**: Sell orders sorted in ascending order of price. The lowest ask is the best ask.
+
+When a new buy order arrives with a price equal to or higher than the best ask, the matching engine does not add it to the bid queue. Instead, it immediately crosses the book, matching against resting ask orders in price-time sequence until either the incoming buy quantity is satisfied or no acceptable asks remain. Any remaining unfilled quantity is then posted to the bid queue.
+
+## Fast order cancellation
+
+In live trading, quote updates and cancellations vastly outnumber executed trades. If cancelling an order requires scanning every queue in the order book, the search is $O(N)$ in the number of open orders.
+
+Production matching systems track active orders in a hash map from `order_id` to order reference. Cancelling an order updates its active status or sets its quantity to zero in $O(1)$ time. When the matching engine encounters a zero-quantity order at the head of a queue during a fill pass, it discards the dead node lazily.
+
+## Exercise: build an order book
+
+In this exercise, you will implement an in-memory `OrderBook` with FIFO price-time priority.
+
+Your implementation must support:
+
+1. Inserting limit orders with automatic crossing execution when prices cross.
+2. Executing market orders against resting book liquidity and reporting any unfilled quantity.
+3. Cancelling existing orders in $O(1)$ time.
+4. Computing the best bid, best ask, midpoint price, and quoted spread.

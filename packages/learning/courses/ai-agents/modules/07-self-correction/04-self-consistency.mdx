@@ -9,91 +9,57 @@ exercise:
   timeboxMinutes: 30
 ---
 
-The simplest way to get independence is not to be cleverer. It is to ask the same question more
-than once and see whether you get the same answer.
+Self-consistency establishes confidence by sampling multiple independent reasoning paths for the same prompt and determining the majority consensus.
 
-```
+```python
 answers = [model(question) for _ in range(5)]
-final   = most_common(answers)
+final = most_common(answers)
 ```
 
-That is the whole pattern. Its value comes from a property of sampling you built by hand in
-[sampling](lesson:ai-llm-fundamentals.sampling): at any temperature above zero, a run is a
-sample from a distribution rather than a lookup.
+The approach builds on the probabilistic nature of generation explored in [sampling](lesson:ai-llm-fundamentals.sampling). At temperatures above zero, each API call represents an independent sample from the model's output distribution.
 
-## Why the mode beats one draw
+## Evaluating consensus and variance
 
-When a question has a clear answer, the distribution is concentrated on it, and five draws
-mostly agree. When it does not, the draws scatter.
+When a problem possesses a clear, deterministic answer, token probability distributions concentrate tightly, producing high agreement across independent samples. When reasoning is ambiguous or context is insufficient, candidate generations diverge.
 
-So the mode of five samples is more often right than the first sample, and — the part that
-matters more — **the spread tells you which situation you were in**.
+The majority consensus across five samples achieves higher accuracy than an individual draw. Furthermore, the variance across samples provides a direct measure of uncertainty:
 
-One sample gives you an answer and no idea how confident to be. Five samples give you an answer
-and a distribution. Five identical answers and five different ones are very different states
-that look identical if you only ever draw once.
+A single sample returns an answer without an associated confidence metric. Sampling five times produces both a candidate answer and an empirical distribution. Five identical outputs indicate strong convergence, whereas five conflicting answers signal ambiguity.
 
-## Temperature is a parameter of the method
+## Temperature selection
 
-At temperature 0 every sample is the same and you have paid five times for one answer. Set it
-too high and the answers scatter for reasons that have nothing to do with difficulty, and the
-mode is noise.
+Sampling parameters directly determine verification utility:
 
-This is the one place where turning temperature *up* is the correct move, and it is worth
-understanding why: you are deliberately buying variance in order to measure it. Moderate is the
-right setting, and moderate has to be calibrated for the task rather than copied from a blog
-post.
+Setting temperature to zero produces identical outputs across all samples, incurring 5x cost without generating additional information. Setting temperature too high introduces excessive randomness unrelated to problem difficulty.
 
-## Normalise before you count
+Effective self-consistency uses moderate temperature settings (such as 0.5 to 0.7) to allow exploration across distinct reasoning paths while preserving focus on high-probability tokens.
 
-The mode is only meaningful over answers that can be equal, and naive string comparison makes
-almost nothing equal.
+## Normalization before counting
 
-`"42"`, `"42."`, `"The answer is 42"` and `" 42 "` are one answer four ways, and counted raw you
-get four groups of one and no majority. Normalise — trim, case-fold, strip punctuation, pull out
-the number when the answer is numeric — before counting.
+Computing the mode requires standardizing response representations before comparison.
 
-That normaliser is doing real work and it is also where the method quietly breaks. Too loose and
-genuinely different answers collapse into agreement you did not earn. This is the same tension
-as the detector in
-[injection through a tool result](lesson:ai-agent-security.injection-through-a-tool-result):
-you are choosing a threshold, and the honest version of the method reports what you chose.
+Outputs like `"42"`, `"42."`, `"The answer is 42"`, and `" 42 "` convey the same semantic conclusion but fail exact string equality. A normalization step must trim whitespace, normalize casing, strip punctuation, and extract numeric entities prior to voting.
 
-## What to do with disagreement
+Normalization logic must balance flexibility against over-collapsing distinct meanings, similar to threshold tuning in [injection through a tool result](lesson:ai-agent-security.injection-through-a-tool-result).
 
-Disagreement is the output people throw away, and it is the more useful half.
+## Interpreting sample distributions
 
-**High agreement** is a claim you can act on without further checking.
+The distribution of votes yields actionable operational signals:
 
-**A split** — three to two — is the case where the extra passes were worth buying, and it is a
-signal to escalate: verify the claim, ask a human, or say the answer is uncertain rather than
-picking the winner and reporting it flat.
+**High consensus (5-0 or 4-1).** High confidence indicates the response can proceed without additional verification.
 
-**Total scatter** — five different answers — usually means the question is underspecified or the
-information is not in the context. More sampling will not fix either.
+**Split distribution (3-2).** A divided vote indicates marginal confidence. The runtime can escalate the query, flag the response for human review, or run a targeted claim verification pass.
 
-Reporting a three-two split as a confident answer throws away the one thing the method
-produced, and it is the most common way this pattern gets misused.
+**High dispersion (all distinct answers).** Complete divergence indicates the query is underspecified, the context lacks necessary information, or the model capacity is insufficient for the reasoning depth required.
 
-## When it does not apply
+Suppressing a split vote and returning the slim majority as an authoritative answer discards the primary signal the method provides.
 
-Self-consistency wants an answer that can be compared. A number, a category, a yes or no, a
-short span of text.
+## Scope of applicability
 
-It does not work on long generated prose, because two summaries are never equal and a
-normaliser that makes them equal is measuring nothing. For prose, verify the claims inside it
-with the previous lesson instead.
+Self-consistency applies effectively to tasks with discrete, comparable outcomes: classification tags, numeric values, boolean assertions, and structured entity extractions.
 
-It also multiplies cost by n with no partial credit, so it belongs on the small number of
-decisions that matter — a classification that routes a ticket, a number that goes in a report —
-and not on everything.
+The method is unsuitable for long-form prose or open-ended generation, where distinct phrasing prevents direct majority voting. For long-form text, decomposing assertions into verifiable claims provides a more reliable approach.
 
-## What the exercise asks
+## Exercise instructions
 
-Sample n answers, normalise them, take the mode, and report the distribution alongside it.
-Then a confidence band from the spread, and a rule that escalates a split rather than reporting
-the winner as though it were unanimous.
-
-The test that matters is the one where the answers come back 3-2 and the assertion is that the
-result is marked uncertain. Getting the mode right is easy; refusing to sound confident about
-it is the part with value.
+In this exercise, you implement a sampling harness that collects multiple candidate outputs, applies normalization, determines the statistical mode, and computes a confidence score based on sample agreement. You will implement routing logic that flags split distributions for escalation rather than returning them as confident answers.

@@ -1,0 +1,45 @@
+---
+id: quant-validation.fractional-differentiation
+title: Fractional differentiation and memory
+summary: Make non-stationary price series stationary while preserving long-term predictive memory using fractional differencing.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: fractional-diff
+  timeboxMinutes: 35
+---
+
+To apply standard machine learning models to financial prices, practitioners routinely take integer first differences: $\Delta P_t = P_t - P_{t-1}$.
+
+While first differencing achieves stationarity, it completely erases long-term predictive memory: all information about price support, multi-year valuation regimes, and macro cycles is lost.
+
+## The memory versus stationarity dilemma
+
+* $d = 0$: Raw prices $P_t$ retain 100% of historical memory, but are non-stationary ($I(1)$), leading to spurious correlations.
+* $d = 1$: Standard returns $\Delta P_t$ are stationary ($I(0)$), but retain 0% of memory.
+
+**Fractional differentiation** allows choosing a continuous real number $d \in (0, 1)$ (such as $d = 0.40$) that achieves statistical stationarity while preserving maximum historical memory and correlation with original price levels.
+
+## Expanding $(1 - B)^d$ via binomial series
+
+Using the lag operator $B$ where $B^k X_t = X_{t-k}$:
+
+$$
+(1 - B)^d = \sum_{k=0}^\infty w_k B^k = 1 - d B + \frac{d(d-1)}{2!} B^2 - \frac{d(d-1)(d-2)}{3!} B^3 + \dots
+$$
+
+Weights are generated iteratively:
+
+$$
+w_0 = 1, \quad w_k = -w_{k-1} \cdot \frac{d - k + 1}{k}
+$$
+
+Because $|w_k| \to 0$ as $k \to \infty$, weights are truncated once $|w_k| < \text{threshold}$ (e.g. $10^{-4}$). The fractionally differentiated value at time $t$ is the dot product of historical prices with the truncated weight vector:
+
+$$
+\tilde{X}_t = \sum_{k=0}^{\min(t, K)} w_k X_{t-k}
+$$
+
+## Exercise: compute fractionally differentiated series
+
+In this exercise, you will implement `fractional_differentiation(series, d, threshold)` to compute the memory-preserving stationary transformation of a price series.

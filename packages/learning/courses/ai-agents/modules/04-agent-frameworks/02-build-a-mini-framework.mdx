@@ -9,34 +9,32 @@ exercise:
   timeboxMinutes: 40
 ---
 
-The smallest honest framework is three pieces. Something that turns a Python function into a
-tool schema, a registry that holds those tools and dispatches to them, and an object that owns
-a prompt, a client and the loop. You already have the loop, so this lesson is the scaffolding
-around it, and the scaffolding is where the interesting decisions are.
+A minimal framework comprises three components: a schema generator that converts Python functions into
+tool definitions, a registry that indexes tools and handles dispatch, and an `Agent` class that manages
+prompts, client connections, and the execution loop.
 
-## The tool defined three times
+## The problem with manual tool definitions
 
-Without a registry, adding one tool means writing it three times.
+Without a centralized registry, defining a tool requires synchronizing code in three places:
 
 ```python
 def get_weather(city: str, unit: str = "celsius") -> str:
     ...
 
-SCHEMAS = [                                    # again, by hand
+SCHEMAS = [                                    # manual definition
     {"type": "function", "function": {"name": "get_weather", ...}},
 ]
 
-def dispatch(name, arguments):                 # and again
+def dispatch(name, arguments):                 # manual dispatch
     if name == "get_weather":
         return get_weather(**arguments)
 ```
 
-Three definitions of one fact, and nothing checks that they agree. Rename the parameter and the
-function still works, the schema still validates, and the model still calls it, with an
-argument name that no longer exists. The failure arrives as a `TypeError` inside a tool call,
-several minutes into a run, in production.
+Maintaining separate definitions creates drift. Renaming a parameter in the function signature without
+updating the schema leaves the model sending obsolete argument names. The mismatch surfaces as an unhandled
+`TypeError` inside the runtime dispatch step.
 
-The fix is that the function is the definition and everything else is derived from it:
+Deriving the schema and dispatch handler directly from the function eliminates this synchronization problem:
 
 ```python
 registry = ToolRegistry()
@@ -53,16 +51,17 @@ def get_weather(city: str, unit: str = "celsius") -> str:
     return f"18 degrees {unit} in {city}"
 ```
 
-One definition. The schema and the dispatch entry both come out of the same object, so they
-cannot disagree, because there is nothing for them to disagree with.
+The function serves as the single source of truth.
 
 ## Deriving a schema from a signature
 
-`describe` is the part that does the work, and everything it needs is already in the function.
+The `describe` function extracts metadata directly from function attributes:
+- The tool name comes from `fn.__name__`.
+- The summary description comes from the first line of the docstring.
+- Parameter types come from type annotations.
+- Parameter descriptions come from the `Args:` section of the docstring.
 
-The name is `fn.__name__`. The description is the docstring's first line. The parameters come
-from the signature, and their descriptions come from the docstring's `Args:` section. That is
-the whole idea, and the shape it produces is exactly what the chat completions API takes:
+This produces the standard chat completions schema:
 
 ```python
 {"type": "function",
@@ -79,51 +78,38 @@ the whole idea, and the shape it produces is exactly what the chat completions A
      }}}
 ```
 
-`unit` is absent from `required` because it has a default. That is the only thing a default
-means here, and getting it wrong in either direction is a real bug: mark an optional parameter
-required and the model invents a value for it; mark a required one optional and the model omits
-it and your tool raises `TypeError`.
+The `unit` parameter is omitted from `required` because it provides a default value. Required parameter
+handling must remain precise: marking an optional parameter as required forces the model to invent values,
+while marking a required parameter as optional causes missing argument `TypeError`s during dispatch.
 
-Two mechanics are worth knowing before you write it. Annotations in these files are strings,
-because `from __future__ import annotations` makes them strings, so reading
-`fn.__annotations__` hands you `"str"` rather than `str`. Use `inspect.get_annotations(fn,
-eval_str=True)`, which resolves them in the function's own namespace. And a generic annotation
-is not in the type table: `list[str]` is not `list`, it is a `types.GenericAlias`. `get_origin`
-unwraps it back to `list`, which is what makes `list[str]` an `array` rather than an error.
+Two Python type mechanics require specific handling:
+1. Stringified annotations: When files include `from __future__ import annotations`, annotations evaluate as strings.
+Use `inspect.get_annotations(fn, eval_str=True)` to evaluate string expressions in the function's scope.
+2. Generic types: Generic annotations like `list[str]` are instances of `types.GenericAlias`.
+Use `typing.get_origin(annotation)` to unwrap the base type to `list`, mapping it to the JSON Schema `array` type.
 
-## Where derivation stops
+## Where automatic schema derivation stops
 
-The interesting part of `describe` is not what it converts. It is what it refuses.
+Automatic schema derivation must reject types that cannot be expressed unambiguously in JSON Schema.
+The implementation should raise `ToolSpecError` when encountering:
+- Missing docstring summaries.
+- Parameters lacking type annotations.
+- Annotations not mapped in the supported type table.
+- Variadic arguments (`*args` or `**kwargs`).
 
-Four things have no honest JSON Schema translation, and the exercise makes all four raise
-`ToolSpecError`: a missing docstring summary, an unannotated parameter, an annotation with no
-counterpart in the table, and `*args` or `**kwargs`.
+Union types like `str | None` cannot be represented as single primitives in basic schema tables, and variadic
+keywords like `**kwargs` provide no named fields for the model to target.
 
-The last two deserve the reasoning. `str | None` is a perfectly ordinary Python annotation and
-JSON Schema can express it, but not as one entry in a type table, and a library that quietly
-picks `string` has decided on your behalf that `None` is not worth mentioning to the model.
-Variadics are worse: JSON Schema describes an object with named properties, and `**kwargs` has
-no names to describe, so any schema you generate for it is a fiction.
+Failing fast at registration time ensures configuration errors surface during application startup with clear
+function names in the error message, rather than failing silently during production runs.
 
-Refusing is a feature, and the reason is when the error arrives. A registry that guesses
-produces a schema that looks fine, sends fine, and comes back with `"3"` where you wanted `3`,
-in a tool call, in a run, weeks later. A registry that raises fails on the line that registered
-the tool, while the program is starting, with the function name in the message. The same
-argument decides that `tool` raises at decoration time rather than at call time.
+The docstring parser in this exercise (`parse_docstring`) implements a lightweight line-based format.
+Production frameworks typically rely on dedicated AST or docstring parsing libraries to handle complex multi-line
+descriptions and diverse docstring formats.
 
-That is also the boundary of what hand written docstring parsing can do. `parse_docstring` in
-the exercise is deliberately naive: a name, an optional bracketed type, a colon, the rest, with
-further indentation meaning a continuation. It will misread a continuation line that contains a
-colon. Real libraries pull in a docstring parser rather than pretending this is easy, and
-knowing exactly where your version breaks is more useful than a version that breaks somewhere
-you have not looked.
+## Encapsulating execution in an agent class
 
-## What the object buys, and what it costs
-
-`Agent` holds a client, a registry, a system prompt and a step budget, and its `run` is the loop
-from module 3 with those four things read off `self` instead of passed in.
-
-What that buys is two agents in one program without a copied loop:
+The `Agent` class encapsulates the client, registry, system instructions, and step budget:
 
 ```python
 registry = ToolRegistry([get_weather, get_forecast])
@@ -132,63 +118,38 @@ terse = Agent(client, registry, system="Answer in one word.")
 chatty = Agent(client, registry, system="Explain your reasoning.")
 ```
 
-One registry, two prompts, one implementation of the loop. Before the object, the second agent
-is a copy of the first with one string changed, and the copy stops matching the original the
-first time somebody fixes a bug in one of them.
+Encapsulation allows multiple agents to share tool definitions while maintaining distinct prompts and budgets.
 
-What it costs is a layer of indirection over something you could already read. That is a real
-cost and it is worth being honest that the object is not free: a reader who wants to know what
-happens on a tool failure now has to find `ToolRegistry.invoke` instead of reading down one
-function. The trade is worth it here because the loop is used more than once. It would not be
-worth it for a single agent that runs once, and "we wrapped it in a class because that is what
-you do" is how a codebase acquires abstractions nobody needed.
-
-One rule makes the object safe, and it is the one people get wrong. Every piece of per run state
-stays local to `run`. The message list is a local variable, the tool records are a local list,
-the token total is a local integer, and none of them are ever attributed to `self`:
+To ensure thread safety and avoid cross-run state pollution, all execution state must remain local to `Agent.run`:
 
 ```python
 def run(self, question: str) -> AgentResult:
-    messages: list[dict] = []          # local. Never self._messages.
+    messages: list[dict] = []          # local to execution
     records: list[ToolCallRecord] = []
     ...
 ```
 
-Put `messages` on `self` and the second run starts with the first run's conversation still in
-it, which produces an agent that answers the previous question, gets more expensive every call,
-cannot be used from two threads, and leaves debris behind when a run raises. It is the most
-common bug in hand rolled agent objects, it passes any test that only runs the agent once, and
-the exercise tests for it directly by running one agent twice and checking what the second run
-actually sent.
+Storing `messages` or execution counters on `self` causes subsequent calls to inherit prior conversation
+histories, inflating token costs and causing race conditions in concurrent environments.
 
-## Returning more than a sentence
+## Returning structured results
 
-`run` returns an `AgentResult`, not a string. The answer is on it, and so are the step count,
-the tool call records and the token total.
+`Agent.run` returns an `AgentResult` object rather than a raw text string. This object captures the final answer,
+step count, detailed `ToolCallRecord` items, and total token usage.
 
-The reason is that a bare string throws away everything anyone debugging the run will ask for
-first. How many model calls did that take. What did it call. What did it cost. All of that
-existed inside the loop and was discarded on the way out, and reconstructing it afterwards is
-impossible because the run is over. Returning a result object is the cheapest observability
-there is, and it is the seam that lesson 3 widens into a proper trace.
+Returning structured execution records provides essential telemetry for debugging without requiring manual
+trace parsing.
 
 ## Your exercise
 
-Write `parse_docstring`, `describe`, `tool`, `ToolRegistry` and `Agent`. The file ramps in that
-order: the first two are pure string and signature work, the registry uses them, and the agent
-uses the registry.
+Implement `parse_docstring`, `describe`, `tool`, `ToolRegistry`, and `Agent`.
 
-The tests cover the derivation in detail, including that `list[str]` becomes an `array`, that
-defaults stay out of `required`, and that all four of the refusal cases raise `ToolSpecError`.
-On the registry, they check that `tool` returns the same function object rather than a wrapper,
-that registration order is preserved because it is the order schemas are sent in, and that
-`invoke` turns each of the five things the model can get wrong into a record with `failed=True`
-and a `result` beginning `error: `, rather than raising. That distinction is the point of
-`invoke`: a bad request from the model is data the model needs back so it can correct itself,
-while a `KeyError` from inside your own tool is a bug and must propagate.
+The test suite validates:
+1. Schema derivation for standard types and `list[str]` generic arrays.
+2. Excluding default-valued parameters from the `required` list.
+3. Raising `ToolSpecError` for unsupported types, variadic arguments, or missing docstrings.
+4. Preserving tool registration order in schema outputs.
+5. Capturing tool execution failures as structured records with `failed=True` and formatted error strings.
+6. Isolating execution state across repeated calls to the same `Agent` instance.
 
-Two catch people. The first is `Agent.run` keeping state on `self`, which the tests find by
-running one agent twice and asserting the second run opened with two messages. The second is
-subtler: `describe` has to read annotations with `eval_str=True`, because without it every
-annotation is the string `"str"`, which is not the key `str` in `JSON_TYPES`, and every single
-parameter fails the type lookup for a reason that has nothing to do with your logic.
+Remember to resolve annotations using `eval_str=True` in `describe` so type lookups match primitive type keys.

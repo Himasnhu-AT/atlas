@@ -1,7 +1,7 @@
 ---
 id: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
 title: Typed output and the retry loop
-summary: Structured output is a tool call carrying a schema, and the framework's retry story is nothing more exotic than feeding the validation error back to the model as a tool result.
+summary: Structured output uses tool schemas to validate responses, feeding validation errors directly back into the model context for automated correction.
 order: 4
 estimatedMinutes: 55
 exercise:
@@ -9,25 +9,17 @@ exercise:
   timeboxMinutes: 25
 ---
 
-You asked for a ticket and got back a paragraph that mostly contains one. Somewhere in your
-codebase there is now a regex looking for the word "severity", and it works until the model
-writes "priority" instead.
+Parsing unstructured text outputs with regular expressions is brittle and susceptible to minor phrasing shifts.
+While provider-specific constrained JSON modes ensure syntax compliance, they vary across vendors and do
+not validate semantic domain rules.
 
-Constrained JSON modes exist and you should use them where you have them. OpenAI ships
-`json_schema` response formats, Google has `responseSchema`, Anthropic has structured output,
-and all of them constrain decoding so the bytes you get back parse. What none of them is, is a
-contract. No two support the same corner of JSON Schema, so a swap of provider is a rewrite of
-the part you were relying on, and a document that parses is still a document that can be wrong.
-
-The shape that survives all of that is the one you already have. Structured output is a tool
-named `final_output` whose parameters are the schema of your type. The model calls it, you
-validate the arguments against a validator you own, and if they validate you have an object
-rather than a paragraph.
+A framework-agnostic approach models structured output as a synthetic tool call (e.g., `final_output`)
+parameterized by a JSON Schema. The model invokes the tool, the application validates the submitted arguments,
+and successful validation yields a strongly typed Python data structure.
 
 ## Generating the schema
 
-Pydantic AI takes a model class as `output_type` and derives the JSON Schema from it. You are
-going to do the same thing from a dataclass, and the mapping is small enough to write out.
+Dataclasses provide a clean source for generating structured JSON schemas:
 
 ```python
 @dataclass
@@ -37,7 +29,7 @@ class Ticket:
     tags: list[str] = field(default_factory=list)
 ```
 
-becomes
+Generates:
 
 ```json
 {
@@ -52,39 +44,29 @@ becomes
 }
 ```
 
-The descriptions are not decoration. They are read by the model on every call and they are
-the cheapest accuracy in the whole system: "severity" alone invites a guess, and "severity, 1
-is lowest and 5 is highest" gets you a number on the scale you meant. If you write a field
-into a schema and cannot think of a description for it, that is usually a sign the field name
-is doing too much work.
+Field metadata descriptions are included directly in the generated schema, guiding the model toward
+valid domain values. Fields with default values or factories are omitted from the `required` list,
+clarifying optional fields to the model.
 
-A field with a default is not required, which is how you tell the model what it may leave
-out. A required field the model cannot know is how you get a fabricated one.
+## Schema validation and error aggregation
 
-## Validating, and why you collect every problem
+Syntax validation alone does not ensure business rule compliance. A payload might parse as valid JSON
+while violating type expectations or value bounds.
 
-The strict modes from the opening remove one whole class of problem and none of this one. They
-say nothing about whether severity 9 is meaningful on a scale of 1 to 5, or whether the tags
-the model picked are tags your tracker has ever seen. You validate anyway.
-
-Validate everything before you raise. One problem per round trip means the model fixes the
-severity, sends it back, and learns about the missing title on the next call, and you have
-paid twice for one correction. Collecting them costs nothing:
+When validating inputs, aggregate all errors into a single diagnostic response rather than failing on the first error:
 
 ```
 title: missing
 severity: expected integer, got str
 ```
 
-Two rules in that message are worth naming. Type names on the left of "got" are the JSON ones
-the model was shown, because telling a model it sent a `str` where you wanted an `int` is
-telling it about Python, not about the contract it was given. And `bool` is a subclass of
-`int` in Python, so an int field that does not explicitly reject `True` will happily record a
-ticket at severity 1 when the model answers "true".
+Key considerations for validation messages:
+- Use JSON type terminology in error descriptions so the model understands the schema violation relative to its input definitions.
+- Distinguish booleans from integers: in Python, `bool` is a subclass of `int`, so integer validators must explicitly reject boolean values to prevent `"true"` from passing as `1`.
 
-## The retry loop is one append
+## Self-correction through tool error feedback
 
-Here is the whole mechanism that frameworks describe as automatic retries.
+When validation fails, the runtime feeds the aggregated validation error back to the model as the result of the tool invocation:
 
 ```python
 try:
@@ -100,27 +82,15 @@ except ValidationError as error:
 return TypedResult(output, retries, messages)
 ```
 
-The validation error goes back as the result of the call that produced it. From the model's
-side nothing unusual happened: it called a tool, the tool reported a problem, and it gets
-another turn with the whole conversation still in front of it, including its own bad payload.
-Models are good at this. A field named in an error message is usually fixed on the next
-attempt.
+The model receives its previous output alongside the specific validation errors in the conversation history,
+enabling it to rectify missing or malformed fields on the subsequent turn.
 
-Pydantic AI exposes the same idea to your own tools as an exception called `ModelRetry`: raise
-it inside a tool and the message becomes the tool result the model reads. Same mechanism,
-different entry point.
+Enforce a maximum retry threshold. Consecutive validation failures typically indicate an ambiguous prompt,
+unrealistic schema constraints, or a model capability mismatch. Capping retries prevents costly runaway loops.
 
-The bound is what turns this from a feature into a bill. Count retries, not attempts, and
-raise when the budget is gone with the last error attached. Three failures in a row is not
-bad luck: either the schema asks for something the model cannot know, the descriptions are
-ambiguous, or the type is wrong for the job. An agent that retries forever turns a prompt
-problem into an outage with a large invoice.
+## Tool dependency injection via run context
 
-## Dependencies, and why tools take a context
-
-The last piece is how a tool reaches a database without a global. Pydantic AI passes a
-`RunContext` as the tool's first argument, carrying whatever the caller handed to `run` as
-`deps`, plus run state such as the retry count.
+To avoid global state in tools, frameworks like Pydantic AI supply a `RunContext` as the tool's initial argument:
 
 ```python
 def lookup_customer(ctx: RunContext, customer_id: str) -> str:
@@ -128,22 +98,18 @@ def lookup_customer(ctx: RunContext, customer_id: str) -> str:
     return ctx.deps.db.plan_for(customer_id)
 ```
 
-Two things fall out of that. The tool is testable with a dictionary standing in for the
-database, with no patching and no import time connection. And the context parameter must be
-kept out of the schema you send: it is the framework's argument, not the model's, and
-advertising it invites the model to fill in your database handle with a string.
+Dependency injection improves testability by allowing mock clients during testing without module patching.
+The execution runtime strips context parameters from the exported tool schema to prevent the model from
+attempting to populate internal system arguments.
 
-## Your exercise
+## Exercise overview
 
-Four functions: `json_schema_for`, `validate_into`, `build_tool_schema`, and `run_typed`.
+In this exercise, you will implement:
+- `json_schema_for`: Generate JSON schema mappings from Python dataclasses.
+- `validate_into`: Validate raw dictionaries against target dataclass definitions.
+- `build_tool_schema`: Construct tool specifications while excluding execution context parameters.
+- `run_typed`: Execute the model loop with schema validation and error feedback retries.
 
-The tests pin the schema exactly, including the order of `required`, so read the mapping in
-the docstring before writing it. They also check that a rejected payload's error text appears
-in the next request rather than only in a log, which is the difference between a retry loop
-and a retry counter.
-
-One environment detail will cost you an hour if you skip it. Both files start with
-`from __future__ import annotations`, so every annotation is a string at runtime and
-`__annotations__` gives you `'int'` rather than `int`. Use `typing.get_type_hints`, which
-resolves them, and remember that `X | None` reports its origin as `types.UnionType` on some
-versions and `typing.Union` on others.
+Implementation notes:
+- Use `typing.get_type_hints` to resolve type annotations under `from __future__ import annotations`.
+- Account for union representations across Python versions (`types.UnionType` versus `typing.Union`).

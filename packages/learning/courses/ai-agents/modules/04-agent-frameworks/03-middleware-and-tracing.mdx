@@ -9,51 +9,38 @@ exercise:
   timeboxMinutes: 35
 ---
 
-A run goes wrong on step four of six. You cannot reproduce it: the model samples, the tool
-results have moved on, and the input that triggered it is one of forty thousand. All you will
-ever have is what you wrote down while it was happening.
+When an agent run fails during an intermediate step, reproducing the exact state is difficult: models
+sample non-deterministically, tool responses change, and input workloads vary. Tracing captures execution
+state at every step during the live run.
 
-Tracing is the act of writing that down. This lesson is the two mechanisms underneath it: five
-places in the loop where something else can listen, and a listener that turns those calls into
-one record per step.
+This lesson implements tracing using two concepts: five lifecycle hooks in the execution loop, and a listener
+that converts hook events into structured step records.
 
-## Five places to stand
+## Five lifecycle hook points
 
-The loop only touches the outside world in a few places, and every one of them is a place where
-it stops being in control. It is about to hand work to a model, or about to hand work to a
-tool, or something has thrown. For a loop shaped like this one that gives five points and no
-sixth:
+The execution loop interacts with external systems at specific transition boundaries. For a standard batching loop,
+these transitions yield five hook points:
 
 ```python
 before_model(index, messages)              # about to call the model
-after_model(index, response)               # it came back
+after_model(index, response)               # model call succeeded
 before_tool(index, name, arguments)        # about to run a tool
-after_tool(index, name, result, failed)    # it returned
-on_error(index, error)                     # the run is ending badly
+after_tool(index, name, result, failed)    # tool call completed
+on_error(index, error)                     # execution failed
 ```
 
-Five is not a stylistic choice, it is what the loop's shape allows. Every counter, logger,
-cache, rate limiter, spend cap and human approval gate anyone has asked for hangs off one of
-those five, because those five are the only moments where anything leaves or enters the loop.
+Logging, metrics collection, caching, rate limiting, and approval workflows attach to these five points because
+they represent all boundaries where data enters or leaves the loop.
 
-The qualification about the loop's shape is worth taking seriously, because the rule predicts
-its own exception. A runtime that streams tokens back as they are generated has a sixth
-boundary, since a token arriving is one more moment work crosses into the loop, and such a
-runtime does add a hook there. That is not a hole in the rule, it is the rule working: five
-falls out of a loop that waits for a whole response, and if you change the boundary you change
-the number of places to stand. Counting the boundaries is the method. Five is just this loop's
-answer.
+Two operational behaviors govern these hooks:
+1. `after_model` does not fire when the API call raises an exception; `on_error` fires instead, and the exception
+propagates up the stack. Hooks observe state changes without swallowing execution errors.
+2. `after_tool` includes the `failed` boolean flag, enabling listeners to record tool errors without inspecting
+the text payload.
 
-Two details in that list are load bearing. `after_model` does not fire when the model call
-raised, because there is no response to hand it, and a hook that receives `None` for a response
-has to check every time. `on_error` fires instead, and then the exception continues to
-propagate: a hook observes, it does not handle. And `after_tool` carries `failed`, so a listener
-can distinguish a tool that returned an error string from one that worked, without parsing the
-string.
+## Composition via hook lists
 
-## A list, not a subclass
-
-The obvious way to add logging to an agent is to subclass it. It works exactly once.
+Managing cross-cutting concerns through subclassing leads to brittle inheritance hierarchies:
 
 ```python
 class LoggingAgent(TracedAgent):
@@ -62,27 +49,19 @@ class LoggingAgent(TracedAgent):
         return super().run(question)
 ```
 
-Now add token counting. You write `CountingAgent`, and it also overrides `run`. To have both
-you need `class Both(LoggingAgent, CountingAgent)`, which works until each one needs to see
-inside the loop rather than around it, at which point neither can, because `run` is one method
-and both want to be in the middle of it. Add a third feature and you are choosing a method
-resolution order. Add a fourth from a library you do not control and you are stuck.
+Combining logging, token limits, and redacting requires multiple inheritance, which complicates method resolution
+and fails when plugins need visibility inside the loop.
 
-The list of hooks has none of that shape:
+Using a list of hook instances avoids inheritance coupling:
 
 ```python
-# Tracer is the one you write. The other two stand in for hooks you would add later.
 agent = TracedAgent(client, toolbox, hooks=[Tracer(), SpendCap(limit=5000), Redactor()])
 ```
 
-Three features, no inheritance, no ordering puzzle beyond the order of the list, and each one
-overrides only the methods it cares about because `Hook`'s defaults do nothing. Adding a fourth
-is appending to a list. That is why every framework's middleware, callbacks or hooks are a
-sequence rather than a class hierarchy, whatever they call them.
+Hooks execute sequentially in list order. Ordering is significant: a redactor must precede a logger to ensure
+sensitive data is masked before logging.
 
-Two consequences fall out, and the second is a real cost. Hooks fire in list order, which is
-worth fixing rather than leaving to chance, because a redactor that runs after a logger has
-redacted nothing. And an exception from a hook is swallowed:
+Individual hook exceptions should be handled defensively to prevent telemetry failures from breaking core execution:
 
 ```python
 for hook in self.hooks:
@@ -92,23 +71,13 @@ for hook in self.hooks:
         pass
 ```
 
-A bug in a counter must not take down a run that is otherwise fine, and a hook is by definition
-the part of the system nobody tested. The price is that a broken hook goes quiet instead of
-loud, so your trace silently stops being written and nothing tells you. Which means anything
-you would be genuinely upset to lose belongs in the run, not in a hook. Swallowing is right for
-observability and wrong for a spend cap, and if you need the cap to be enforced rather than
-observed, it goes in the loop.
+Isolate each hook invocation in its own `try/except` block so a failing listener does not prevent subsequent
+hooks from running. Critical business invariants (like hard financial caps) belong in the core loop rather than
+in optional hooks.
 
-## One record per step
+## Capturing step-level records
 
-The unit of the trace is the model call. Not the run, and not the tool call.
-
-A run level record cannot answer "what happened on step four", which is the only question
-anybody actually asks. A tool level record cannot tell you about a step that made no tool call,
-which includes the step where the model gave up and answered. One record per step, holding what
-that step sent, what came back, what it called, what it cost and how long it took, answers
-both. The list of those records for a single run is that run's trajectory, and it is the object
-module 6 grades an agent on when the answer alone is not enough.
+The fundamental unit of agent tracing is the model step, rather than the complete run or an individual tool call:
 
 ```python
 StepRecord(
@@ -123,99 +92,63 @@ StepRecord(
 )
 ```
 
-`response_text` is `None` rather than `""` because the model asked for tools instead of
-speaking, and that is a different event from answering with an empty string. `tool_calls` is a
-list rather than a set, because the same tool called twice in one step is the signal that
-something is looping, and a set throws exactly that signal away.
+The fields capture step details:
+- `response_text` remains `None` when the model emits tool calls rather than text content.
+- `tool_calls` preserves the ordered list of requested tools (a list rather than a set, preserving call repetitions).
+- `messages` snapshots the active conversation list. Deep copies prevent later turns from mutating past records.
 
-The trap in building this is the message list. The agent keeps appending to the list it handed
-you, so a record that stores the reference rather than a copy will, by the end of the run,
-claim that step one sent the entire conversation. Every record ends up identical and the trace
-becomes useless in a way that looks fine until you read it. Copy the list and copy each dict
-inside it. This is the same reason `MockClient` snapshots each request rather than storing it.
+To support deterministic testing, pass an explicit clock function (defaulting to `time.monotonic`). Measure timing
+by sampling the clock exactly twice per step (at start and end).
 
-Timing has a matching trap, which is why the tracer takes its clock as a parameter defaulting
-to `time.monotonic`. A trace that reads the wall clock directly is a trace no test can assert
-on, and timing regressions are precisely the thing you want a test for. Read the clock exactly
-twice per step, once when the step opens and once when it closes, and the exercise hands you a
-clock with a fixed number of readings so a third read shows up as a failure rather than as a
-number nobody checks.
+Handle `on_error` carefully:
+- If a model call raises an exception, create a new `StepRecord` capturing the failure.
+- If the run fails after a step has already closed (such as budget exhaustion), update the existing final record
+rather than appending a duplicate entry.
 
-`on_error` has the case worth thinking about. If the model call raised, the step has no record
-yet, so you create one and keep it, because a step whose call failed is the one somebody will
-actually read. If the step already closed normally and the run failed afterwards, which is what
-a spent budget looks like, the record exists and you mark it. Appending a second record for one
-model call makes every count in the summary wrong, and a trace whose step count disagrees with
-reality is worse than no trace.
+## Redaction while preserving telemetry invariants
 
-## Redaction, and why the numbers survive
+Production traces often contain user data that must be sanitized before persistence.
 
-The reason traces get turned off in production is that they contain what the user typed. The
-answer is not to turn them off, it is to keep the parts that do not identify anybody.
-
-`redact` blanks named fields to a constant and leaves the rest of the record standing:
+The `redact` function replaces specified text fields with a constant placeholder while preserving structural metadata:
 
 ```python
 kept = redact(record, ["content", "response_text"])
 ```
 
-That empties the text of every message and the assistant's reply. It does not touch the roles,
-the `tool_call_id`s, the index, the finish reason, the tool names, the token counts or the
-elapsed time. So the sequence is still readable as a sequence, and every number in the record
-still means what it meant.
+Redacting masks message strings while retaining role sequences, call IDs, finish reasons, tool names, token counts,
+and elapsed timings.
 
-That gives the design a property worth stating as an invariant, because it is what makes
-redaction a real guarantee rather than a nicety:
+This design guarantees a structural invariant:
 
 ```python
-summarise(redact(record, fields)) == summarise(record)     # for any fields
+summarise(redact(record, fields)) == summarise(record)
 ```
 
-It holds for a reason rather than by luck. Redaction only ever blanks text, and `summarise`
-only ever reads counts, indexes and tool names, so the two touch disjoint parts of the record
-and cannot interfere. The exercise tests exactly this equality.
+Because redaction targets text fields and `summarise` evaluates numeric metrics and tool identifiers, metric
+calculations remain consistent on sanitized traces.
 
-A redaction scheme without that property is one you stop using the first time somebody
-questions a cost report, and then you are back to tracing nothing. With it, the records you
-keep after stripping user data are still the records your accounting runs on, which is what
-lets the ledger in the next section consume a redacted trace and get the right answer.
+Ensure `redact` performs a deep copy of message dictionaries to avoid mutating live conversation memory.
 
-`redact` must copy rather than blank in place, and deeply enough to be a copy: a new record, a
-new message list, a new dict per message. Blanking in place would redact the live conversation
-the agent is still running, which turns an observability feature into a data loss bug.
+## Deriving usage metrics from step records
 
-## The ledger falls out of the same records
+`summarise` processes accumulated step records to calculate total steps, failed steps, token totals, overall
+duration, and tool usage frequencies.
 
-Once every step carries a token count and a tool name, the spend question is arithmetic.
-`summarise` walks the records and returns the step count, the failed step count, the token
-totals, the elapsed time, and a count per tool.
+Capturing structured step records simplifies reporting into list aggregations, decoupling data collection from
+specific metric queries.
 
-Nothing in it is about money, and yet tokens per run plus calls per tool is the whole input to
-a cost report. That is the argument for spending effort on the record shape once rather than
-adding a counter every time somebody asks a new question. A new question about a well shaped
-record is a function over a list; a new question about a badly shaped one is a change to the
-agent and a wait for new data.
-
-That is as far as this module takes it.
-[Observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost) builds the query layer on top
-of records of exactly this shape: pricing per model, failure classification, cost per completed
-task, and what to do when nothing completed.
+[Observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost) builds on this record format
+to implement model pricing models, error taxonomy classification, and task-level cost analysis.
 
 ## Your exercise
 
-Write `summarise`, `redact`, `Tracer` and `TracedAgent`. `Hook`, `Toolbox` and `StepRecord` are
-given, so the work is the tracer that turns hook calls into records and the agent that emits
-them in the right order.
+Implement `summarise`, `redact`, `Tracer`, and `TracedAgent`. The base `Hook`, `Toolbox`, and `StepRecord` definitions
+are provided.
 
-The tests pin the order of the five points exactly, using a hook that records every call it
-receives, and they check that hooks fire in list order. They check that a record holds a
-snapshot by asserting step one's record has one message where the live list would show three.
-They check the clock is read exactly four times across two steps. And they check the two
-`on_error` cases separately: a model call that raises must reach `on_error` and still
-propagate, and a spent budget must mark the last existing record rather than adding one, which
-the test verifies through `summarise` reporting two steps and one failure.
-
-The one people get wrong is `BrokenHook`. A hook that raises must not stop the run and must not
-stop the hooks after it in the list, which means the `try` goes around each hook individually
-rather than around the loop over them. Wrap the whole loop and the first broken hook silences
-every hook behind it, including the tracer.
+The test suite validates:
+1. Exact execution order of the five hook points.
+2. Hook execution following list order.
+3. Message list snapshotting to prevent in-place mutation of history in past records.
+4. Correct step record attribution during model exceptions and budget exhaustion.
+5. Invariant equivalence between `summarise(record)` and `summarise(redact(record, fields))`.
+6. Isolation of failing hooks to ensure remaining hooks execute.

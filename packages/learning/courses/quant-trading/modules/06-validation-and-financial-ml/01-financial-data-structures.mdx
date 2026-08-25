@@ -1,0 +1,33 @@
+---
+id: quant-validation.financial-data-structures
+title: Financial data structures and dollar bars
+summary: Replace arbitrary time bars with information-driven dollar bars to restore statistical normality in financial return distributions.
+order: 1
+estimatedMinutes: 20
+exercise:
+  id: dollar-bars
+  timeboxMinutes: 25
+---
+
+Standard financial analysis aggregates transactions into fixed time bars (e.g. 1-minute, 5-minute, or 1-day OHLCV candles).
+
+Time bars present structural flaws:
+1. **Uneven information arrival**: Markets process vast transaction volumes during market open and macroeconomic announcements, but trade thinly during midday lulls. Fixed time bars sample noise during quiet periods and over-compress information during turbulent bursts.
+2. **Fat tails and heteroskedasticity**: Return distributions computed from time bars exhibit severe kurtosis (fat tails) and time-varying variance, violating standard regression assumptions.
+
+## Information-driven dollar bars
+
+**Dollar bars** sample market observations whenever a fixed aggregate dollar volume has transacted:
+
+$$
+\sum_{k=1}^M P_k \cdot V_k \ge \Theta_{\text{dollar}}
+$$
+
+Sampling by dollar value provides three properties:
+* The number of bars generated scales dynamically with market activity.
+* Return series generated from dollar bars exhibit properties closer to normal (Gaussian) distributions with stable variance.
+* The sampling rate automatically adjusts for long-term price drift and stock splits.
+
+## Exercise: build a dollar bar aggregator
+
+In this exercise, you will implement `generate_dollar_bars(ticks, dollar_threshold)` to aggregate raw tick streams into OHLCV dollar bars.

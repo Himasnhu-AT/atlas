@@ -6,40 +6,23 @@ order: 1
 estimatedMinutes: 12
 ---
 
-Two things are true of this course and they pull against each other. Everything you write
-runs. Nothing you write calls a real model. The rest of this lesson is what that combination
-buys you, what it costs you, and how a lesson works so that the next one is not a surprise.
+Two things are true of this course, and they balance against each other: everything you write runs locally, and nothing you write calls a remote model. This lesson covers what that combination provides, what it leaves out, and how the exercises operate.
 
 ## Where this ends up
 
-The last two modules are projects, and they are the destination everything before them is
-pointing at.
+The last two modules are capstone projects that apply every mechanism covered earlier in the course.
 
-The first is a support agent that knows when to escalate. It answers a customer from a
-knowledge base, marks every factual sentence with the article it came from, refuses when the
-knowledge base does not cover the question, and hands the conversation to a person with a
-summary that person can act on without reading the transcript. It is graded by a harness that
-plays customers at it and fails the agent for escalating on the first vague question as well
-as for grinding on past the point where a human was clearly needed.
+The first is a support agent that handles automated escalation. It answers customer queries from a knowledge base, annotates factual claims with source document identifiers, refuses queries outside the knowledge base, and hands unresolved conversations to human operators with an actionable summary. A test harness grades the agent against simulated customer dialogues, failing it for premature handoffs or for continuing past the point where human intervention was required.
 
-The second is a research briefing pipeline. It fans a question out to workers that each go and
-find something, writes a single brief from what comes back, and then makes a separate pass over
-its own draft checking that every claim it cited is actually supported by the text it cited.
-Anything that is not supported gets pulled out of the brief rather than shipped with a footnote
-nobody checked.
+The second project is a research briefing pipeline. It fans questions out to worker tasks, synthesizes a unified brief from the returned findings, and runs a validation pass to ensure cited documents support every claim. Unsupported assertions are removed before generating the final report.
 
-Everything between here and there is the equipment those two need. A model call and what it
-costs you. Prompts, and the difference between an instruction and an example. Tool calling and
-the loop that drives it. Retrieval. What an agent framework does for you and what it hides.
-Graph runtimes, handoffs between agents, and output you can rely on having a shape.
+The preceding modules build the required components: model completions, token budgeting, prompt construction, tool execution loops, retrieval pipelines, agent runtimes, multi-agent handoffs, and schema validation.
 
 ## The shape of a lesson
 
-A lesson is prose followed by an exercise. The prose gives you the idea and the vocabulary
-for it. The exercise makes you build the thing, and a test decides whether you did.
+Each lesson pairs technical explanation with an implementation exercise. The text defines concepts and data structures; the exercise requires writing working code against automated unit tests.
 
-The desktop app puts three panes in front of you: the lesson, an editor, and a terminal. This
-is what the editor holds when an exercise opens, taken from the next lesson's:
+The desktop workspace displays three panes: the lesson text, a code editor, and a terminal. When an exercise opens, the editor presents a stub definition:
 
 ```python
 def count_words(content: str | None) -> int:
@@ -57,8 +40,7 @@ def count_words(content: str | None) -> int:
     raise NotImplementedError
 ```
 
-A signature, a docstring, and no body. The first thing to do is run the tests before writing a
-line, because seeing them all fail tells you the toolchain works:
+Running the test suite before writing implementation code confirms that the test runner executes properly:
 
 ```
 $ python3 test.py
@@ -70,74 +52,33 @@ Ran 16 tests in 0.001s
 FAILED (errors=16)
 ```
 
-Then you write one function, run again, and watch its tests turn to `ok` while the rest stay
-red. The exercise is done when the last one flips.
+Implement the functions one at a time, running the test suite after each modification until all assertions pass.
 
-That docstring is the specification, and it is written so that it is sufficient. If you read it
-and nothing else you should be able to write the function, which is why it says what None does
-rather than leaving you to find out from a failure. Where it is not sufficient, the tests are:
-they are the same specification written more precisely than prose can manage. Opening `test.py`
-when a failure confuses you is the normal thing to do and not cheating. The only file in the
-exercise you are asked to leave shut is `reference.py`, and only until you have attempted the
-thing yourself.
+The docstring serves as the functional specification. It defines edge cases, such as `None` handling, directly in the parameter description. When docstring prose leaves ambiguity, inspect `test.py` for exact expected behavior. Keep `reference.py` closed until you have completed your own attempt.
 
-Some lessons, this one included, have no exercise. Those are the ones where the idea is worth
-more than any code you could write about it in twenty minutes.
+Conceptual lessons without exercises cover foundational architecture where code implementation is not required.
 
-## The scaffold, and what reading a solution costs
+## The scaffold and reference solutions
 
-The first time you open an exercise, the app copies `scaffold.py` to `solution.py`. That copy
-is your file. The scaffold has the signatures and the docstrings and nothing else: every body
-raises `NotImplementedError`, so the first run is red and it is supposed to be.
+When opening an exercise for the first time, the application copies `scaffold.py` to `solution.py`. The scaffold contains type signatures, docstrings, and `NotImplementedError` bodies. Your implementation belongs in `solution.py`.
 
-The reference solution is complete, commented, and deliberately out of reach. Asking for it
-takes a click, a confirmation, and it is recorded against the exercise. That friction is on
-purpose and it is worth being straight about why.
+The reference solution is complete and accessible behind a confirmation prompt. Comparing your working implementation against the reference solution highlights differences in architecture and style. You evaluate alternative designs with the full context of the problem fresh in mind.
 
-Reading a working solution after a real attempt is one of the better things you can do. You
-have a version of the problem in your head, you know exactly where it got awkward, and the
-reference either confirms your shape or shows you a better one. The comparison is what teaches:
-you are not reading code, you are reading the difference between two designs, one of which you
-built and understand the reasons behind.
+Viewing the reference before attempting the exercise bypasses the problem-solving process. Recognizing a correct implementation is easier than generating one from scratch; passive reading gives an illusion of mastery that fails during independent implementation.
 
-Reading it instead of attempting teaches you close to nothing, and worse, it feels like
-learning. The mechanism behind that feeling is worth knowing, because it will mislead you
-again. Recognising a correct solution is a much easier task than producing one, and reading
-exercises only recognition. Everything looks obvious, because it is obvious once somebody has
-told you what shape to write. The confidence you come away with is calibrated to the easy task
-and you then attempt the hard one. Every programmer has read a solution, nodded, closed the
-tab, and been unable to reproduce it an hour later.
+When you lack necessary context or an explanation is unclear, continued effort without guidance is counterproductive. The exercise timebox helps identify when to consult reference material.
 
-The friction has a cost too, and it is not zero. Sometimes you are stuck because the lesson
-genuinely failed to explain something, and no amount of sitting with it will produce the idea,
-because the idea is not in the room. Grinding through that teaches nothing either. Telling the
-two situations apart from the inside is hard, which is what the timebox is for.
+## Twenty-minute timeboxes
 
-## Twenty minutes
+Each exercise suggests a time limit, typically twenty minutes. The timer serves as an advisory boundary rather than an enforcement mechanism.
 
-Each exercise carries a timebox, usually twenty minutes, shown in its header. Nothing expires
-and nothing is submitted. The clock is a suggestion about when struggling stops paying.
+During active problem solving, attempting candidate implementations clarifies the problem constraints. Arriving at the reference solution with specific unresolved questions makes design decisions clear and memorable.
 
-Up to about twenty minutes, being stuck is the work, and it is worth being specific about why.
-While you are stuck you are producing candidate answers and rejecting them, and each rejection
-is you working out what the problem actually requires. That is what makes the reference legible
-later: you arrive at it holding a question, and the answer lands as a resolution rather than as
-a fact you read. Skip the twenty minutes and you have no question, so there is nothing for the
-answer to attach to.
+If you have spent several minutes rereading lines without forming new hypotheses, check the reference solution. If you are actively making progress, continue working past the timer.
 
-The useful test is not how long it has been but whether you are still generating candidates. If
-you have read the same three lines four times and produced no new idea about them, the next
-hour will produce no new idea either, and the reference is the cheaper move. The timebox is
-there so you have a number to check that feeling against instead of a mood.
+## Mock models in testing
 
-If you are stuck but still moving, ignore the timer.
-
-## Nothing here calls a real model
-
-Every exercise runs against `mockllm`, a scripted client that ships with the course. You give
-it a list of responses and it hands them out one per call. It returns the same objects a real
-SDK returns, with the same `choices`, the same `finish_reason`, the same tool call structure,
-so the line that changes between here and production is the one that builds the client:
+All exercises execute against `mockllm`, a deterministic client included with the course. The mock client accepts pre-scripted responses and returns standard completion objects matching production SDK structures:
 
 ```python
 client = MockClient([text("Six on weekdays.")])   # in this course
@@ -147,29 +88,17 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])   # in production
 response = client.chat.completions.create(model=MODEL, messages=messages)
 ```
 
-That is the point of building the mock to mirror a real API rather than inventing a simpler
-one. A simpler client would be easier to learn and would teach you a shape that does not exist
-anywhere.
+Mirroring standard API response schemas ensures that production code uses identical data access patterns.
 
-Four things follow. The tests run in about a second. They give the same answer every time, so
-a red test has exactly one possible cause, which is your code. Against a live model it has two,
-your bug or the model being unhelpful today, and you cannot tell them apart by looking, so
-every debugging session opens with an unanswerable question. You also need no API key, so
-nothing stands between you and lesson two, and it all works with the network off.
+This setup offers three practical benefits:
+1. Fast test execution (typically under one second).
+2. Deterministic outputs, ensuring test failures originate entirely in your code rather than stochastic model variance or API outages.
+3. Offline execution without external API keys or network dependencies.
 
-The cost is real and it is not small. You will never watch a live model do something you did
-not expect: quietly ignore the third instruction in your system prompt, invent a plausible
-tool name, get worse when you make the prompt longer. Developing a feel for that is a genuine
-part of this craft and you will have to get it somewhere else, by pointing your own code at a
-real provider and paying attention. What this course can teach without a network is the
-machinery: the loop, the state, the failure handling, the checks. That is most of the code and
-almost all of the bugs.
+Working without a live model means you will not observe live model quirks, such as non-deterministic instruction drift or hallucinated tool parameters. You will practice the surrounding engineering: conversation state management, tool dispatch loops, schema validation, and error recovery.
 
-## What you need
+## Environment requirements
 
-Python 3.10 or newer, and nothing else.
+The course requires Python 3.10 or newer.
 
-No virtual environment, no `pip install`, no Docker, no model weights on disk. `mockllm` is a
-single standard library file the app copies into your workspace next to each exercise, and the
-tests use `unittest`, which comes with Python. The next lesson makes you prove all of that
-actually works on your machine.
+No external packages, virtual environments, or Docker containers are required. `mockllm` uses only the Python standard library, and tests run via `unittest`. The next lesson verifies your local environment.

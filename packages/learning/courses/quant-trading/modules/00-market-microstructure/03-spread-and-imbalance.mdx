@@ -1,0 +1,43 @@
+---
+id: quant-microstructure.spread-and-imbalance
+title: Spread and order book imbalance
+summary: Measure market pressure using weighted multi-level order book imbalance and calculate effective spreads.
+order: 3
+estimatedMinutes: 20
+exercise:
+  id: order-imbalance
+  timeboxMinutes: 20
+---
+
+The quoted spread measures the cost of an immediate round-trip trade at the top of the book. In live markets, executed trades rarely occur solely at the static top of the book.
+
+## Quoted spread versus effective spread
+
+The **effective spread** measures the actual round-trip cost paid by a market participant relative to the prevailing midpoint at the moment of execution:
+
+```
+Effective Spread = 2 * |Trade Price - Midpoint|
+```
+
+When a large market order walks through multiple price levels, the effective spread exceeds the quoted spread. When orders execute inside the spread on midpoint crossing networks or retail internalizers, the effective spread is lower than the quoted spread, indicating price improvement.
+
+## Order book imbalance
+
+When buying volume at resting bid levels substantially exceeds selling volume at resting ask levels, market orders are more likely to exhaust the ask side, leading to an upward price adjustment.
+
+**Order Book Imbalance (OBI)** quantifies this buying or selling pressure as a normalized metric between -1.0 (pure selling pressure) and +1.0 (pure buying pressure).
+
+For depth $K$, levels closer to the inside market exert greater immediate price pressure than levels further away. Using linear decay weights $w_i = \frac{K - i}{K}$ for level index $i \in [0, K-1]$:
+
+$$
+\text{OBI}_K = \frac{\sum_{i=0}^{K-1} w_i (V_{\text{bid}, i} - V_{\text{ask}, i})}{\sum_{i=0}^{K-1} w_i (V_{\text{bid}, i} + V_{\text{ask}, i})}
+$$
+
+When total volume is zero or no levels exist, the imbalance defaults to 0.0.
+
+## Exercise: calculate imbalance and effective spread
+
+In this exercise, you will implement functions to:
+
+1. Calculate the effective spread from a trade execution price and prevailing midpoint.
+2. Compute the multi-level depth-weighted order book imbalance from lists of resting bid and ask price levels.

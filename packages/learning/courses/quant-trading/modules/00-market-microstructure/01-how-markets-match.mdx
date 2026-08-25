@@ -1,0 +1,51 @@
+---
+id: quant-microstructure.how-markets-match
+title: How markets match
+summary: Markets are not continuous curves. They are discrete queues of limit orders matched by deterministic exchange rules.
+order: 1
+estimatedMinutes: 20
+---
+
+A market price is not a continuous mathematical variable. It is the price of the most recent transaction agreed upon by two parties through an exchange matching engine.
+
+Understanding how orders queue, execute, and cancel is necessary before writing any trading strategy. Backtests that assume infinite liquidity or instant execution at the midpoint fail in live deployment.
+
+## Limit orders and market orders
+
+Trading participants interact with an electronic exchange using two primary order types:
+
+A **limit order** specifies a price and a maximum quantity. A buy limit order (bid) states the highest price the buyer is willing to pay. A sell limit order (ask or offer) states the lowest price the seller is willing to accept. Limit orders do not execute immediately unless their price crosses existing opposite orders. They sit in the limit order book, providing liquidity to other participants.
+
+A **market order** specifies a quantity but no price limit. It demands immediate execution against the best available resting limit orders in the book. Market orders consume liquidity and cross the bid-ask spread.
+
+The difference between the lowest available ask price and the highest available bid price is the **quoted spread**:
+
+```
+Quoted Spread = Best Ask - Best Bid
+```
+
+The midpoint price is the arithmetic average of the best bid and best ask:
+
+```
+Midpoint = (Best Bid + Best Ask) / 2
+```
+
+Market orders pay the spread to buy at the ask or sell at the bid. Resting limit orders capture the spread if filled, but take on the risk of adverse selection: when prices move quickly, limit orders are filled precisely when market conditions become unfavorable to the maker.
+
+## Price-time priority
+
+Most equity and derivative exchanges use **price-time priority** (FIFO) to determine the execution order:
+
+1. **Price priority**: Higher buy prices have priority over lower buy prices. Lower sell prices have priority over higher sell prices.
+2. **Time priority**: Among orders at the exact same price level, earlier orders are matched before later orders.
+
+If an order is modified to increase its quantity or change its price, it loses its time priority and moves to the back of the queue at that price level. If an order reduces its quantity without changing price, most matching engines preserve its position in the queue.
+
+## Maker-taker economics
+
+Exchanges incentivize liquidity provision through fee schedules:
+
+* Liquidity makers (resting limit orders) receive a fee rebate or pay a reduced fee when filled.
+* Liquidity takers (market orders or aggressive limit orders that immediately cross) pay a higher fee.
+
+When backtesting a strategy that posts passive limit orders, assuming zero fees or instant fills generates an illusion of profitability. A strategy that posts bids at the touch will only fill when sellers actively sell through the price, leaving the strategy holding inventory right before prices drop further.

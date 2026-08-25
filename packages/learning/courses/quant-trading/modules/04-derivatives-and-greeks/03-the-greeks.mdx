@@ -1,0 +1,50 @@
+---
+id: quant-options.the-greeks
+title: Analytical Greeks and sensitivity risk
+summary: Compute option price sensitivities (Delta, Gamma, Vega, Theta, Rho) to manage non-linear portfolio exposures.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: analytical-greeks
+  timeboxMinutes: 35
+---
+
+To manage derivative portfolios, quant desks decompose price risk into partial derivatives known as **the Greeks**.
+
+## The fundamental sensitivities
+
+For an option price $V(S, \sigma, r, \tau)$:
+
+1. **Delta ($\Delta = \frac{\partial V}{\partial S}$)**:
+   The change in option price per \$1 change in underlying spot price.
+   * Call: $\Delta_C = \Phi(d_1) \in (0, 1)$
+   * Put: $\Delta_P = -\Phi(-d_1) = \Phi(d_1) - 1 \in (-1, 0)$
+   A portfolio with $\Delta = 0$ is **delta-neutral**.
+
+2. **Gamma ($\Gamma = \frac{\partial^2 V}{\partial S^2} = \frac{\partial \Delta}{\partial S}$)**:
+   The rate of change of delta per \$1 move in spot price. Gamma measures the curvature and hedging error of a linear delta hedge. Identical for calls and puts:
+
+$$
+\Gamma = \frac{\phi(d_1)}{S \sigma \sqrt{\tau}}
+$$
+
+3. **Vega ($\mathcal{V} = \frac{\partial V}{\partial \sigma}$)**:
+   The sensitivity of the option price to a change in implied volatility. By market convention, Vega is reported per 1% (0.01) change in volatility:
+
+$$
+\mathcal{V}_{\text{1\%}} = \frac{S \phi(d_1) \sqrt{\tau}}{100}
+$$
+
+4. **Theta ($\Theta = -\frac{\partial V}{\partial \tau}$)**:
+   The rate of time decay as expiration approaches, reported per 1 calendar day ($\Theta / 365$):
+
+$$
+\Theta_C = \frac{1}{365} \left( -\frac{S \phi(d_1) \sigma}{2 \sqrt{\tau}} - r K e^{-r \tau} \Phi(d_2) \right)
+$$
+
+5. **Rho ($\rho = \frac{\partial V}{\partial r}$)**:
+   Sensitivity to a 1% shift in the risk-free interest rate: $\rho_C = \frac{K \tau e^{-r \tau} \Phi(d_2)}{100}$.
+
+## Exercise: compute analytical Greeks
+
+In this exercise, you will implement `calculate_greeks(spot, strike, tau, r, sigma, is_call)` returning a typed `Greeks` dataclass containing price, delta, gamma, 1% vega, 1-day theta, and 1% rho.

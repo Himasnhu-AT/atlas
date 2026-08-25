@@ -1,0 +1,39 @@
+---
+id: quant-stat-arb.position-sizing-and-kelly
+title: Position sizing and the Kelly criterion
+summary: Maximize the expected logarithmic growth rate of capital while controlling risk of ruin using fractional Kelly allocations.
+order: 4
+estimatedMinutes: 20
+exercise:
+  id: kelly-sizing
+  timeboxMinutes: 20
+---
+
+A trading strategy with a positive expected return can still suffer capital wipeout if position sizes are too large.
+
+The **Kelly criterion** determines the optimal fraction of capital to risk per trade to maximize the long-term compounding growth rate of wealth.
+
+## The discrete Kelly formula
+
+For a strategy with win probability $p$ and win-to-loss payoff ratio $b = \frac{\text{Average Win}}{\text{Average Loss}}$:
+
+$$
+f^* = \frac{p(b + 1) - 1}{b} = p - \frac{1 - p}{b}
+$$
+
+If $f^* \le 0$, the strategy has negative expected value, and the optimal position size is zero.
+
+## Full Kelly versus Fractional Kelly
+
+In theory, Full Kelly ($1.0 \cdot f^*$) achieves maximum wealth growth over an infinite horizon. In practice, Full Kelly presents two severe problems:
+
+1. **Parameter estimation error**: The true win rate $p$ and payoff ratio $b$ are unknown and estimated from noisy historical samples. Overestimating $p$ leads to over-betting.
+2. **Extreme drawdowns**: Full Kelly paths frequently experience peak-to-trough drawdowns exceeding 50% to 80%.
+
+Institutional practitioners use **Half-Kelly** or **Fractional Kelly** ($0.5 \cdot f^*$ or $0.25 \cdot f^*$):
+* Sizing at 50% of Full Kelly achieves 75% of the maximum theoretical growth rate.
+* It reduces return variance by 75% and dramatically diminishes the probability of catastrophic drawdown.
+
+## Exercise: calculate fractional Kelly allocation
+
+In this exercise, you will implement `calculate_kelly_fraction(win_rate, win_loss_ratio, fraction_multiplier, max_cap)` to calculate the safe fractional Kelly position allocation.

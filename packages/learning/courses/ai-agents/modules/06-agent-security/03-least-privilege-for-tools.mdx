@@ -9,17 +9,13 @@ exercise:
   timeboxMinutes: 30
 ---
 
-In [tool schemas](lesson:ai-tool-use.tool-schemas) you built a registry: a dict of every tool
-the agent has, passed whole to every call. That is the right starting point and it is also a
-design where every tool is available on every turn, to whatever the model has just been
-convinced of.
+In [tool schemas](lesson:ai-tool-use.tool-schemas), you constructed a tool registry dictionary containing every tool available to the agent, passed in its entirety on every iteration. While straightforward, that pattern exposes all capabilities on every turn regardless of execution phase.
 
-## Availability is a decision you are already making
+## Dynamic tool availability
 
-You are choosing what goes in the `tools` array on every request. Right now the choice is
-"everything", which is a choice.
+The runtime controls which tool definitions populate the `tools` array on each outgoing API call.
 
-The alternative is that the set depends on where the run is:
+Instead of presenting the full registry on every turn, provide tools conditionally based on state:
 
 ```python
 def tools_for(state):
@@ -30,36 +26,25 @@ def tools_for(state):
     return [search_docs, lookup_order]
 ```
 
-Now the sentence in the wiki page has nothing to work with. It can persuade the model as
-thoroughly as it likes that a refund is pre-approved, and `refund_order` is not in the array,
-so there is no tool call to emit. The persuasion succeeded and produced nothing, which is what
-a control looks like.
+When an injected document attempts to trigger a refund during the `gathering` phase, `refund_order` is absent from the schema definition. The model cannot emit a valid tool call for a tool that does not exist in its prompt payload.
 
-This is the same idea as the sandbox boundary in the desktop app you are reading this in: the
-answer to "could a bug here reach the filesystem" is not "the code is careful", it is "the
-capability is not granted".
+System sandboxing answers security boundary requirements by denying capabilities at runtime rather than relying on model compliance.
 
-## The states worth having
+## Core state distinctions
 
-You do not need a general policy engine. Three distinctions cover most agents.
+Three operational distinctions cover most agent workflows:
 
-**Read versus write.** Tools that only observe versus tools that change something or cost
-money. If nothing else, split on this.
+**Read versus write operations.** Tools that read data (such as search or lookup functions) should be isolated from tools that mutate records, execute payments, or send outbound messages.
 
-**Before versus after confirmation.** A write tool becomes available only once a human, or a
-deterministic check, has approved this specific action. Not once the model has decided it is
-approved.
+**Pre-confirmation versus post-confirmation.** Destructive or write-heavy actions remain unavailable until an explicit authorization step or human review completes.
 
-**Inside versus outside the blast radius.** `refund_order(order_id)` where `order_id` must be
-one the current user owns is a different tool from one that takes any id. The constraint lives
-in the argument, and the next section is about that.
+**Scoped resource boundaries.** Restrict tools to specific resource identifiers tied directly to the authenticated session context.
 
-## Constrain the arguments, not just the name
+## Constraining arguments against session state
 
-Allowing `refund_order` and stopping there gives the model a free choice of order id. An
-injection that gets a refund tool call emitted can usually also choose what it refunds.
+Exposing `refund_order` without parameter verification allows an agent to emit calls against arbitrary resource IDs.
 
-So the check is on the call, with the arguments, against state the model did not supply:
+Parameter validation must execute against verified session state that the LLM cannot manipulate:
 
 ```python
 def check(call, session):
@@ -73,38 +58,22 @@ def check(call, session):
     return Allow()
 ```
 
-`session.orders` came from your authentication, not from the conversation. That is the whole
-point: **the values the decision reads are values the attacker cannot write.**
+The validation reads `session.orders` populated directly by authentication services. The validation policy inspects values that the prompt context cannot modify.
 
-Notice what this also fixes. It is a defence against an injection and equally a defence against
-the model simply being wrong, which is far more common and gets no press. A tool call that
-refunds the wrong order because the model confused two ids in a long context is stopped by the
-same check, and you will hit that bug long before anyone attacks you.
+This check protects against both malicious injection and accidental model confusion, such as mixing up entity IDs across long conversation histories.
 
-## Deny is a result, not an exception
+## Handling denials as tool observations
 
-When a check denies a call, the run does not crash. It gets an observation, exactly like the
-failed tools in [when tools fail](lesson:ai-tool-use.when-tools-fail):
+When authorization denies a tool call, the execution loop records an observation rather than raising an unhandled exception, matching the pattern established in [when tools fail](lesson:ai-tool-use.when-tools-fail):
 
-```
+```json
 {"role": "tool", "content": "refund_order was not permitted: over the automatic limit"}
 ```
 
-The agent can then do something sensible, like explain that this needs a person. That keeps the
-loop shape you already have and it means a denial is recoverable rather than terminal.
+This returns a clear status back to the model, allowing the agent to explain the constraint or suggest an escalation path.
 
-One caution, and it is a real trap. The denial message goes into the context, so it is a
-channel the attacker can now observe. Do not put anything in it you would not show the user:
-*"denied, the automatic limit for this account tier is £500 and manager override code is..."* is
-a denial message that has taught the attacker more than the allow would have.
+Denial messages become part of the ongoing prompt context. Error messages returned to the model should avoid exposing internal security rules, sensitive environment metadata, or administrative bypass keys.
 
-## What the exercise asks
+## Exercise instructions
 
-A permission table mapping states to tool sets, a checker that runs on the call with its
-arguments against session state, and the loop change that turns a denial into an observation
-rather than a crash.
-
-The test that matters runs the injected document from the last lesson through an agent whose
-permissions are set correctly, and asserts that the refund never happened even though the model
-tried. The injection still works, in the sense that the model was persuaded. It just does not
-matter any more.
+In this exercise, you implement a dynamic permission table mapping workflow states to tool subsets, build a parameter validation checker using verified session attributes, and update the execution loop to convert authorization rejections into tool observations.

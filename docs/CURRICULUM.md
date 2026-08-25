@@ -4,9 +4,9 @@ What the courses teach, in what order, and why each module exists. `docs/PLAN.md
 build decisions. This file records the content decisions, and it is the thing to read before
 adding or moving a lesson.
 
-There are two courses. Everything below the "The destination" heading describes the AI agent
-engineering course, which was the first and is the longer. The data engineering course is at
-the bottom.
+There are three courses. Everything below the "The destination" heading describes the AI agent
+engineering course, which was the first and is the longest. The data engineering course follows it,
+and the quantitative trading course is at the bottom.
 
 ## Rules that apply to every course
 
@@ -503,3 +503,93 @@ gaps are permanent.
 
 The last lesson has no exercise on purpose. It is the wrap-up, and it names where every earlier
 piece ended up.
+
+---
+
+# The quantitative trading course
+
+`courses/quant-trading`, seven modules, twenty-six lessons, twenty graded exercises, in the
+Python standard library alone.
+
+## The spine
+
+**A backtest is a hypothesis about market mechanics that has to survive execution friction, so
+every signal must be tested against causal event streams, realistic queue dynamics, and
+statistical validation that penalizes multiple testing.**
+
+| Step | Module | The idea it adds |
+|---|---|---|
+| 0 | Market microstructure | Trades are discrete queue interactions, not continuous curves. |
+| 1 | Time series and signals | Prices drift, so you model stationary returns, streaming variance, and cointegration. |
+| 2 | Event-driven backtesting | Vectorized backtests leak future state. Causal event queues prevent lookahead bias. |
+| 3 | Statistical arbitrage | Market-neutral spreads, volatility-scaled momentum, and fractional Kelly sizing. |
+| 4 | Derivatives and Greeks | Non-linear payoffs, closed-form Black-Scholes, Greeks, and American binomial trees. |
+| 5 | Portfolio risk and liquidation | Tail risk beyond variance: VaR, Expected Shortfall, drawdown duration, and Almgren-Chriss. |
+| 6 | Validation and financial ML | Dollar bars, path-dependent triple barriers, fractional differencing, and Deflated Sharpe. |
+
+Tracks: modules 0 and 1 are `foundations`, 2 and 3 are `strategies`, 4 and 5 are `risk`, and 6 is `validation`.
+
+## Full module map
+
+### 0. Market microstructure and order books (`quant-microstructure`, foundations)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | How markets match | |
+| 2 | Limit order book | `limit-order-book` |
+| 3 | Spread and order book imbalance | `order-imbalance` |
+
+### 1. Quantitative time series and signals (`quant-time-series`, foundations)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Returns and stationarity | |
+| 2 | Streaming statistics | `streaming-stats` |
+| 3 | Mean reversion and Ornstein-Uhlenbeck processes | `ou-estimation` |
+| 4 | Cointegration and spread signals | `cointegration-spread` |
+
+### 2. Event-driven backtesting and execution (`quant-backtesting`, strategies)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | The event loop | |
+| 2 | Slippage and transaction costs | `execution-handler` |
+| 3 | Portfolio accounting and PnL | `portfolio-ledger` |
+| 4 | Building the event backtester | `event-backtester` |
+
+### 3. Statistical arbitrage and factor models (`quant-stat-arb`, strategies)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Pairs trading and spread execution | `pairs-strategy` |
+| 2 | Time-series momentum and volatility scaling | `momentum-signals` |
+| 3 | Cross-sectional factor ranking and dollar neutrality | `factor-rebalancer` |
+| 4 | Position sizing and the Kelly criterion | `kelly-sizing` |
+
+### 4. Derivatives pricing and the Greeks (`quant-options`, risk)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Options and put-call parity | |
+| 2 | The Black-Scholes-Merton model | `black-scholes-pricing` |
+| 3 | Analytical Greeks and sensitivity risk | `analytical-greeks` |
+| 4 | Binomial trees and American options | `binomial-tree` |
+
+### 5. Portfolio risk and optimal liquidation (`quant-risk`, risk)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Value at Risk and Expected Shortfall | `var-cvar-calculator` |
+| 2 | Drawdowns and duration analysis | `drawdown-tracker` |
+| 3 | Sharpe and Sortino ratios | `performance-metrics` |
+| 4 | Optimal liquidation and market impact | `almgren-chriss` |
+
+### 6. Validation and financial machine learning (`quant-validation`, validation)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Financial data structures and dollar bars | `dollar-bars` |
+| 2 | The triple-barrier labeling method | `triple-barrier` |
+| 3 | Fractional differentiation and memory | `fractional-diff` |
+| 4 | Multiple testing and the Deflated Sharpe Ratio | `deflated-sharpe` |
+

@@ -1,0 +1,61 @@
+---
+id: quant-time-series.cointegration-and-spreads
+title: Cointegration and spread signals
+summary: Distinguish cointegration from correlation, calculate hedge ratios via OLS regression, and construct normalized z-score spread signals.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: cointegration-spread
+  timeboxMinutes: 35
+---
+
+Two assets can be highly correlated while drifting apart indefinitely over time. Trading a diverging spread based purely on correlation leads to catastrophic drawdowns.
+
+## Correlation versus cointegration
+
+**Correlation** measures the co-movement of periodic returns:
+
+$$
+\rho_{X, Y} = \frac{\text{Cov}(R_X, R_Y)}{\sigma_X \sigma_Y}
+$$
+
+Two stock prices can share a strong positive correlation of 0.90 while one doubles and the other loses half its value over a year. The ratio or difference between them wanders without bound.
+
+**Cointegration** is a property of non-stationary price series. Two series $Y_t \sim I(1)$ and $X_t \sim I(1)$ are cointegrated if a linear combination exists that is stationary:
+
+$$
+e_t = Y_t - (\alpha + \beta X_t) \sim I(0)
+$$
+
+The coefficient $\beta$ is the **hedge ratio**: for every 1 share of $Y$ held long, the portfolio holds $\beta$ shares of $X$ short. The resulting portfolio equity $e_t$ mean-reverts around zero.
+
+## OLS hedge ratio and residual z-score
+
+To estimate the static hedge ratio between $Y$ and $X$:
+
+$$
+\beta = \frac{N \sum X Y - \sum X \sum Y}{N \sum X^2 - (\sum X)^2}, \quad \alpha = \bar{Y} - \beta \bar{X}
+$$
+
+The synthetic spread is the residual series:
+
+$$
+e_t = Y_t - (\alpha + \beta X_t)
+$$
+
+To generate actionable trading signals across instruments with different dollar price scales, the spread is normalized into a dimensionless **z-score**:
+
+$$
+Z_t = \frac{e_t - \mu_e}{\sigma_e}
+$$
+
+When $Z_t > +2.0$, $Y$ is overpriced relative to $X$, generating a short $Y$ / long $X$ signal. When $Z_t < -2.0$, $Y$ is underpriced relative to $X$, generating a long $Y$ / short $X$ signal.
+
+## Exercise: compute cointegration spread and z-score
+
+In this exercise, you will implement `calculate_spread_zscore(y, x)` to:
+
+1. Validate that input series $y$ and $x$ have identical length $\ge 2$.
+2. Compute the OLS regression slope $\beta$ and intercept $\alpha$.
+3. Compute the full residual spread series $e_t$.
+4. Calculate the standard deviation and return the normalized z-score of the most recent observation.

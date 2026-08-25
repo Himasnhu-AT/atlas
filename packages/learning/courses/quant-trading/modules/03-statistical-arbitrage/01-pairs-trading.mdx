@@ -1,0 +1,33 @@
+---
+id: quant-stat-arb.pairs-trading
+title: Pairs trading and spread execution
+summary: Convert cointegration z-scores into entry, exit, and stop-loss orders across asset pairs.
+order: 1
+estimatedMinutes: 25
+exercise:
+  id: pairs-strategy
+  timeboxMinutes: 30
+---
+
+A pairs trading strategy monetizes temporary deviations between two cointegrated assets $Y$ and $X$.
+
+When the spread residual $e_t = Y_t - (\alpha + \beta X_t)$ diverges from zero, the strategy opens a market-neutral position and closes it once the spread returns to equilibrium.
+
+## Signal thresholds and state transitions
+
+Using the normalized spread z-score $Z_t = \frac{e_t - \mu_e}{\sigma_e}$, a discrete state machine governs trading decisions:
+
+1. **Entry conditions (from flat)**:
+   * If $Z_t \le -Z_{\text{entry}}$ (e.g. -2.0): $Y$ is underpriced relative to $X$. Enter **Long Spread** (Long $Y$, Short $\beta$ of $X$). Position state becomes `+1`.
+   * If $Z_t \ge +Z_{\text{entry}}$ (e.g. +2.0): $Y$ is overpriced relative to $X$. Enter **Short Spread** (Short $Y$, Long $\beta$ of $X$). Position state becomes `-1`.
+
+2. **Exit on convergence**:
+   * For Long Spread (`+1`): Exit to flat (`0`) when $Z_t \ge -Z_{\text{exit}}$ (e.g. -0.5).
+   * For Short Spread (`-1`): Exit to flat (`0`) when $Z_t \le +Z_{\text{exit}}$ (e.g. +0.5).
+
+3. **Stop-loss on structural divergence**:
+   * If $Z_t$ continues widening past $\pm Z_{\text{stop}}$ (e.g. $\pm 3.5$), the cointegration relationship may have broken. The strategy closes all positions immediately to avoid unbounded loss.
+
+## Exercise: build a pairs trading state machine
+
+In this exercise, you will implement `generate_pairs_signals(z_score, current_position, entry_threshold, exit_threshold, stop_loss)` to transition positions between `+1`, `-1`, and `0` based on spread z-scores and risk parameters.

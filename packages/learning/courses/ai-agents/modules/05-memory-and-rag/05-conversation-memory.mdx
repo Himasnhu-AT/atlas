@@ -9,72 +9,59 @@ exercise:
   timeboxMinutes: 40
 ---
 
-"Memory" covers two different problems and the word does them both a disservice.
+Memory mechanisms in agent architectures handle two distinct data sources: static document retrieval and dynamic
+conversation history.
 
-Retrieval is memory of documents. The corpus exists before the conversation starts, you control
-when it changes, and you chunk and embed it ahead of time. Conversation memory is memory of the
-transcript, which does not exist ahead of time and grows by at least two messages every turn.
+Document retrieval operates over an external, pre-indexed corpus. Conversation memory manages the evolving transcript
+of the active session. Because model API endpoints are stateless, conversational continuity is maintained by resending
+accumulated messages on each turn. As dialogues extend, message histories eventually exceed token limits, requiring
+active context management.
 
-The mechanism is worth saying plainly, because everything else follows from it. A model call is
-stateless, and what looks like memory is you resending the conversation every turn. So a long
-conversation is not a model that remembers more, it is a request that gets bigger every turn
-until it stops fitting and something has to go.
+## Four conversation memory strategies
 
-## Four strategies, and what each loses
-
-| Strategy | Keeps | Loses | Costs |
+| Strategy | Retained context | Discarded context | Operational overhead |
 | --- | --- | --- | --- |
-| Sliding window | The most recent turns, verbatim | Everything older, completely and silently | Nothing |
-| Running summary | The gist of the whole conversation | Detail, unpredictably | A model call, and latency, when it fires |
-| Extracted facts | Specific durable facts, across sessions | Everything not judged a fact | A model call, and a judgement you may disagree with |
-| Retrieval over past turns | Whatever matches this question | Anything the question does not resemble | An index that grows with the conversation |
+| Sliding window | Recent turns verbatim | Older conversation history | None |
+| Running summary | Compressed summary of dialogue | Specific nuances and details | Periodic model summarization calls |
+| Extracted facts | Persistent key facts | Conversational filler | Extraction model calls |
+| Semantic search over history | Matches for active query | Non-matching dialogue context | Incremental session indexing |
 
-A sliding window is the honest baseline and what most systems should start with. Its failure mode
-is that it is total: the turn where the user said "I'm in Berlin" falls off the back and nothing
-marks its absence, so the agent asks for a city it was already told.
+A sliding window provides a simple baseline. However, facts mentioned early in a long session eventually fall
+outside the window, causing the agent to repeat questions.
 
-A running summary trades detail for room, and the trade is not one you can predict. The model
-decides what a pleasantry is, and the detail the next question needed is exactly the one it
-decided to drop. That is not a flaw to fix with a better prompt, it is what compression is.
+A running summary compresses historical turns into a narrative block, preserving general context while sacrificing
+granular details.
 
-Extracted facts are the only one of the four that survives the session ending, which is what
-makes them worth a separate mechanism rather than a bigger summary. Retrieval over past turns is
-this module's machinery pointed at the transcript, and its weakness is specific: it retrieves
-what resembles the current question, so the turn that matters for a reason the question does not
-mention stays lost.
+Extracted facts identify durable attributes (such as user preferences or account settings) that persist across
+sessions.
 
-Real systems combine them. The exercise builds a window plus a summary plus facts, which is the
-common shape.
+Production systems frequently combine these strategies by pairing a sliding window for recent turns with a
+background summary or extracted fact store for older context.
 
-## What must never be dropped
+## Protected prompt regions
 
-Two things, and the second one is where naive implementations break.
+Certain message blocks must remain protected during context trimming:
 
-The system message. It is the agent's instructions, not conversation history, and trimming it to
-save tokens does not shorten the conversation, it changes what the agent is. So it is kept
-whatever the budget, and its cost comes off the budget rather than competing with recent turns
-for it.
+The initial system prompt contains core agent behavioral instructions and must never be trimmed. Deduct its token
+cost from the total budget before calculating available space for conversation turns.
 
-Not just the first message, though: the whole leading run of them. That looks like a detail until
-you see what inserts a second one. A summary replacing older turns goes in as a system message
-immediately after the original, which puts it inside the protected run. Insert it anywhere else
-and the next trim throws away the summary while keeping the turns it was paid for to replace.
+System messages inserted immediately following the primary instructions (such as running conversation summaries)
+must also remain protected:
 
 ```python
 [
     {"role": "system", "content": "You are a booking assistant."},
     {"role": "system", "content": "Summary of earlier conversation:\n..."},
-    # everything below here is trimmable
+    # trimmable history begins below
 ]
 ```
 
-Providers that mirror the OpenAI chat shape accept more than one system message. Where a provider
-does not, the same content goes into the first user message instead and nothing else about the
-design changes.
+Placing summaries in the leading system block ensures subsequent trim operations do not discard the summary while
+retaining unsummarized turns.
 
-## The corruption a trim causes
+## Preserving turn integrity during context trimming
 
-A message list is not a flat sequence of independent items:
+Message transcripts contain structural dependencies that cannot be arbitrarily severed:
 
 ```python
 {"role": "assistant", "content": None,
@@ -85,78 +72,46 @@ A message list is not a flat sequence of independent items:
  "content": "Three with space tonight: Ramiro, Belcanto, Prado."},
 ```
 
-Those two messages are one exchange. The assistant asks for a tool by id and the tool message
-answers that id. Cut between them and you have sent a request in which the model asked for
-something and nothing answered, or in which a result arrives for a call that was never made.
-Providers reject that outright, so the symptom is not a worse answer, it is a hard API error on a
-conversation that had been working for twenty turns.
+An assistant message with `tool_calls` and its corresponding `tool` result messages form an indivisible unit.
+Trimming between these messages leaves dangling tool requests or orphaned tool responses, which API providers
+reject with HTTP 400 validation errors.
 
-The fix is to trim in units. Group each assistant message that has `tool_calls` with the tool
-messages that follow it, treat that group as indivisible, and make the budget decision about
-groups. One tool exchange is one turn of the conversation however many messages it took.
+Group assistant tool requests with their corresponding tool results into single atomic units before evaluating
+token limits.
 
-The second rule is less obvious and matters as much. When a group does not fit, stop, do not skip
-it and carry on to older ones:
+When trimming context, walk backward from the most recent turn. If an older turn exceeds remaining token space,
+stop trimming immediately rather than skipping it to include even older messages. Skipping messages creates gaps
+in conversation context that produce contradictory responses.
 
-```
-system    kept, always
-user      "old and short"          <- fits in what is left
-assistant 4000 characters          <- does not fit
-user      "recent"                 <- kept
-```
+## Cost and latency of dynamic summarization
 
-Skipping the oversized message to squeeze in the older short one leaves a hole in the middle of
-the conversation, and nothing downstream can see that the hole is there. The model reads a user
-message, then a reply to something that is not in front of it, and answers with complete
-confidence. A conversation that stops cleanly at a boundary is understandable; one with a piece
-missing from the middle is actively misleading.
+Generating summaries consumes model tokens and introduces latency during the turn that triggers summarization.
 
-## Summarising is a model call
-
-It is easy to treat the summary as free because it is not the user's turn. It costs a call and
-its latency on the turn that triggers it, it costs the tokens of everything being summarised,
-and it is lossy in the way described above.
-
-So the common path has to be free. Most turns fit, and a conversation that fits returns unchanged
-without touching the model:
+Optimize the common execution path by bypassing summarization when the raw message list fits within budget:
 
 ```python
 if sum(estimate_tokens(message) for message in messages) <= max_tokens:
     return ManagedContext(messages=messages, dropped=[], facts=[])
 ```
 
-The same applies to a conversation barely long enough to have anything old in it: summarising
-four messages costs a call, adds latency, and loses detail to save nothing.
+When messages are trimmed, the returned `ManagedContext` should populate the `dropped` list to maintain observability
+over removed context.
 
-When a trim does happen, something has to say what went, which is why the result carries
-`dropped`. An agent that has silently forgotten something is almost impossible to debug, because
-the evidence of what it forgot is exactly what was thrown away.
+## Extracting durable facts across sessions
 
-## Memory that outlives the session
+Extracting durable facts involves prompting a model to identify persistent details from dialogue and return them
+as a structured JSON array.
 
-Facts are the piece that survives the conversation ending, and the hard part is not the
-extraction. Extraction is a model call with a clear instruction: read the transcript, return the
-durable facts as a JSON array of short strings.
-
-The hard part is deciding what deserves to be in that array. "Party of four" is worth keeping for
-tonight's booking and is actively wrong next month. "Prefers Prado" is a preference or a one off,
-and no amount of prompting makes that distinction reliably from a single conversation.
-
-So a remembered fact that is wrong is worse than one never remembered, because it gets applied
-confidently to every future session, and durable memory needs a way to be corrected and a reason
-to expire. Extraction must also never break the turn: a model replying to a request for JSON with
-an apology should produce an empty fact list and a log line, not an exception.
+The extraction prompt should target stable user preferences rather than transient state. Extraction failures
+should be handled gracefully by returning an empty fact list and logging the issue without failing the user request.
 
 ## Your exercise
 
-Build the memory layer: `tool_groups`, `window`, `summarize_older`, `extract_facts`, and
-`manage`, which composes them into a `ManagedContext`.
+Implement `tool_groups`, `window`, `summarize_older`, `extract_facts`, and `manage`.
 
-The fixture is the booking conversation from this lesson. The tests check that the whole leading
-system run survives a budget of one token, that a budget with room for the tool result but not
-the call that asked for it keeps neither, that an oversized message stops the walk rather than
-being skipped, and that a conversation which already fits costs zero model calls.
-
-Two things catch people. `keep_recent` counts groups, not messages. And `manage` has to work out
-what was dropped by identity rather than equality: two turns can be equal dicts, and an equality
-check happily reports the surviving copy as proof that the dropped one is still there.
+The test suite validates:
+1. Retaining leading system messages regardless of budget constraints.
+2. Grouping assistant tool calls with corresponding tool results as atomic units.
+3. Halting backward context walks when a turn exceeds remaining budget.
+4. Bypassing model calls when total tokens fall within budget limits.
+5. Populating `dropped` message lists using identity tracking.

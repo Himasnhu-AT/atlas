@@ -62,3 +62,6 @@ video-pilot/
 
 # Copied out of node_modules by apps/web/scripts/copy-pyodide.mjs.
 apps/web/public/pyodide/
+
+# private files
+.agents

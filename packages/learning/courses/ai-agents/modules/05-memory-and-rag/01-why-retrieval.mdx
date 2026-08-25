@@ -6,104 +6,71 @@ order: 1
 estimatedMinutes: 25
 ---
 
-A model knows what was in its training data. That is a great deal, and none of it is yours. It
-has not read your API reference, your ticket history, your architecture decisions, or the
-config someone changed last Tuesday. Ask about any of them and you get an answer, because
-producing plausible text is the whole job and there is no separate signal inside the model that
-says "I have never encountered this".
+A model knows only what was included in its training corpus. It has no access to private API documentation,
+internal support tickets, recent architecture decisions, or runtime system configurations. When queried about
+proprietary information, models generate plausible completions without signaling whether the topic was present
+in their training data.
 
-That is the gap this module closes, and the interesting part is not that the gap exists. It is
-that closing it badly is worse than leaving it open, because a wrong answer with a source
-attached is harder to catch than a wrong answer without one.
+Bridging this knowledge gap requires supplying external information into the model's context.
 
-## Three ways to get your data in front of the model
+## Three ways to supply private data to a model
 
-There are exactly three, and everything else is a variation on one of them.
+Three primary strategies exist for incorporating private data:
 
-| Approach | What it is | Cost | Where it breaks |
+| Approach | Mechanism | Cost structure | Failure mode |
 | --- | --- | --- | --- |
-| Put it in the prompt | Paste the documents into every request | Tokens on every turn, forever | Stops working when the corpus outgrows a request |
-| Retrieve it | Find the relevant pieces first, send only those | An index to build and keep fresh | Send the wrong pieces and you get a confident wrong answer |
-| Fine tune | Train the model further on your data | A training run, a dataset, and a repeat every time the data changes | Teaches form well and facts badly |
+| Context stuffing | Paste entire documents into every prompt | High token cost on every turn | Fails when corpus exceeds context limits |
+| Retrieval (RAG) | Search relevant excerpts and inject only those | Vector index build and maintenance | Irrelevant retrievals yield plausible wrong answers |
+| Fine-tuning | Retrain model weights on domain dataset | Upfront training compute and data curation | Memorizes style well, updates facts poorly |
 
-The first is not a joke. If your knowledge base is a two page policy document that changes
-twice a year, paste it into the system prompt and stop reading. Retrieval is machinery, and
-machinery you do not need is a liability. The honest threshold is roughly: when the material
-you might need no longer fits comfortably in a request, or when most of what you would paste is
-irrelevant to most questions, retrieval starts paying for itself.
+Context stuffing is viable when documentation is concise and static, such as a short company policy document.
+When documentation grows or questions target specific subtopics, retrieval becomes necessary to manage prompt size.
 
-Fine tuning is the one people reach for by mistake. It is genuinely good at teaching a model a
-format, a house style, a classification scheme, a way of structuring an answer. It is poor at
-teaching facts. A fine tuned model does not gain a lookup table; it gains a stronger tendency
-to produce text that looks like the training set, and text that looks like your documentation
-is not the same thing as text that is true. Worse, it produces that text with no way to say
-where it came from, and updating a single fact means another training run. You will still see
-fine tuning recommended for knowledge injection. Treat that recommendation with suspicion, and
-ask what happens when a price changes.
+Fine-tuning adapts model tone, schema adherence, and classification behavior. However, fine-tuning is ineffective
+for factual knowledge injection. Updating individual facts requires repeating training runs, and model outputs
+lack verifiable source citations.
 
-## The long context argument
+## The trade-offs of large context windows
 
-The obvious objection in 2026 is that context windows are enormous now, so why not skip the
-index and send everything. It is a real option, more often than it was two years ago, and
-sometimes it is the right one. Three things stop it being the answer in general.
+Expanding context windows allow passing large document collections directly into prompts. However, this approach
+introduces three operational constraints:
 
-Cost, first, and it is per turn. A prompt is priced by what is in it, so a hundred pages of
-context is not a one time expense: it is charged again on every request, forever, whether or
-not the answer needed page ninety. Prompt caching cuts this substantially where a provider
-offers it and where the long part of your prompt is stable, which makes the arithmetic better
-without changing its shape.
+1. Token costs accumulate per request. A hundred pages of context incurs billing overhead on every turn,
+even when an answer requires only a single sentence. Prompt caching mitigates recurring costs for static prefixes
+but does not eliminate per-token charges.
 
-Latency, second. Time to first token grows with the size of the prompt. For a batch job nobody
-cares. For a chat interface where a person is watching a cursor blink, a few extra seconds on
-every turn is the difference between a product people use and one they close.
+2. Latency increases with prompt size. Time-to-first-token scales with input context volume, slowing interactive chat
+experiences.
 
-Attention, third, and this is the one that surprises people. A model that can accept a hundred
-pages does not attend to those pages evenly. Retrieval evaluations across long contexts have
-found consistently that a fact placed in the middle of a very long prompt is recalled less
-reliably than the same fact near the beginning or the end, and that accuracy degrades as the
-prompt grows even when the fact is present. The size of the effect depends heavily on the model
-and the task, and models have improved at this, so do not treat it as a fixed law. Treat it as
-a reason not to assume that "it fits" means "it is read".
+3. Retrieval degradation across long spans ("needle in a haystack"). Models attend unevenly across large contexts,
+recalling information placed near prompt beginnings and endings more consistently than content located in the middle.
 
-## What retrieval actually buys
+## What retrieval provides
 
-Two things, and it is worth being precise about them because everything else attributed to RAG
-is downstream of these.
+Retrieval-augmented generation provides two core architectural advantages:
 
-A bounded prompt. You decide how much context goes into a request rather than letting the size
-of your corpus decide it. That makes cost and latency predictable, and it makes them stay
-predictable when the corpus triples.
+1. Bounded prompt budgets: The application controls the number and size of context passages injected into the prompt,
+keeping latency and token costs predictable as the underlying corpus scales.
 
-A citation. This is the bigger one. Because your code chose the passages, your code knows what
-they were. That means an answer can be shown next to the text it was drawn from, a reviewer can
-check it in seconds, and an automated check can ask whether the answer is supported by anything
-that was actually sent. Neither a long prompt nor a fine tuned model gives you that. The long
-prompt gives you a haystack and the fine tuned model gives you nothing at all.
+2. Verifiable citations: Because the retrieval system selects specific text passages, the application tracks exactly
+which documents were provided to the model. Responses can link to source excerpts, enabling automated ground-truth
+verification and human auditing.
 
-Notice what retrieval does not buy. It does not make the model truthful. It does not stop
-fabrication. It narrows what the model is working from and it gives you something to check the
-answer against, which is a great deal, and it is not the same as a guarantee.
+Retrieval restricts the model's reference material, though it does not eliminate hallucinations. Verification
+pipelines remain necessary to confirm that generated claims match retrieved context.
 
-## The failure this module is really about
+## The silent retrieval failure mode
 
-Here is the shape of the problem, and it is worth keeping in front of you for the next four
-lessons.
+A critical failure in retrieval systems occurs when search returns plausible but irrelevant passages.
 
-Your retriever returns three chunks. They are the three that scored highest, and none of them
-answers the question, because the document that does answer it phrases things differently, or
-was split so the answer straddles two chunks, or was never ingested at all. The model receives
-three plausible passages and a question. It answers. The answer is fluent, it is grounded in
-the text it was given, it cites source two, and it is wrong.
+If a retriever returns three high-scoring chunks that do not answer the user's specific question, the model
+often synthesizes an articulate, confident answer citing the provided text. The output appears valid and contains
+citations, yet the underlying claim is incorrect.
 
-Nothing in that sequence looks like an error. There is no exception, no empty result, no
-warning in a log. The citation, which was supposed to be the safety feature, is now the thing
-that makes the wrong answer credible.
+Mitigating this failure requires:
+- Effective document chunking to preserve complete semantic units.
+- Similarity score thresholds to reject low-confidence retrievals.
+- Explicit prompt instructions directing models to decline answering when retrieved context lacks sufficient evidence.
+- Verifying cited identifiers against retrieved documents.
 
-Every design decision in the rest of this module points at that failure. Chunking is about
-whether the answer survives being split. Embeddings and thresholds are about whether the
-retriever can tell a real match from the least bad one. The pipeline lesson is about making the
-system decline instead of guessing. And the last lesson is about the other kind of memory, the
-conversation itself, where the equivalent failure is quieter: an agent that has silently
-forgotten what it agreed to four turns ago and answers confidently anyway.
-
-Start with the split, because it happens first and everything downstream inherits it.
+The subsequent lessons address each stage of this retrieval pipeline.

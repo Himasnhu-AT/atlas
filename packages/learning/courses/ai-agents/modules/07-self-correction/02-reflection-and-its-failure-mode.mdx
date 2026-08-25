@@ -9,7 +9,7 @@ exercise:
   timeboxMinutes: 30
 ---
 
-Reflection is three calls: produce a draft, criticise it, revise it against the criticism.
+Reflection structures self-correction into three sequential calls: produce an initial draft, generate a critique, and revise the output according to the feedback.
 
 ```
 draft    = model(task)
@@ -17,82 +17,48 @@ critique = model(critique_prompt, draft)
 final    = model(revise_prompt, draft, critique)
 ```
 
-It is genuinely useful for tasks with a checkable structure — code that must compile, output
-that must match a schema, prose that must follow a format. It is least useful for exactly the
-tasks people reach for it on, which are the ones where correctness is a matter of fact.
+This pattern functions effectively for tasks governed by verifiable syntactic rules, such as code generation matching an interface, structured JSON output matching a schema, or text requiring specific formatting constraints. It performs poorly when used to verify factual truth.
 
-## The loop is easy, the stopping is not
+## Stopping conditions and termination
 
-Three questions decide whether this helps.
+Implementing a reflection loop requires three explicit stopping criteria:
 
-**When does it stop?** Never let the model decide. *"Revise until you are satisfied"* runs until
-the model's agreeableness kicks in, which is unpredictable and usually two passes. A fixed
-maximum, always, and a way to stop early when the critique finds nothing.
+**Iteration bounds.** Never allow the model to decide when it is finished. Open-ended instructions like *"revise until satisfied"* produce non-deterministic loops. Enforce a fixed iteration ceiling, typically one or two passes, with an early exit if the critique yields no defects.
 
-**What counts as "nothing"?** The critique has to be able to return no findings, and you have to
-believe it when it does. If your prompt asks *"what is wrong with this?"*, a model will find
-something wrong with a perfect answer, because you asked. Ask instead for findings against
-specific criteria, and allow an empty list.
+**Structured negative findings.** The critique prompt must allow the model to report that no errors were found. Prompts asking *"what is wrong with this?"* force the model to identify flaws even in valid solutions. Ask for evaluations against explicit rubric items and accept empty defect lists.
 
-**Is the revision better?** This is the hard one, and it is the next section.
+**Improvement verification.** Revisions must be evaluated against objective criteria to verify whether quality improved rather than merely changed.
 
 ## Revision drift
 
-Run reflection four times on the same draft and watch what happens.
+Iterating reflection repeatedly across multiple cycles introduces semantic drift.
 
-Pass one usually helps: the critique catches something real and the revision fixes it. Pass two
-often helps less. By pass three the critique is finding stylistic preferences, and the revision
-is rewriting sentences that were fine. By pass four the answer has drifted away from the
-original question, because every pass optimised for pleasing a critic rather than answering.
+The first pass often resolves clear formatting issues or omissions. By the second or third pass, the critique begins targeting stylistic variations and rewriting sentences that were already adequate. Over multiple turns, the generated output drifts away from the core requirements of the original user prompt because each pass optimizes for satisfying intermediate critique comments.
 
-This is why bounded loops are not a performance concession. They are correctness: **the loop has
-no term that pulls it back toward the question**, so left alone it wanders.
+Bounding the iteration count is essential for correctness. Unconstrained loops lack a restoring force to anchor generation back to the original prompt, causing the text to wander over successive turns.
 
-The exercise makes you measure the drift rather than take my word for it.
+## The laundering failure mode
 
-## Laundering
+A major risk in factual tasks is error laundering:
 
-The failure that matters most is subtler than drift, and it is why this lesson exists in a
-module about independence.
+When a draft contains a factual error, the critique may highlight minor cosmetic flaws (such as an awkward phrase or missing transition). The revision step fixes the cosmetic flaws while preserving the underlying factual hallucination. The resulting output presents the erroneous fact in polished prose, accompanied by an audit trail that gives the illusion of rigorous review.
 
-A wrong draft goes in. The critique reads the draft, finds a real but minor problem — a missing
-caveat, an awkward sentence — and the revision fixes it. Now you have a wrong answer that has
-been through a review process, is better written, and carries a critique showing it was
-checked.
+Reflection refines formatting, style, and syntax, but it does not establish factual veracity. Validating factual assertions requires isolated claim extraction where checks evaluate propositions without surrounding narrative bias.
 
-**Reflection improved the presentation and left the error.** Worse, it made the error more
-convincing, and it produced an artefact that looks like evidence of checking.
+## Reflexion and persistent feedback memory
 
-That is not a reason never to reflect. It is a reason to be precise about what reflection is
-for: it improves form, and it does not establish fact. Anything factual needs the next lesson,
-where the check reads the claim without the argument around it.
+A useful variation of reflection preserves critiques across execution attempts rather than discarding them.
 
-## Reflexion, and what memory adds
-
-The variant worth knowing is one where the critique is not thrown away.
-
-In the plain loop, each attempt starts fresh and can repeat a mistake it already made. If
-instead the critiques accumulate into a short list of things that went wrong before, and that
-list is carried into the next attempt, the loop stops repeating itself.
+In standard reflection loops, each attempt runs independently and can repeat previously resolved errors. By appending past critique findings into a concise list of recorded failures, subsequent attempts can avoid known pitfalls:
 
 ```
-attempt 1 → critique: "the date is not in the source"
-attempt 2 → given that note up front → different failure
-attempt 3 → given both notes
+attempt 1 -> critique: "the date is not in the source"
+attempt 2 -> provided with previous critique notes -> avoids repeating the error
+attempt 3 -> provided with accumulated notes
 ```
 
-That is worth having when attempts are expensive and independent — a coding agent retrying a
-failing test, an agent whose tool call keeps erroring the same way. The list has to stay short
-and specific, or it becomes another paragraph of context competing for attention, which is the
-problem from
-[tokens and the context window](lesson:ai-llm-fundamentals.tokens-and-context) again.
+This pattern proves valuable for coding agents retrying failing unit tests or workflows encountering deterministic tool errors. The accumulated memory must remain concise to avoid crowding the context window, as discussed in [tokens and the context window](lesson:ai-llm-fundamentals.tokens-and-context).
 
-## What the exercise asks
+## Exercise instructions
 
-The three-call loop, with a bounded number of passes and early exit on an empty critique. Then
-a comparison harness that runs the loop against a fixed rubric and tells you whether each pass
-made the answer better, worse or merely different.
-
-The test that matters is the laundering one: a factually wrong draft goes in, the loop runs
-happily, and the assertion is that the error is still there afterwards. It is there so you know
-what reflection did not do.
+In this exercise, you implement a bounded three-call reflection loop with early termination on empty critiques. You will build an evaluation harness to measure whether successive passes improve output against a fixed rubric, and verify the laundering failure mode where factual errors persist despite critique iterations.

@@ -1,0 +1,12 @@
+id: quant-time-series
+slug: time-series-and-signals
+name: Quantitative time series and signals
+summary: "Returns, streaming statistics without catastrophic cancellation, Ornstein-Uhlenbeck mean reversion, and cointegration spreads."
+version: 1.0.0
+track: foundations
+order: 1
+isActive: true
+prerequisites:
+  - quant-microstructure
+difficulty: beginner
+estimatedHours: 3

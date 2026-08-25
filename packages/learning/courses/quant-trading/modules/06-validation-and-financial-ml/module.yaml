@@ -1,0 +1,12 @@
+id: quant-validation
+slug: validation-and-financial-ml
+name: Validation and financial machine learning
+summary: "Information-driven dollar bars, triple-barrier labeling, fractional differentiation memory preservation, and the Deflated Sharpe Ratio."
+version: 1.0.0
+track: validation
+order: 6
+isActive: true
+prerequisites:
+  - quant-stat-arb
+difficulty: advanced
+estimatedHours: 3.5

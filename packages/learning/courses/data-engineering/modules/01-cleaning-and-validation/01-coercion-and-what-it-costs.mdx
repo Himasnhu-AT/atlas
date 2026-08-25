@@ -9,44 +9,35 @@ exercise:
   timeboxMinutes: 25
 ---
 
-Every field in a delimited file is text. `29.99` is a string, `2026-03-02` is a string, and
-so is `unknown`. Something has to turn them into values, and that something is making a claim
-about what the writer meant.
+Every field in a raw delimited file arrives as text. Values such as `29.99`, `2026-03-02`, and `unknown` are all strings. Transforming them into typed values requires explicit assumptions about source formatting.
 
-## The three answers to a bad value
+## Three approaches to invalid values
 
-Take `quantity` in the extract. Most rows hold `2` or `3`. One holds an empty string. One
-holds `unknown`.
+Consider the `quantity` field across multiple rows. Most rows contain values like `2` or `3`. One row contains an empty string, and another contains `unknown`.
 
 ```python
 int(row["quantity"])
 ```
 
-raises on both. That is one answer, and it is better than most: it is loud, and it stops at
-the first bad row so you find out immediately. Its problem is that it stops at the first bad
-row, so a ten-million-row load dies on row four and you learn nothing about rows five onward.
+Calling `int()` directly raises a `ValueError` on non-numeric strings. This approach halts immediately on the first malformed row. While explicit, failing immediately on row four in a million-row batch prevents auditing errors in the remainder of the dataset.
 
 ```python
 int(row["quantity"] or 0)
 ```
 
-is the answer people actually write, and it is the worst of the three. It never fails, so the
-load always succeeds, and `unknown` still raises while empty quietly becomes zero. An order
-that shipped now claims it shipped nothing, and the number is indistinguishable from a real
-zero forever after.
+Falling back to default values masks data quality problems. An empty string silently coerces to zero, while `unknown` still raises an exception. Replacing missing quantities with zero corrupts aggregated metrics, making unverified transactions indistinguishable from valid zero-item transactions.
 
-The third answer is to return the value **and** whether it worked.
+A reliable pattern returns both the parsed value and a status flag:
 
 ```python
 value, ok = to_int(row["quantity"])
 ```
 
-This is more typing at every call site, which is why people avoid it, and it is the only
-version where the caller has to decide what a failure means. That decision is the job.
+Explicit return tuples require callers to handle parsing failures directly, allowing pipelines to collect row-level validation errors without crashing.
 
-## Dates are worse than numbers
+## Ambiguity in date parsing
 
-The extract spells `placed_at` three ways.
+Timestamps in extracts often arrive in varying formats:
 
 ```
 2026-03-01
@@ -54,33 +45,21 @@ The extract spells `placed_at` three ways.
 2026-03-02T09:14:00
 ```
 
-The first and third are unambiguous. The second is not: `01/03/2026` is the first of March in
-most of the world and the third of January in the United States, and nothing in the file says
-which. You cannot tell by looking at one value. You sometimes cannot tell by looking at all of
-them, because a file where every day is twelve or under is consistent with both readings.
+ISO 8601 strings (`2026-03-01` and `2026-03-02T09:14:00`) are unambiguous. Slash-delimited dates (`01/03/2026`) are ambiguous: they can represent March 1 or January 3 depending on regional conventions. If every day value in a dataset is 12 or below, the format cannot be determined from values alone.
 
-The honest handling is to pick an interpretation, write it down where the next person will see
-it, and record which rows needed it. What you must not do is let `dateutil` or a chain of
-`try` blocks silently apply a different rule to different rows, which is what happens when you
-try formats in order until one sticks. Then some rows are day-first and some are month-first
-and no evidence of which is which survives.
+The reliable approach defines an explicit expected format, documents the parsing convention, and flags rows that violate it. Applying cascading `try/except` heuristics across multiple formats within a single column risks parsing some rows as day-first and others as month-first, destroying timestamp consistency.
 
-## Empty is not the same as absent
+## Empty values versus missing fields
 
-Module 0 kept the difference between a field that was present and empty and a field that was
-missing entirely. This is where it pays off.
+Distinguishing between empty and missing fields is essential for root-cause analysis:
 
-An empty `quantity` means the source system had a row and left the field blank. A missing
-`status` means the row was truncated before that field. They are different failures with
-different owners: one is a data problem, the other is a transport problem, and a coercion
-layer that maps both to `None` has thrown away the only clue about which one to go and fix.
+- An **empty value** (`""`) indicates that a column was present in the record but contained no data. This is typically a source-system data entry issue.
+- A **missing field** indicates that the record lacked the column entirely due to line truncation or schema drift. This points to an export or transport issue.
+
+Mapping both conditions unconditionally to `None` removes the diagnostic distinction needed to identify upstream pipeline failures.
 
 ## What the exercise asks
 
-Four coercions — integer, decimal, date, boolean — each returning a value and a flag, each
-refusing to guess. `to_decimal` has to survive `$59.00` and `1,499.00`, which are the two
-things a total actually arrives as, and it has to keep the value exact rather than turning
-money into a float.
+Implement four coercion functions (integer, decimal, date, and boolean) that return a `(value, success)` tuple.
 
-The habit to take away is the return type. A function that can fail and returns only a value
-has to encode failure as a value, and every value it could pick is also a legitimate answer.
+The `to_decimal` function must handle formatting variations such as currency symbols (`$59.00`) and comma grouping (`1,499.00`), returning exact `Decimal` types rather than floating-point values.

@@ -9,14 +9,11 @@ exercise:
   timeboxMinutes: 30
 ---
 
-You will build guardrails properly in
-[guardrails that can stop a run](lesson:ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run).
-This lesson is about one property of them that decides whether they are worth anything under
-attack: **what the guardrail reads.**
+In [guardrails that can stop a run](lesson:ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run), you construct enforcement layers that intercept agent execution. This lesson examines the data dependencies of those checks to ensure they withstand adversarial inputs.
 
-## The guardrail that shares the compromise
+## Context-dependent validation flaws
 
-The natural way to write one is to ask a model.
+A common pattern for validation queries an LLM to judge action safety:
 
 ```python
 verdict = client.chat.completions.create(
@@ -28,19 +25,13 @@ verdict = client.chat.completions.create(
 )
 ```
 
-Read what that sends. The transcript. Which contains the document. Which contains the
-injection.
+This request passes the full transcript containing the retrieved document and any embedded indirect prompt injection.
 
-You have built a second model that can be persuaded by the same sentence that persuaded the
-first, and given it the job of checking the first. When the attack succeeds it succeeds twice,
-and you now have a `SAFE` verdict on the record making the whole thing look reviewed.
+When an injected instruction persuades the primary agent that an action is authorized, the same text often convinces the validator model as well. Passing the compromised transcript yields a false `SAFE` verdict, logging an apparent validation success over an unsafe operation.
 
-This is worse than no guardrail, because the failure is silent and the audit log says a check
-passed.
+## Out-of-band validation
 
-## Out of band
-
-A check is only independent if its inputs are.
+An effective guardrail requires independent inputs that cannot be influenced by the conversational context:
 
 ```python
 def check_refund(call, session):
@@ -48,66 +39,42 @@ def check_refund(call, session):
     return order.total <= session.limits.auto_refund and order.state == "delivered"
 ```
 
-No transcript. No document. No model. It reads the proposed call and facts from the session,
-and the attacker can write neither.
+This function inspects the proposed tool call and verified facts stored in the session record. It does not inspect the prompt transcript, document strings, or model reasoning tokens.
 
-That is the definition worth carrying: **an out-of-band check reads only values the untrusted
-input could not have influenced.** Everything else is advisory.
+An out-of-band check evaluates only state variables that untrusted user input cannot alter.
 
-Most useful checks turn out to be small and boring once you apply that test. Is the amount
-under the limit. Does this order belong to this session. Has this tool already been called
-three times this run. Is the recipient address one we have seen before. None of them need a
-model, all of them are testable, and none of them can be argued with.
+Useful out-of-band checks include validating monetary thresholds, verifying resource ownership against authenticated user IDs, rate limiting repeated tool invocations per session, and checking destination addresses against an allowlist. These checks execute deterministically, require no inference calls, and cannot be bypassed via natural language persuasion.
 
-## Where a model-based check is still fine
+## Appropriate uses for model-based checks
 
-Not never. It is fine where being wrong is cheap and where it is a filter rather than a
-control.
+Model-based evaluators remain useful for low-risk, advisory tasks where false negatives do not cause irreversible side effects:
 
-Tone and policy on **outbound text** is the usual good case: checking the final answer for
-something you would not want said is a task with no attacker-controlled advantage, because the
-attacker's goal is usually an action rather than a rude sentence.
+**Output tone and policy adherence.** Inspecting final response text for compliance, tone, or formatting constraints before returning it to the user.
 
-Ranking or triaging for a human is fine too, because the human is the control.
+**Human review triaging.** Ranking and prioritizing candidate actions for human operators, where a person retains final approval authority.
 
-What a model-based check should never be is the only thing standing between a persuaded agent
-and an irreversible action.
+Model-based checks should never serve as the sole barrier guarding destructive or financial operations.
 
-## Belt and braces, in the right order
+## Layered defensive architecture
 
-A real agent has several layers, and the order matters because it decides what runs when
-something has already gone wrong:
+Production systems implement defenses in structured sequence:
 
-**Constrain what is reachable.** The permission table from the last lesson. Cheapest, strongest,
-and it works even when everything else fails.
+**1. Capability boundaries.** Restrict available tool definitions based on the current state machine phase, preventing execution of irrelevant write operations.
 
-**Check the action deterministically.** The out-of-band check above, on arguments and session
-state.
+**2. Deterministic validation.** Execute out-of-band verification on tool arguments and authenticated session data before dispatching calls.
 
-**Then, optionally, a model-based filter** on the outbound text.
+**3. Output filtering.** Optionally evaluate outbound generated text with lightweight classifiers or model checks.
 
-**And log the whole thing.** Every denied call, with the arguments and the reason, to somewhere
-the agent cannot write. This is what tells you an attack was attempted, and it is the only one
-of the four that has any value after the fact. `run_ledger` from
-[observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost) is the
-right shape for it.
+**4. Immutable audit logging.** Record all attempted and rejected tool calls with their argument payloads to a secure append-only log. The structured ledger pattern from [observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost) provides the necessary audit trail for security reviews.
 
-## Irreversibility is the axis that matters
+## Action irreversibility
 
-One rule to size all of this by. Sort actions by how hard they are to undo.
+Security controls should scale with the reversibility of the tool action:
 
-Reading a document is free to get wrong. Writing a draft is nearly free. Sending an email is
-not undoable. Moving money is not undoable and has a regulator attached.
+Retrieving a document or formatting a draft has minimal consequence if executed in error. Conversely, sending external emails or transferring funds cannot be undone automatically.
 
-The amount of machinery an action deserves is a function of that, not of how likely you think
-an attack is. Most agents need almost none of this, because most agents only read. The moment
-one grows a tool that spends money or talks to a customer, it needs all of it.
+Tool execution safeguards should be proportional to the potential impact of the action rather than the perceived likelihood of an attack.
 
-## What the exercise asks
+## Exercise instructions
 
-Write both guardrails: the model-based one that reads the transcript, and the deterministic one
-that reads the session. Then run both against a transcript carrying the injection, and assert
-that the first passes the unsafe action and the second refuses it.
-
-Watching your own model-based check return `SAFE` on an action it should have stopped is a more
-durable lesson than any amount of prose about independence.
+In this exercise, you write both validation styles: a transcript-dependent LLM checker and an out-of-band deterministic checker. You will execute both against a compromised conversation transcript containing an injection payload, verifying that the transcript-dependent check produces a false `SAFE` verdict while the out-of-band check rejects the unauthorized action.

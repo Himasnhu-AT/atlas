@@ -1,0 +1,72 @@
+---
+id: quant-time-series.mean-reversion-and-ou
+title: Mean reversion and Ornstein-Uhlenbeck processes
+summary: Model mean-reverting price dynamics using continuous Ornstein-Uhlenbeck processes, calibrate parameters, and compute half-life.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: ou-estimation
+  timeboxMinutes: 30
+---
+
+A trending strategy profits when price moves persist. A mean-reverting strategy profits when deviations from an equilibrium price decay back toward a long-term average.
+
+## The continuous Ornstein-Uhlenbeck process
+
+The continuous stochastic differential equation for an **Ornstein-Uhlenbeck (OU)** process is:
+
+$$
+\mathrm{d}X_t = \theta (\mu - X_t) \mathrm{d}t + \sigma \mathrm{d}W_t
+$$
+
+Where:
+* $\theta > 0$ is the rate of mean reversion.
+* $\mu$ is the long-term equilibrium mean.
+* $\sigma > 0$ is the instantaneous volatility.
+* $W_t$ is a standard Brownian motion.
+
+When $X_t > \mu$, the drift term $\theta (\mu - X_t)$ is negative, pulling the process downward. When $X_t < \mu$, the drift is positive, pushing the process upward.
+
+## Discrete calibration via AR(1) regression
+
+Discretizing the OU process over time step $\Delta t$ yields a linear autoregressive relationship of lag 1 (AR(1)):
+
+$$
+X_t = a + b X_{t-1} + \epsilon_t
+$$
+
+Using Ordinary Least Squares (OLS) regression of $X_t$ against $X_{t-1}$:
+
+$$
+b = \frac{N \sum X_{t-1} X_t - \sum X_{t-1} \sum X_t}{N \sum X_{t-1}^2 - (\sum X_{t-1})^2}, \quad a = \bar{X}_t - b \bar{X}_{t-1}
+$$
+
+The continuous parameters are recovered from the regression coefficients:
+
+$$
+\theta = -\frac{\ln(b)}{\Delta t}, \quad \mu = \frac{a}{1 - b}
+$$
+
+The residual sample variance $s_e^2 = \frac{1}{N-2}\sum (X_t - (a + b X_{t-1}))^2$ provides the continuous diffusion coefficient:
+
+$$
+\sigma = \sqrt{\frac{s_e^2 \cdot 2 \theta}{1 - b^2}}
+$$
+
+## The half-life of mean reversion
+
+The **half-life** $t_{1/2}$ is the expected time required for the process to decay halfway back to its long-term mean from a displaced state:
+
+$$
+t_{1/2} = \frac{\ln(2)}{\theta}
+$$
+
+If the estimated slope $b \ge 1.0$, $\theta \le 0$, indicating a random walk or explosive process that does not mean-revert. If $b \le 0$, the process oscillates each step without continuous drift.
+
+## Exercise: calibrate Ornstein-Uhlenbeck parameters
+
+In this exercise, you will implement `estimate_ou_parameters(series, dt)` to:
+
+1. Run an AR(1) linear regression on a discrete time series.
+2. Verify that the process exhibits mean reversion ($0 < b < 1$).
+3. Derive the continuous parameters $\theta$, $\mu$, $\sigma$, and the half-life $t_{1/2}$.

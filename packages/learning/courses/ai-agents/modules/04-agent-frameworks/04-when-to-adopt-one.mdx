@@ -9,8 +9,7 @@ exercise:
   timeboxMinutes: 30
 ---
 
-There is a turn most frameworks eventually take. An agent stops being code you wrote and
-becomes a record something else runs.
+Many agent frameworks transition from procedural Python definitions to declarative data structures:
 
 ```python
 agent = Agent(client, registry.subset(["lookup", "escalate"]),
@@ -24,24 +23,18 @@ agent = Agent(client, registry.subset(["lookup", "escalate"]),
  "max_steps": 4}
 ```
 
-Same agent. The second one is a value: it can be loaded from a file, compared to another one,
-put in a list, generated in a loop, sent over a network, and read by somebody who does not
-write Python. That difference is worth more than it first looks, and it costs more than it
-first looks too.
+Representing an agent as data allows configurations to be loaded from storage, diffed in source control,
+generated programmatically, and shared across services.
 
-## What data buys you
+## What declarative specifications provide
 
-Three things, and each becomes available the moment the agent is a value rather than a call.
+Representing agent configurations as data enables three practical capabilities:
 
-You can inspect it before you run it. `validate_spec` checks that the name and instructions are
-not blank, that the step budget is inside a ceiling, that no tool is named twice, and that every
-tool the spec asks for actually exists in the registry. Every one of those could be left to fail
-at run time. The reason not to is that a spec which fails validation fails on the line that
-loaded the file, before a single token is bought. An unknown tool name that survives to run time
-becomes a model calling something that is not there, several steps in, having already spent
-money getting to that point.
+1. Static validation before execution: `validate_spec` checks that names and prompts are populated, step budgets
+remain within defined bounds, tool lists contain no duplicates, and every specified tool exists in the active registry.
+Catching configuration errors at load time prevents runs from failing mid-execution after incurring model costs.
 
-You can diff two of them. This is the one that changes how a team works:
+2. Structured diffing between revisions:
 
 ```python
 diff_specs(before, after)
@@ -51,124 +44,74 @@ diff_specs(before, after)
 #  "max_steps: 4 -> 8"]
 ```
 
-Two agents written as code differ by a code review. Two agents written as data differ by four
-lines you can paste into a pull request description. Notice what the diff does not do: the
-system prompt gets the single word `changed` rather than a before and after, because a four
-hundred word prompt rendered as one line differences is unreadable, and the thing that reads it
-well is a text diff, which `difflib.unified_diff` already gives you. Knowing where to stop is
-the point. A summary that tries to also be a diff is worse at both jobs.
+Comparing two specification dictionaries produces concise change summaries for pull requests. Large system prompts
+can be flagged as changed while leaving detailed textual analysis to standard line-diff utilities.
 
-And you can generate variants. Once a spec is a frozen value you can build twenty of them in a
-loop, each with one field changed, and run the eval harness from module 2 over all twenty. That
-is not possible when the agent is four lines of constructor call in the middle of a function,
-and it is the mechanism behind every "optimise your prompt automatically" feature you have seen.
+3. Automated prompt and parameter optimization: When specifications are structured objects, evaluation harnesses
+can generate variations in a loop, evaluating parameter permutations against standardized test sets.
 
-There is a fourth thing that follows from `tools` being a list of names rather than a list of
-functions: it is a boundary. `build_agent` gives the agent a registry holding only the tools its
-spec names, in the order it names them, and nothing else. An agent that can see every tool in
-the process is an agent whose spec is a comment rather than a constraint.
+In addition, specifying tool names as a list creates an explicit boundary. `build_agent` configures the agent with
+a restricted registry containing only the declared tools in their specified order, ensuring agents cannot access
+unintended functions.
 
-## What data costs you
+## The limits of declarative configuration
 
-The moment you need behaviour the spec's own schema cannot express, and this is the shape of
-the spec rather than the tool schemas from lesson 2, you write an escape hatch. The escape
-hatch is where the whole design goes to argue with itself.
+Declarative schemas struggle when workflows require dynamic logic or control flow.
 
-The pattern is always the same. Someone needs a tool that is only offered when the customer is
-on a paid plan. There is no field for that. So the spec grows a `condition` string, which
-grows an expression language, which grows variables, and now you have a small interpreter with
-no debugger and worse error messages than Python. Or the config grows a `handler:
-"mymodule.custom_router"` field, which is Python again, except now it is Python selected by a
-string at load time and your config file is code that no editor can help you read.
+When an application requires conditional tool access based on runtime state (such as user subscription tier),
+configuration formats often grow ad-hoc expression languages or dynamic string handler imports. At that point,
+configuration becomes an untyped programming language without native debugging tooling.
 
-That is not an argument against the declarative shape. It is the reason to know exactly where
-its edge is before you commit. Configuration is excellent for a small number of fields that a
-non-programmer might reasonably want to change. It is bad at conditionals, and it is terrible
-at anything needing a loop. When your spec sprouts control flow, that is the signal it wanted to
-be code, and the least painful moment to notice is the first field that cannot be a literal.
+Configuration formats work well for static properties like system prompts, tool whitelists, and numerical budgets.
+When workflows require dynamic branching, loops, or complex state transformations, standard Python code provides
+clearer execution semantics and better editor tooling.
 
-The second cost is that validation is now yours. When the agent was a constructor call, Python
-checked the argument names for you and your editor autocompleted them. A dict has no such
-protection, which is why `spec_from_dict` rejects unknown keys. Nobody misspells `system`, but
-plenty of people write `prompt`, and a loader that ignores keys it does not recognise will
-cheerfully run an agent with no instructions and no tools. The check that earns its keep is the
-one that says "you wrote `prompt`, the keys are `name`, `system`, `tools`, `max_steps`".
+Data formats also shift validation responsibility to your loader. Python syntax checkers validate argument names
+in code, whereas dictionaries require explicit schema validation. The loader `spec_from_dict` must validate types
+and reject unknown keys to catch typos before execution.
 
-## The adoption decision
+## Framework evaluation criteria
 
-There is no rule for when to adopt a framework, and anybody who gives you one is selling
-something. There are four questions with honest answers, and the answers depend on your
-situation rather than on the framework's quality.
+Evaluating third-party frameworks depends on specific system requirements:
 
-### How much of it would you actually use?
+### How much functionality is required
 
-Frameworks are priced as a bundle. If you need the tool registry, the retry policy, the tracing
-and the streaming, a good framework is a large multiplier and writing all four yourself is a
-quarter you did not need to spend. If you need the registry and nothing else, you are taking a
-dependency, a migration path and a set of abstractions to learn in exchange for the one piece
-you built yourself in lesson 2. Count the pieces you would use, not the pieces on the feature
-list.
+Frameworks bundle multiple features together (registries, retry policies, streaming, state channels, tracing).
+If a project requires most of these capabilities, using an established framework saves engineering effort.
+If a project only needs simple tool dispatch, adopting a large framework introduces unnecessary dependency
+overhead.
 
-### Can you debug it?
+### Debugging transparency
 
-Read one of its stack traces before you decide. Not a tutorial, a stack trace from a real
-failure. Some frameworks fail with a message naming your node and your field; some fail eleven
-frames inside an executor with a `KeyError` on a string you have never seen. That difference is
-what your on call rotation will actually experience, and it is knowable in an afternoon.
+Examine framework failure behavior. Tracebacks should pinpoint application nodes and parameters clearly rather
+than failing deep within internal executor loops with opaque dictionary key errors.
 
-### What does leaving look like?
+### Migration surface area
 
-Assume you will migrate off eventually, because this part of the ecosystem turns over faster
-than the systems built on top of it, and ask what would have to change on the day you do. A
-framework you called from your own loop is a rewrite of one file. A framework whose types are in
-every signature and whose decorators are on every function is a rewrite of the codebase. This is
-the question that most changes the answer and is asked the least often.
+Consider the effort required to migrate off the library. Calling framework components from standard Python loops
+limits migration surface area to specific integration files. Permeating framework types and decorators throughout
+every application interface couples the entire codebase to that dependency.
 
-### Can the team read it?
+### Team onboarding overhead
 
-An abstraction that only its author understands is worse than no abstraction, however elegant.
-If the framework's mental model takes a week to explain, you are paying that week per person, on
-every person, forever.
+Evaluate the conceptual model required to understand the framework. Complex abstractions increase onboarding
+time and require continuous maintenance overhead across the engineering team.
 
-The answers move over time. A prototype with one agent and three tools does not need a
-framework and adopting one early is how a two hundred line project becomes a two thousand line
-project. A system with nine agents, durable resume, a spend cap and four engineers is one that
-will grow a framework whether or not it adopts one, and growing your own means maintaining it
-forever with no community and no documentation.
+## Practical guidance
 
-## What this course thinks
-
-Plainly, so there is no ambiguity: this course teaches you to build these things so that you can
-choose, not so that you never adopt one. Almost everyone should use a framework eventually, and
-the ones named in this module are good software written by people who have thought about this
-much longer than a course can convey.
-
-What you get from having built a registry, a hook system, a trace and a spec compiler is that
-none of it is a black box any more. When a framework's tracing does not capture what you need,
-you know what a trace is made of and can tell whether that is a gap or a design choice. When its
-config cannot express a condition, you recognise the edge instead of fighting it. And when
-someone says "we should use a framework", you can ask which of the five things it gives you and
-whether you need them, which is an engineering conversation rather than a preference.
+Building registries, hook systems, tracers, and specification parsers from scratch demystifies framework internals.
+When evaluating commercial libraries, you can assess how each feature is structured and determine whether it
+aligns with your system's architecture.
 
 ## Your exercise
 
-Write `spec_from_dict`, `validate_spec`, `build_agent` and `diff_specs`. `AgentSpec`,
-`ToolRegistry` and `Agent` are given, unchanged from the earlier exercises, so all of the work
-is the layer that turns configuration into one of them.
+Implement `spec_from_dict`, `validate_spec`, `build_agent`, and `diff_specs`. The `AgentSpec`, `ToolRegistry`,
+and `Agent` classes are provided.
 
-The split between the first two functions is deliberate and the tests hold you to it.
-`spec_from_dict` is shape checking and knows nothing about tools: is this a dict, are the
-required keys present, is every key one that exists, is each value the right type.
-`validate_spec` is the half that knows about the world, so it takes the registry and asks
-whether the contents mean anything. Mixing them gives you a function that cannot check a spec
-without a registry, which is the thing you want in a linter.
-
-The tests check that an unknown key is rejected by name, that a close tool name gets a
-`difflib` suggestion, that a bad spec fails before any model call, and that the built agent is
-offered exactly the tools its spec named, in spec order. On `diff_specs` they pin the output
-order exactly, because a diff that reorders itself is a diff nobody can review.
-
-Two catch people. `max_steps: true` must be rejected, and it will slip through a naive
-`isinstance(value, int)` because `bool` is a subclass of `int` in Python. And "tools reordered"
-appears only when the same names are present in a different order, which means it is a separate
-check from added and removed rather than something you can infer from either.
+The test suite validates:
+1. Validating dictionary types and rejecting unknown specification keys.
+2. Validating tool existence against the provided registry.
+3. Suggesting close matches via `difflib` when a tool name is mistyped.
+4. Constructing agents with isolated registries containing only declared tools in specification order.
+5. Emitting deterministic change lists in `diff_specs`.
+6. Rejecting boolean inputs for integer fields like `max_steps`.

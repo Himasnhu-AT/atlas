@@ -1,0 +1,47 @@
+---
+id: quant-time-series.returns-and-stationarity
+title: Returns and stationarity
+summary: Raw asset prices are non-stationary. Quantitative modeling requires transforming price paths into stationary return series.
+order: 1
+estimatedMinutes: 20
+---
+
+Raw prices cannot be modeled directly with standard regression or classification algorithms because price levels drift over time, violating basic assumptions of statistical inference.
+
+## Simple returns versus log returns
+
+For an asset with price $P_t$ at time $t$ and $P_{t-1}$ at time $t-1$:
+
+The **simple return** $R_t$ is:
+
+$$
+R_t = \frac{P_t - P_{t-1}}{P_{t-1}} = \frac{P_t}{P_{t-1}} - 1
+$$
+
+Simple returns are cross-sectionally additive across a portfolio of assets, but they are not additive over consecutive time periods: $(1 + R_1)(1 + R_2) \neq 1 + R_1 + R_2$.
+
+The **log return** $r_t$ (continuously compounded return) is:
+
+$$
+r_t = \ln\left(\frac{P_t}{P_{t-1}}\right) = \ln(P_t) - \ln(P_{t-1})
+$$
+
+Log returns are additive across time:
+
+$$
+r_{0 \to T} = \sum_{t=1}^T r_t = \ln(P_T) - \ln(P_0)
+$$
+
+For small percentage changes ($|R_t| < 0.05$), simple returns and log returns are approximately equal.
+
+## Stationarity
+
+A time series $X_t$ is **strictly stationary** if the joint probability distribution of any sequence of observations is invariant to time shifts.
+
+In practice, quant models rely on **weak stationarity** (covariance stationarity), which requires three conditions:
+
+1. Constant mean: $E[X_t] = \mu$ for all $t$.
+2. Constant variance: $\text{Var}(X_t) = \sigma^2 < \infty$ for all $t$.
+3. Time-invariant autocovariance: $\text{Cov}(X_t, X_{t-k}) = \gamma_k$, depending only on lag $k$, not on time $t$.
+
+Price series follow random walks or integrated processes of order 1 ($I(1)$), meaning their variance grows with time $t$. Taking first differences of log prices yields $I(0)$ series with stable variance suitable for statistical modeling.

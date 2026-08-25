@@ -9,66 +9,47 @@ exercise:
   timeboxMinutes: 35
 ---
 
-Reloading everything every night is the simplest correct thing, and for a lot of tables it is
-the right answer for far longer than people expect. When it stops being right, the usual
-replacement is a **watermark**: a record of how far the last run got, so the next one only asks
-for what came after.
+Full table reloads on a nightly cadence provide simple operational semantics. As datasets expand, pipelines transition to incremental synchronization using a **watermark**: a cursor recording the latest state or timestamp processed by previous runs.
 
-## The obvious watermark, and why it loses rows
+## Boundary conditions and record loss in watermarks
 
-Store the highest `placed_at` you have loaded, and next time ask for rows strictly after it.
+A naive approach records the maximum `placed_at` timestamp from the previous batch and filters for subsequent records using strict inequality:
 
 ```sql
 SELECT * FROM source WHERE placed_at > :watermark
 ```
 
-This is wrong, and it is wrong in the direction that loses data rather than duplicating it,
-which means nothing raises.
+Strict inequality silently skips records whenever multiple transactions share the exact boundary timestamp. If the final record processed by a batch had timestamp `2026-03-06T09:14:00`, any additional records created at that exact second are excluded by `>` and will never be processed.
 
-Two rows can share a timestamp. If the last run's final row was `2026-03-06T09:14:00` and
-another row exists with exactly that timestamp, the strict `>` skips it. Forever. There is no
-later run that will pick it up, because the watermark has already moved past it.
+Using inclusive bounds (`>=`) retrieves all boundary records:
 
-Use `>=` instead and the boundary rows come back every time — which is fine, because the
-write is an upsert and re-writing an unchanged row costs almost nothing. **Overlap is cheap
-and gaps are permanent**, and that trade decides this whole design.
+```sql
+SELECT * FROM source WHERE placed_at >= :watermark
+```
 
-## Late arrivals
+Inclusive filtering causes boundary records to be fetched again. Combined with idempotent upserts, re-evaluating boundary records ensures that no records with identical timestamps are omitted.
 
-Worse than ties: a row can be created with a timestamp earlier than one you have already seen.
-A transaction that began before the last run and committed after it. A source system that
-backdates a correction. A timezone bug.
+## Handling late-arriving records
 
-A watermark on a business timestamp cannot see those rows at all. They are behind the mark by
-the time you look.
+Records often arrive out of chronological order due to long-running source transactions, delayed ingestion queues, or retroactively edited entries.
 
-There are three honest answers. Watermark on an **ingestion** timestamp the source assigns on
-write, which is monotonic in a way a business date is not. Or re-read a **lookback window**,
-asking for everything since the mark minus a few hours, and rely on the upsert. Or run a
-periodic full reconciliation and accept that between reconciliations you may be missing
-something.
+A watermark filtering strictly on a business event timestamp cannot detect records inserted with historical event dates. Data architectures address late-arriving data using three primary strategies:
 
-Most real pipelines do the second, which costs almost nothing, and the third weekly. What none
-of them do is pretend the problem does not exist, which is what a bare `>` on a business date
-is doing.
+1. **Ingestion timestamps:** Tracking a monotonic system insertion timestamp (`created_at` or `_ingested_at`) assigned by the source database on write, rather than relying on mutable business dates.
+2. **Lookback windows:** Querying an overlapping window (such as the watermark minus three hours) to capture delayed records, relying on upserts to deduplicate previously processed rows.
+3. **Periodic full reconciliations:** Supplementing incremental runs with scheduled batch re-syncs to reconcile historical discrepancies.
 
-## The watermark has to be written after the rows
+Combining an overlapping lookback window with regular reconciliation provides high consistency without requiring full reloads on every cycle.
 
-If the watermark is committed before or separately from the data, a crash between the two
-leaves a mark saying you loaded rows you did not.
+## Atomic watermark commits
 
-So the watermark update belongs in the **same transaction** as the write it describes. Then
-either both landed or neither did, and a crash costs you a re-run rather than a silent hole.
+Updating the watermark outside the transaction that writes the batch data introduces failure vulnerabilities:
 
-This is the same argument as one transaction per load, applied to the bookkeeping rather than
-the data, and it is the part people leave out.
+- Committing the watermark before writing data causes crash recovery to skip the batch entirely.
+- Committing the watermark in a separate follow-up transaction risks leaving the data committed while the watermark remains behind.
+
+Updating the watermark table inside the **same database transaction** as the data write guarantees that data and tracking state advance together atomically.
 
 ## What the exercise asks
 
-Read a watermark, select the rows a run should process, write those rows and the new watermark
-atomically, and prove three things: that running twice writes nothing new, that a row sharing
-the boundary timestamp is not lost, and that a crash between the write and the mark does not
-leave the mark ahead of the data.
-
-That last test is the one worth keeping. It is easy to write a loader that is correct when
-nothing goes wrong.
+Implement watermark retrieval, extract incremental rows with boundary inclusivity, persist rows and updated watermarks atomically, and verify recovery behaviors: ensuring repeated runs produce no duplicate state, boundary timestamps are preserved, and transactional rollbacks maintain consistent cursor positions.
