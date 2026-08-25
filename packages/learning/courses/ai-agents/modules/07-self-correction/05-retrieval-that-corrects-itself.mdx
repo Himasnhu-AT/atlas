@@ -9,99 +9,58 @@ exercise:
   timeboxMinutes: 35
 ---
 
-[The RAG pipeline](lesson:ai-memory-and-rag.the-rag-pipeline) does the same four things every
-time: embed the question, take the top k, put them in the prompt, answer. It is the right thing
-to build first and it has two assumptions in it that are not always true.
+In [The RAG pipeline](lesson:ai-memory-and-rag.the-rag-pipeline), the standard workflow follows four deterministic steps: embed the query, retrieve the top k nearest chunks, insert them into the prompt context, and generate an answer.
 
-It assumes the top k are relevant. Similarity search always returns something; on a question
-your corpus does not cover, it returns the least irrelevant chunks with no signal that this is
-what happened.
+This standard implementation operates on two key assumptions:
+1. The top k retrieved chunks contain relevant information. In practice, vector similarity search returns nearest neighbors even when the corpus has no relevant content for the query.
+2. Every incoming turn requires document retrieval. Routine pleasantries or self-contained conversational turns unnecessarily trigger embeddings and inject irrelevant context.
 
-And it assumes retrieval was needed at all. *"Thanks, that helped"* triggers an embedding call
-and stuffs three chunks of documentation into the context of a message that needed neither.
+Applying self-correction principles to retrieval improves accuracy because the retriever can actively query new facts rather than relying solely on parametric weights.
 
-Everything in this lesson is the module's one idea — check the thing that produced the answer,
-using something independent of it — pointed at retrieval. The difference is that here the
-correction can succeed, because unlike a model thinking harder, a retriever can go and get the
-missing fact.
+## Evaluating retrieved chunks
 
-## Grade what came back
+To address irrelevant retrievals, add a grading step between retrieval and synthesis that evaluates each chunk against the incoming query:
 
-The fix for the first assumption is a step between retrieval and generation: for each retrieved
-chunk, does it actually help answer this question?
+**Relevant.** The chunk contains information that directly answers the user query. Retain for context assembly.
 
-That grade is per chunk, not per result set, and it is a small independent judgement — the chunk
-and the question, nothing else. Three outcomes:
+**Irrelevant.** The chunk is tangential or unhelpful despite vector similarity score. Discard to prevent noisy tokens from diluting attention.
 
-**Relevant.** Keep it.
+**Ambiguous.** The chunk provides partial context. Retain with an explicit uncertainty flag, matching the pattern in [chain of verification](lesson:ai-self-correction.chain-of-verification).
 
-**Not relevant.** Drop it. A chunk that scored well on embedding similarity and does not answer
-the question is noise, and noise in the context makes the answer worse rather than merely not
-better.
+When all retrieved chunks are graded as irrelevant, the pipeline detects a retrieval failure before attempting to generate an answer.
 
-**Ambiguous.** Keep it and mark it, exactly like the unsupported claims in
-[chain of verification](lesson:ai-self-correction.chain-of-verification).
+## Corrective actions on retrieval failure
 
-The interesting case is when everything is graded not relevant. That is the pipeline
-discovering that its corpus does not cover the question, which the plain version could never
-find out.
+Detecting an inadequate retrieval set enables targeted corrective steps:
 
-## Then do something about it
+**Query rewriting.** Users often phrase questions differently from technical documentation (for example, asking *"why did my card get declined"* when the manual discusses *"error 402: payment method rejected"*). Rewriting the query using terminology aligned with the corpus frequently surfaces the intended chunks.
 
-Knowing the retrieval failed is only useful if there is a next move.
+**Index broadening.** Increase retrieval depth or relax metadata filters that may have excluded relevant documents.
 
-**Re-query.** The commonest reason for a bad result set is that the question is not phrased the
-way the documents are. A user asks *"why did my card get declined"*; the documentation says
-*"error 402: payment method rejected"*. Rewriting the query into the corpus's vocabulary and
-searching again is cheap and often works.
+**Honest fallback.** When the corpus does not contain the required facts, the system should explicitly state that the information is unavailable. This fulfills the scope requirement detailed in [grounded answers and the scope boundary](lesson:ai-support-triage.grounded-answers-and-scope).
 
-**Widen.** Take more chunks, or drop a filter that was excluding the right document.
+Corrective loops must enforce a maximum retry count (such as two re-query attempts) to prevent runaway query drift.
 
-**Say you do not know.** The answer nobody implements, and the correct one when the corpus
-genuinely lacks the fact. It is much better than the alternative, which is answering anyway from
-whatever was in the context. The support project makes this a rule in
-[grounded answers and the scope boundary](lesson:ai-support-triage.grounded-answers-and-scope);
-this is the retrieval-side machinery that lets you honour it.
+## Deciding when to retrieve
 
-Bound the re-querying. Two attempts, then stop. A loop that keeps rewriting until it finds
-something will eventually find something, and what it finds will be whatever matched the query
-it drifted into.
+To avoid unnecessary lookups, place a lightweight classification check before running vector search to determine whether the prompt requires external documentation.
 
-## Decide whether to retrieve
+This routing step skips vector search for general conversational turns, queries that can be answered from recent conversation history, or basic clarification prompts. Bypassing retrieval for non-factual queries reduces latency and prevents irrelevant context from crowding the prompt.
 
-The second assumption. Not every message needs the corpus.
+When routing confidence is borderline, default to retrieving. An unnecessary retrieval consumes additional tokens, whereas an erroneously skipped retrieval risks producing an ungrounded hallucination.
 
-A cheap classification before retrieving — does answering this need documents we hold? — skips
-the whole pipeline for conversational turns, for questions answerable from the conversation so
-far, and for anything the model plainly knows.
+## Taxonomy: corrective, adaptive, and self-RAG
 
-Two things this buys beyond latency. It stops irrelevant chunks landing in the context of a
-message that did not need them, which is a real quality improvement and not just a saving. And
-it makes the retrieval that does happen more legible in a trace, because a retrieval call now
-means something decided it was necessary.
+Literature frequently distinguishes three related patterns:
 
-The risk is skipping when you should not have, and it points one way: **when unsure, retrieve.**
-An unnecessary retrieval costs tokens. A skipped necessary one costs a wrong answer delivered
-confidently.
+**Corrective RAG (CRAG).** Evaluates retrieved documents for relevance and triggers query rewriting when results are insufficient.
 
-## The three names
+**Adaptive RAG.** Dynamically routes queries to determine whether retrieval is necessary, and selects appropriate retrieval strategies based on query complexity.
 
-These get sold as three architectures. They are three decisions.
+**Self-RAG.** Evaluates generated responses against retrieved context to confirm that every claim is grounded in the source text.
 
-Grading results and re-querying on failure is usually called **corrective RAG**. Deciding
-whether to retrieve at all is **adaptive RAG**. Having the generation step also judge whether
-its own answer is supported by what it retrieved is **self-RAG**, and that last one is chain of
-verification with the retrieved chunks as the source.
+These three techniques compose naturally within a single production pipeline.
 
-Worth knowing the words because papers and libraries use them. Not worth treating as three
-things to choose between: they compose, and a real pipeline usually wants all three, each of
-them a few lines around the pipeline you already have.
+## Exercise instructions
 
-## What the exercise asks
-
-A relevance grader, a query rewriter, a bounded corrective loop that re-queries and gives up
-honestly, and the decision about whether to retrieve at all.
-
-The test to read is the one where the corpus does not contain the answer: the assertion is that
-the pipeline says so, rather than answering from three chunks that scored well and were about
-something else.
+In this exercise, you implement a document relevance grader, a query rewriter for failed retrievals, a bounded corrective loop that exits cleanly when documentation is missing, and an adaptive routing step that decides when retrieval is necessary.

@@ -9,8 +9,11 @@ exercise:
   timeboxMinutes: 25
 ---
 
-A query that is slow is usually not slow because of the data volume. It is slow because it is
-reading every row to find a few, and the database will tell you that if you ask.
+Query latency issues often stem from full table scans rather than sheer data volume. The database query planner provides insight into access paths through query explanation commands.
+
+## Evaluating query execution plans
+
+Inspecting the execution plan reveals how the storage engine resolves a filter:
 
 ```sql
 EXPLAIN QUERY PLAN SELECT * FROM orders WHERE customer = ?;
@@ -20,10 +23,9 @@ EXPLAIN QUERY PLAN SELECT * FROM orders WHERE customer = ?;
 SCAN orders
 ```
 
-`SCAN` means every row. On ten rows that is free. On ten million it is the whole problem, and
-the query looks identical either way, which is why this gets shipped.
+`SCAN` indicates a sequential scan across every row in the table. On small tables this overhead is negligible, but on large tables it causes noticeable query latency.
 
-Add an index and ask again:
+Adding an index on the filtered column alters the access strategy:
 
 ```sql
 CREATE INDEX orders_customer ON orders (customer);
@@ -33,48 +35,28 @@ CREATE INDEX orders_customer ON orders (customer);
 SEARCH orders USING INDEX orders_customer (customer=?)
 ```
 
-`SEARCH` means it jumped to the rows it needed. That is the entire skill: **`SCAN` is reading
-everything, `SEARCH` is not**, and one word tells you which.
+`SEARCH` indicates the database uses the index structure to navigate directly to matching records.
 
-## An index is not free
+## Trade-offs of index maintenance
 
-It is a second copy of the column, kept sorted, updated on every write. So an index makes
-reads faster and writes slower, and takes disk.
+Indexes are sorted data structures that require updates on every `INSERT`, `UPDATE`, or `DELETE`. They accelerate read operations while increasing write latency and storage consumption.
 
-For a pipeline that means the load and the queries want different things. A bulk load into an
-indexed table pays the index maintenance on every row, so dropping the indexes, loading, and
-recreating them is often dramatically faster and is a normal thing to do.
+In bulk data ingestion pipelines, maintaining multiple indexes during large writes creates substantial overhead. Dropping indexes before bulk loads and rebuilding them afterward is a standard optimization pattern.
 
-The other half of "not free" is that an index only helps a query shaped the way the index is.
-An index on `(customer)` does not help `WHERE lower(customer) = ?`, because the index holds
-`customer` and the query asks about a function of it. Wrapping an indexed column in a function
-is the most common way to accidentally turn a `SEARCH` back into a `SCAN`, and nothing warns
-you.
+Additionally, standard B-tree indexes only support predicates matching the indexed expression. An index on `(customer)` does not accelerate `WHERE lower(customer) = ?`, because the index stores un-transformed values. Wrapping indexed columns in SQL functions bypasses index usage and reverts execution to a full table scan.
 
-## Composite indexes have an order, and it matters
+## Composite indexes and leftmost prefix matching
 
-An index on `(customer, placed_at)` helps a query filtering on `customer`, and one filtering
-on both. It does not help a query filtering only on `placed_at`.
+An index on multiple columns, such as `(customer, placed_at)`, accelerates queries filtering by `customer` alone, or by both `customer` and `placed_at`. It cannot accelerate queries filtering solely on `placed_at`.
 
-The reason is the same as a phone book sorted by surname then first name: you can find every
-Patel, and every Patel called Aditi, and you cannot find every Aditi. Leftmost prefix, and it
-is worth remembering because the fix for a slow query is often reordering the columns of an
-index that already exists.
+Multi-column indexes operate on the leftmost prefix rule, analogous to a telephone directory sorted by surname then first name. You can look up entries by surname or by full name, but not by first name alone. Column ordering in composite indexes must reflect primary query filter patterns.
 
-## Measure the query you have
+## Benchmarking query performance
 
-The planner tells you the shape. It does not tell you the time, and the two do not always
-agree: a `SCAN` of a small table is faster than a `SEARCH` that has to fetch scattered rows.
-sqlite knows this and will sometimes choose a scan on purpose.
+Execution plans indicate access methods, but actual execution time depends on table cardinality, page cache utilization, and data layout. For tiny tables, sequential scans can outperform index traversals due to reduced I/O overhead.
 
-So the rule is not "always index". It is: look at the plan, and if you are going to change
-something, time it before and after on data the size of the real thing.
+Always benchmark query execution times on representative data volumes before and after schema modifications.
 
 ## What the exercise asks
 
-Read a plan and say whether it scans or searches, create the index a query needs, and confirm
-the query returns the same rows either way.
-
-That last part is the one people skip. An index is meant to change the speed and nothing else,
-and a query returning different results with an index than without it means something is wrong
-with the query, not the index.
+Inspect query plans to differentiate table scans from index searches, create required single and composite indexes, and verify that query results remain identical before and after index application.

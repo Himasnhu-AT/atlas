@@ -9,38 +9,33 @@ exercise:
   timeboxMinutes: 35
 ---
 
-The loop you have crashes on the first thing that goes wrong. That was the right first
-version: a loop that swallows everything is much harder to debug than one that stops. Now it
-needs to survive the failures that are survivable, and the useful move is to notice that
-"something went wrong" is four different events with four different answers.
+A basic agent loop crashes on the first encountered error. While failing fast simplifies initial debugging,
+production agents must handle recoverable failures cleanly. Unhandled errors fall into four distinct categories,
+each requiring a specific response strategy.
 
 ## Four failures, and where each one goes
 
-| What happened | Whose problem | What the loop does |
+| What happened | Source of failure | Runtime action |
 | --- | --- | --- |
-| The model named a tool that does not exist | The model's | Observation, keep going |
-| Arguments will not parse or will not validate | The model's | Observation, keep going |
-| The tool ran and raised | The world's, but recoverable | Observation, keep going |
-| The provider itself failed | Neither | Retry the call, do not tell the model |
+| The model requested a nonexistent tool | Model generation | Return tool error observation, continue loop |
+| Arguments fail parsing or schema validation | Model generation | Return validation error observation, continue loop |
+| Tool raised an execution exception | Tool runtime (recoverable) | Return exception observation, continue loop |
+| Provider API returned an error (e.g. 503) | External infrastructure | Retry request with exponential backoff, omit from context |
 
-The first three share a shape. In each case the model made a decision, your code carried it
-out or tried to, and the result was not what anyone wanted. That is exactly what the
-observation slot in the loop is for. A tool message saying the call failed and why is a normal
-message, and a model that gets one usually corrects itself on the next turn: it picks the tool
-that does exist, or fills in the argument it missed, or tries a different city.
+The first three categories represent execution feedback. The model attempted an action, the runtime processed it,
+and the outcome was unsuccessful. Returning a structured tool error observation provides actionable feedback,
+allowing the model to select an existing tool, correct invalid parameter types, or supply alternative query arguments.
 
-Crashing instead throws away a run that was one turn from working. It also throws away
-everything else in the batch, which the previous lesson covers.
+Crashing immediately discards valid progress from prior turns and drops successful results from the current batch.
 
-The fourth is different in kind. A 503 from the provider is not a decision the model made and
-not information it can act on. The model never saw the request. Feeding it back as an
-observation teaches it that a perfectly good tool call was wrong, which is both false and
-expensive, and the next thing it does will be to try something worse.
+The fourth category requires different handling. An HTTP 503 from an API provider indicates an infrastructure issue,
+not a decision made by the model. Appending infrastructure failures into the conversation wastes context tokens
+and misleads the model into modifying a valid tool call.
 
-## What a good error observation says
+## What an error observation should contain
 
-The content of the tool message is the model's entire view of what went wrong. Write it for a
-reader who has to fix it in one attempt.
+The tool message payload represents the model's only visibility into failure causes. Error strings should state
+what failed, why it failed, and what parameters are valid:
 
 ```python
 "error: unknown tool 'lookup_pop'. Available tools: lookup_population, lookup_timezone"
@@ -48,8 +43,7 @@ reader who has to fix it in one attempt.
 "error: wrong arguments for lookup_population: unexpected keyword argument 'town'"
 ```
 
-Each of those names what failed, why, and what would work instead. Compare with what the same
-failures produce if you let the defaults speak.
+Compare these with raw exception strings:
 
 ```python
 "error: KeyError"
@@ -57,21 +51,19 @@ failures produce if you let the defaults speak.
 "Traceback (most recent call last):\n  File \"agent.py\", line 74, in dispatch..."
 ```
 
-The first two say nothing. The third says a great deal about your file layout and nothing
-about the problem, and it costs a few hundred tokens per occurrence to say it.
+Generic error strings provide insufficient guidance, while full tracebacks consume excessive context tokens
+without actionable instructions.
 
-The exception type earns its place next to the message. `LookupError` means the record is
-missing and a different argument might work. `ConnectionError` means the tool is down and
-trying again with different arguments is pointless. The model can act on that difference, and
-the message alone does not carry it.
+Including the exception type helps the model determine recovery strategies. A `LookupError` signals that alternative
+lookup keys may exist, whereas a `ConnectionError` indicates a service outage where repeated attempts with
+different arguments will not succeed.
 
-One thing not to put in an observation: anything the caller of the agent should not see.
-Internal hostnames, connection strings and stack frames all end up in the conversation, and
-the conversation frequently ends up in a log, a trace, or a reply to a customer.
+Never include sensitive internal hostnames, credentials, or proprietary environment variables in error messages,
+as message transcripts may appear in telemetry logs or user-facing responses.
 
-## The fourth failure belongs in a retry
+## Retrying provider failures
 
-Around the model call, not inside the conversation:
+Wrap model API invocations in retry logic with backoff:
 
 ```python
 for attempt in range(attempts):
@@ -85,47 +77,32 @@ for attempt in range(attempts):
         sleep(base_delay * (2**attempt))
 ```
 
-Three decisions are in there. Retry only what can succeed on a second try, which is a 429 and
-the 5xx family. A 400 means the request you built is wrong and it will be wrong the next time
-too, so retrying it turns one clear error into three and delays the moment you read it. A 401
-will not find a different API key on the way round.
+Retry only transient status codes, such as rate limits (429) and server errors (5xx). Client errors (400) indicate
+malformed requests that will fail repeatedly, while authentication errors (401) will not resolve on subsequent attempts.
 
-Wait longer each time. A provider returning 503 is usually a provider under load, and the
-whole population of clients retrying immediately and in unison is what keeps it there.
-Doubling is the standard answer, and in production you add jitter, a small random offset per
-client, so that a thousand clients that failed together do not come back together. The
-exercise leaves jitter out only because a deterministic test cannot assert on a random number.
+Exponential backoff reduces request pressure during provider outages. In production environments, add jitter
+(a randomized timing offset) to prevent synchronized retries across concurrent clients.
 
-Re-raise the provider's own error when the attempts run out rather than wrapping it in
-something of your own. Its status code is what the layer above yours will want to look at.
+When retry attempts are exhausted, re-raise the provider exception so upstream callers can inspect the HTTP status code.
 
-Retrying the model call is safe because it changes nothing on your side. Retrying a tool is
-not the same thing, and it is worth being explicit with yourself about which tools are safe to
-run twice. An agent that retries a search costs a little time. An agent that retries a payment
-does something else.
+Retrying model calls is safe because the request is idempotent. Retrying tool executions requires care, as tools
+with side effects (such as payment processing or state mutations) must not execute repeatedly without idempotency keys.
 
-## The loop that retries forever
+## Detecting repetitive failure loops
 
-The failure mode this design creates is the one to watch for. Errors going back as
-observations means the model can respond to an error by making the same call again, and get
-the same error, and do it again. Every turn costs a full model call carrying a conversation
-that grows each time.
+Returning errors as observations introduces the risk of repetitive failure loops: a model encounters an error,
+repeats the identical call, receives the same error, and consumes its step budget without progress.
 
-`max_steps` caps the damage but does not diagnose it, and it cannot tell a run that was making
-progress from one that was stuck on turn two. So count failures per call rather than in total.
-Canonicalize the call into a signature, name plus arguments with sorted keys, so that the same
-call with reordered keys is recognised as the same call, and end the run when one signature
-has failed some small number of times.
+A `max_steps` budget limits total calls but fails to identify where execution stalled. Track call failures by signature
+(tool name plus sorted argument pairs). Terminate the run when an identical call signature fails multiple consecutive times.
 
-Three is a reasonable default. The model gets the error, gets a chance to correct, gets one
-more, and then you stop paying for it. Raise it when you have watched transcripts where the
-fourth attempt worked, which does happen, and not before.
+Setting a threshold of three attempts allows the model to attempt error recovery while preventing endless loops on
+deterministic failures.
 
-## Telling the caller what happened
+## Returning structured run summaries
 
-Inside the loop, an unmet budget is a bug and raising is right. At the boundary where the
-agent meets the rest of your program, "I could not finish" is an ordinary outcome that a queue
-worker or an HTTP handler has to render, and an outcome you have to render is data.
+Inside the agent loop, budget exhaustion represents a hard boundary. At the application integration boundary,
+an incomplete run represents structured result data that callers must handle.
 
 ```python
 @dataclass(frozen=True)
@@ -137,26 +114,24 @@ class AgentRun:
     messages: list[dict]
 ```
 
-The reason matters more than the flag. A week of runs that ended in `max_steps` means the
-budget is too tight or the task needs a different shape. A week of `repeated_failure` on one
-signature means a tool's schema is misleading and the model keeps calling it wrong. A week of
-`provider_error` is not your problem at all. Collapsing all three into `ok: False` throws away
-the only thing that told you which week you are having.
+The `reason` field differentiates between system states:
+- `max_steps`: The step budget was insufficient for task complexity.
+- `repeated_failure`: A tool schema or validation rule caused repeated bad calls.
+- `provider_error`: Upstream API infrastructure failed.
 
-Return the transcript either way. A failed run that discards its messages leaves a human
-staring at a ticket that says the agent did not finish, with no way to find out what it was
-doing.
+Always include the message transcript in `AgentRun` so failures can be inspected and debugged.
 
 ## Your exercise
 
-Write `call_signature`, `safe_dispatch`, `call_with_retry` and `run_resilient_agent`. The
-`AgentRun` type and the tools are given.
+Implement `call_signature`, `safe_dispatch`, `call_with_retry`, and `run_resilient_agent`. The `AgentRun` dataclass
+and tool definitions are provided.
 
-The tests check that the three recoverable failures reach the model as tool messages rather
-than exceptions, that the backoff delays double, that a 400 is not retried at all, that three
-identical failing calls end the run with `repeated_failure`, and that a spent budget is
-reported rather than raised.
+The test suite validates:
+1. Formatting recoverable tool errors as observation messages rather than uncaught exceptions.
+2. Exponential backoff progression during API retries.
+3. Immediate propagation of HTTP 400 client errors.
+4. Run termination with `repeated_failure` when a tool signature fails three times.
+5. Returning structured `AgentRun` objects upon budget exhaustion.
 
-The part people get wrong is where the failure count lives. Count per signature across the
-whole run, not per step and not in total: a run that fails three different calls once each is
-an agent exploring, and a run that fails one call three times is an agent stuck.
+Track failure counts per signature across the entire run. An agent failing three distinct tools once each is
+exploring alternative options; an agent failing one signature three times is stuck in a loop.

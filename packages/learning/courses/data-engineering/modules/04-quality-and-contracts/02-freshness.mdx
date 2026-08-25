@@ -9,74 +9,53 @@ exercise:
   timeboxMinutes: 30
 ---
 
-Every check in the last lesson looks at the data that arrived. None of them notice when
-nothing arrives at all.
+Validation assertions inspect incoming payloads, but fail to detect scenarios where no data arrives at all.
 
-A pipeline whose source stopped sending will run, find zero new rows, write zero rows, and
-exit successfully every night for a month. Every dashboard keeps rendering. The numbers stop
-moving, which looks like a quiet period, and quiet periods are a thing that happens.
+When an upstream source stops transmitting, downstream ingestion tasks find zero new records, write zero rows, and exit with status code zero. Dashboards continue to render static metrics without alerting teams to data stagnation.
 
-## Freshness is about the newest row, not the last run
+## Measuring record timestamp freshness versus job execution
 
-The obvious check is "did the job run today". It is nearly worthless: the job ran, that is the
-problem.
+Checking whether a scheduled job executed successfully does not verify data recency. The job may execute cleanly while processing an empty queue.
 
-The useful check is on the data:
+Verifying data freshness requires inspecting the newest business timestamp in the dataset:
 
 ```sql
 SELECT max(placed_at) FROM orders;
 ```
 
-If the newest order is from four days ago and orders arrive continuously, the pipeline has been
-succeeding at nothing since Tuesday.
+Combining job execution status with data recency isolates the specific failure mode:
 
-Those two facts belong together, because between them they say which failure it is:
-
-| Job ran | Data fresh | What it means |
+| Job executed | Data fresh | Diagnosis |
 |---|---|---|
-| yes | yes | fine |
-| yes | no | the pipeline is fine and the source stopped |
-| no | yes | the scheduler is broken and the data is not stale yet |
-| no | no | the scheduler broke a while ago |
+| Yes | Yes | Pipeline healthy |
+| Yes | No | Pipeline running, upstream source delivery halted |
+| No | Yes | Scheduler failure, data within tolerance |
+| No | No | Scheduler offline, data stale |
 
-Only the first row is good, and the other three want three different people.
+Differentiating between scheduler failures and upstream ingestion halts directs remediation alerts to the responsible team.
 
-## Lag has to allow for how the data actually arrives
+## Cadence awareness and business hour exclusions
 
-"Fresh" is not one number. A source that delivers hourly is stale after two hours. One that
-delivers a nightly batch at 2am is fine at 11pm with data from twenty-two hours ago and
-alarming at 3am with the same data.
+Freshness thresholds depend on expected ingestion schedules and business calendars:
 
-So a freshness threshold has to know the cadence, and often the calendar. A weekday-only feed
-is stale on Monday morning if you measure hours since the last row, and perfectly healthy if
-you measure business hours. The most common false alarm in this whole area is a Monday morning
-page for a feed that has never run at the weekend.
+- An hourly stream is stale if no records arrive for two hours.
+- A nightly batch arriving at 02:00 UTC is expected to show 22 hours of lag at 00:00 UTC, but indicates a failure if lag persists past 03:00 UTC.
+- Feeds that operate exclusively on weekdays will trigger false alarms on Monday mornings if measured in calendar hours rather than business hours.
 
-## Volume freshness
+Freshness logic must incorporate expected delivery intervals and business day exclusions to prevent alert fatigue.
 
-The subtler version. The data is arriving and there is less of it than there should be.
+## Volume-weighted freshness
 
-A source sending 10,000 orders a day starts sending 400 because one region's integration
-broke. The newest row is from a minute ago, so a freshness check passes. The row count for the
-day is 400, so a row count check against yesterday fires — which is the last lesson's check
-doing this lesson's job, and is why the two belong in the same report.
+A subtle failure mode occurs when data continues to arrive, but at a fraction of expected volume.
 
-## The check that runs when nothing happened
+If an integration failure drops 95% of incoming traffic, new records still arrive continuously and pass basic timestamp freshness checks. Pairing timestamp checks with rolling volume assertions (introduced in the previous lesson) ensures both recency and completeness are verified together.
 
-The awkward property of a freshness check is that it has to run when the pipeline does not.
+## Decoupling freshness checks from pipeline schedules
 
-If it is a step at the end of the job, and the job did not run, the check did not run either
-and reports nothing. Silence then means both "everything is fine" and "everything is on fire",
-which is the failure this whole lesson is about, arriving one level up.
+Freshness monitors must execute independently of the pipelines they monitor.
 
-So freshness belongs on its own schedule, separate from the pipeline it watches. It is the one
-check that has to be external.
+Embedding freshness checks as the final step in a batch pipeline creates a failure blind spot: if the pipeline crashes or the scheduler fails to trigger the job, the freshness check never executes. Running freshness monitors on an independent external schedule ensures monitoring continues during pipeline outages.
 
 ## What the exercise asks
 
-Compute the age of the newest row, decide staleness against a cadence, combine the job's last
-run with the data's age into one verdict that names which of the four cases you are in, and
-handle the weekend exclusion.
-
-The verdict matters more than the number. "Stale" sends somebody to the wrong place half the
-time; "the pipeline is fine and the source stopped" sends them to the right one.
+Calculate the age of the latest record, evaluate staleness against configured schedule intervals, combine job run history and data age into a diagnostic status, and apply weekend calendar exclusions.

@@ -1,0 +1,48 @@
+---
+id: quant-validation.deflated-sharpe
+title: Multiple testing and the Deflated Sharpe Ratio
+summary: Correct backtested performance metrics for selection bias, number of trials, non-normal returns, and sample length.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: deflated-sharpe
+  timeboxMinutes: 35
+---
+
+When a quant researcher tests 1,000 parameter variations on historical price data, several variations will produce Sharpe ratios exceeding 2.0 purely by random chance (data snooping / selection bias).
+
+Presenting the best Sharpe ratio without adjusting for the number of discarded trials guarantees live performance failure.
+
+## The distribution of the maximum Sharpe ratio
+
+Under the null hypothesis of zero true predictive skill, the expected maximum false-positive Sharpe ratio observed across $N$ independent trials is:
+
+$$
+\text{SR}^* \approx \sqrt{2 \ln(N)} + \frac{\gamma}{\sqrt{2 \ln(N)}}
+$$
+
+Where $\gamma \approx 0.5772$ is the Euler-Mascheroni constant (for $N=1$, $\text{SR}^* = 0$).
+
+Testing 1,000 variations yields an expected false-positive maximum Sharpe of $\approx 2.4$ solely from noise.
+
+## The Deflated Sharpe Ratio (DSR)
+
+The **Deflated Sharpe Ratio (DSR)** computes the probability that the observed Sharpe ratio $\widehat{\text{SR}}$ exceeds the expected maximum noise benchmark $\text{SR}^*$, adjusting for sample length $T$, return skewness $\gamma_3$, and kurtosis $\gamma_4$:
+
+$$
+\sigma_{\text{SR}} = \sqrt{\frac{1 - \gamma_3 \widehat{\text{SR}} + \frac{\gamma_4 - 1}{4} \widehat{\text{SR}}^2}{T - 1}}
+$$
+
+$$
+Z = \frac{\widehat{\text{SR}} - \text{SR}^*}{\sigma_{\text{SR}}}
+$$
+
+$$
+\text{DSR} = \Phi(Z)
+$$
+
+A DSR value exceeding 0.95 (95% statistical confidence) indicates that the strategy's performance cannot be explained by multiple testing.
+
+## Exercise: compute the Deflated Sharpe Ratio
+
+In this exercise, you will implement `calculate_deflated_sharpe(sharpe, num_trials, sample_length, skewness, kurtosis)` returning the benchmark threshold $\text{SR}^*$ and the final DSR probability score.

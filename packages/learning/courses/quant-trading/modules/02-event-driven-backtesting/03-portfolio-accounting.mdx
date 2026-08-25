@@ -1,0 +1,56 @@
+---
+id: quant-backtesting.portfolio-accounting
+title: Portfolio accounting and PnL
+summary: Maintain multi-asset cash balances, track average entry prices for long and short positions, and compute mark-to-market valuations.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: portfolio-ledger
+  timeboxMinutes: 30
+---
+
+A trading strategy can hold simultaneous long and short positions across multiple assets while cash fluctuates from executions, commissions, and borrow fees.
+
+A **portfolio ledger** tracks these positions deterministically.
+
+## Position state and average cost basis
+
+For each traded symbol, the ledger tracks:
+* **Quantity**: Positive for long positions, negative for short positions, zero when flat.
+* **Average entry price**: The volume-weighted execution price of currently open inventory.
+* **Realized PnL**: Cumulative profit or loss locked in upon closing or reducing a position.
+
+When adding to an existing position in the same direction (e.g. buying when already long):
+
+$$
+P_{\text{new\_avg}} = \frac{P_{\text{old\_avg}} \cdot Q_{\text{old}} + P_{\text{fill}} \cdot Q_{\text{fill}}}{Q_{\text{old}} + Q_{\text{fill}}}
+$$
+
+When reducing or closing a position (e.g. selling when long):
+1. The average entry price remains unchanged.
+2. The closed portion generates realized profit or loss:
+
+$$
+\Delta \text{PnL}_{\text{realized}} = (P_{\text{fill}} - P_{\text{avg}}) \cdot Q_{\text{closed}}
+$$
+
+For short positions, closing occurs upon buying, so $\Delta \text{PnL}_{\text{realized}} = (P_{\text{avg}} - P_{\text{fill}}) \cdot Q_{\text{closed}}$.
+
+## Mark-to-market equity
+
+At any timestamp, the total portfolio equity is the sum of settled cash and the market value of all open positions:
+
+$$
+\text{Total Equity} = \text{Cash} + \sum_{i} P_{\text{current}, i} \cdot Q_i
+$$
+
+For long positions ($Q_i > 0$), market value is positive. For short positions ($Q_i < 0$), market value acts as a liability reducing total equity until the position is bought back to cover.
+
+## Exercise: build a portfolio ledger
+
+In this exercise, you will implement a `PortfolioLedger` that:
+
+1. Processes incoming `FillEvent` records, updating cash balances and deducting commissions.
+2. Manages position quantities and updates average entry prices upon position expansion.
+3. Calculates realized PnL upon position reduction or reversal.
+4. Calculates total mark-to-market equity from current prices.

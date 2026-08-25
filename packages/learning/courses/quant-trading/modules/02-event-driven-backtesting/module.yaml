@@ -1,0 +1,12 @@
+id: quant-backtesting
+slug: event-driven-backtesting
+name: Event-driven backtesting and execution
+summary: "Causal message queues, slippage and fee friction, multi-asset portfolio accounting, and bias-free backtesting."
+version: 1.0.0
+track: strategies
+order: 2
+isActive: true
+prerequisites:
+  - quant-microstructure
+difficulty: intermediate
+estimatedHours: 3.5

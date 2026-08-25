@@ -6,86 +6,54 @@ order: 1
 estimatedMinutes: 20
 ---
 
-Everything in this course is a pipeline: something reads data from one place, changes its
-shape, and writes it somewhere else. The reading and the writing are easy. What makes the job
-hard is that the data is a set of claims about the world, and the world does not fill in forms
-carefully.
+A pipeline reads data from one location, changes its shape, and writes it somewhere else. The mechanics of reading and writing are straightforward. The difficulty comes from the data itself: records represent claims about real-world events, and upstream sources rarely validate entries thoroughly.
 
 ## A row is a claim
 
-Here is one row, from the extract you will work on for the next five modules.
+Consider this row from the extract used throughout the course:
 
 ```
 1004,ada@example.com,2026-03-02,,29.99,shipped
 ```
 
-It says: order 1004 was placed by ada@example.com on the second of March, quantity blank,
-total 29.99, status shipped.
+The record states that order 1004 was placed by `ada@example.com` on March 2, total 29.99, status shipped, with an empty quantity field.
 
-Read that again with the blank in mind. Something shipped, and we do not know how many of it
-shipped. That is not a formatting problem. It is a hole in a claim, and everything downstream
-that adds up quantities is about to be wrong by an amount nobody can calculate.
+Something shipped, but the exact quantity is unknown. This is not a formatting issue. It is an incomplete record, and downstream systems calculating quantities will produce incorrect totals.
 
-The instinct is to fill it in. Zero is tempting because it is a number and the sum will run.
-It is also a lie: an order with zero items did not ship. One is tempting because it is the
-most common quantity. It is a better guess and still a guess, and a guess written into a
-column that everyone downstream will read as a fact.
+Defaulting the value to zero allows calculations to execute, but distorts the record: an order with zero items did not ship. Defaulting to one is a common assumption, but inserting an assumed value into a factual column causes downstream consumers to treat an estimate as fact.
 
-The rest of this course is mostly about the third option, which is to keep the row, mark it,
-and make sure the number nobody can calculate is a number nobody silently calculates.
+The preferred approach is to retain the row, flag the missing value explicitly, and ensure incomplete data is never aggregated without inspection.
 
-## The shape you actually get
+## Common input formats
 
-Data arrives in a small number of shapes, and they are not interchangeable.
+Data arrives in several distinct formats with different trade-offs:
 
-A **delimited file** is rows of fields separated by a character. CSV is the one you will meet
-most, and it is worse than it looks: a field can contain the delimiter if it is quoted, a
-quoted field can contain quotes if they are doubled, and a field can contain a newline. A
-naive `line.split(",")` gets all three wrong, and the row it corrupts is usually the one with
-the interesting data in it.
+A **delimited file** separates fields with a specific character. CSV files are common and prone to edge cases: fields can contain delimiters when wrapped in quotes, quoted fields can contain escaped quotes, and records can span multiple lines. A simple string split fails on these cases and corrupts fields with complex content.
 
-A **document format** like JSON carries its own types and can nest. That solves the quoting
-problem and introduces a different one: a nested document is not a row, and something has to
-decide how it becomes one.
+A **document format** such as JSON carries primitive types and supports nested structures. This avoids delimiter collisions, but introduces structural questions: a nested structure must be transformed before it can fit into tabular storage.
 
-A **table**, in a database, has a schema the storage engine enforces. This is the shape you
-usually want to end at, because it is the only one of the three where a claim about types is
-checked by something other than hope.
+A **database table** enforces a schema directly in the storage engine. This provides deterministic type enforcement and constraints.
 
-Most of a pipeline is moving between these, and each move is an opportunity to lose
-information quietly.
+Data pipelines move records between these representations, and each transformation risks subtle data loss.
 
-## Where the difficulty actually is
+## Where pipeline failures originate
 
-New data engineers expect the hard part to be volume. It usually is not. The hard part is
-that the same field means two things, that a job ran twice, or that an upstream system was
-fixed last Tuesday and the fix changed the data without changing the schema.
+Volume is rarely the primary failure mode in data engineering. Pipelines more commonly fail when field semantics drift, jobs run multiple times without idempotence, or upstream schema changes modify values without raising errors.
 
-Those are all the same problem wearing different clothes: **something changed and nothing
-noticed**. A pipeline that fails loudly is a good afternoon. A pipeline that succeeds while
-producing wrong numbers can go unnoticed for a quarter, and by then every report built on it
-is wrong too.
+These failures share a common trait: state changes occur silently without triggering validation. A catastrophic error that halts execution immediately is straightforward to identify and resolve. A job that completes successfully while writing incorrect numbers can persist undetected for months, corrupting dependent analytics.
 
-That is the spine of this course. A pipeline is a promise about data that has to keep being
-true tomorrow, so every stage has to be re-runnable and every promise has to be checkable.
+A reliable pipeline treats transformations as verifiable invariants across repeated executions.
 
-## What you need
+## Environment requirements
 
-Python 3.10 or newer, and nothing else. `csv`, `json`, `sqlite3` and `datetime` are all in the
-standard library, and between them they cover every exercise here.
+This course uses Python 3.10 or newer with standard library modules: `csv`, `json`, `sqlite3`, and `datetime`.
 
-`sampledata` is a single file the app copies next to each exercise, the same way the AI
-course ships its mock client. It generates the extracts you will work on, deterministically,
-so a test that passes on your machine passes in the build. There is no download, no database
-server, and no network.
+The `sampledata` module generates extracts deterministically for local test execution without external database dependencies or network access.
 
-The next lesson gets a messy file into memory. The one after decides what its rows should
-look like. Then you spend the rest of the course making sure the answer stays true.
-
+The following lesson covers parsing raw delimited text. Subsequent lessons define row schemas and enforce data validation across pipeline stages.
 
 ## Seen in production
 
-Dropbox describe building a document processing pipeline in
+Dropbox documented the architecture of a document processing pipeline in
 [Creating a modern OCR pipeline](https://blogs.dropbox.com/tech/2017/04/creating-a-modern-ocr-pipeline-using-computer-vision-and-deep-learning/).
-The machine learning is not the part to read for. Read it for the stages, and for how much of
-the work is deciding what a record is when the source is a photograph of a receipt.
+The relevant takeaway is how early pipeline stages define, normalize, and extract structured records from unstructured receipt images.

@@ -9,101 +9,55 @@ exercise:
   timeboxMinutes: 30
 ---
 
-The model does not read your string. A tokenizer cuts it into pieces from a fixed vocabulary
-first, and the model only ever sees the ids of those pieces. That step is mechanical, it runs
-before anything intelligent happens, and it is responsible for a surprising amount of what
-people attribute to the model.
+A language model does not ingest raw string characters. A tokenizer segments the text into integer IDs from a fixed vocabulary before execution. This preprocessing step explains several common edge cases in model behavior.
 
-## Tokens are not words, and they are not characters
+## Subword tokenization mechanics
 
-The vocabulary is built by an algorithm, usually byte pair encoding, that starts from
-individual bytes and repeatedly merges the most frequent adjacent pair until it has as many
-entries as it wants. What comes out is a vocabulary where common sequences are single tokens
-and rare ones are assembled from pieces.
+Token vocabularies are constructed using algorithms such as Byte Pair Encoding (BPE), which iteratively merges frequent adjacent byte sequences into single token entries. Common sequences map to single tokens, while rare words are split across multiple subwords.
 
-The effects are consistent across tokenizers even though the exact splits differ:
+Key tokenization patterns include:
+- Common English words typically form single tokens, often including their leading whitespace (for example, `" the"` and `"the"` map to distinct token IDs).
+- Rare terms, non-standard spellings, and long numeric sequences split into multiple tokens.
+- Capitalization and punctuation alter token boundaries. `"Hello"`, `"hello"`, and `"HELLO"` may produce different token sequences.
 
-- A common English word is usually one token, and the leading space is usually part of it, so
-  `" the"` and `"the"` are different tokens.
-- A rare or invented word is several tokens. So is a long number, which typically splits into
-  chunks of digits rather than into digits.
-- Casing and punctuation change the split. `"Hello"`, `"hello"` and `"HELLO"` need not
-  tokenize the same way.
+A standard heuristic for English text is approximately four characters per token, or three tokens for every four words. This estimate varies across programming languages, non-Latin scripts, and dense numeric data. For exact token budgeting, calculate counts directly using the provider tokenizer.
 
-The working heuristic for English prose is around four characters per token, or roughly three
-tokens per four words. It is a heuristic, not a rule: it drifts for code, for other languages,
-and for anything with unusual formatting. If a number matters, count it with the provider's
-tokenizer rather than estimating.
+Non-Latin alphabets and character sets underrepresented in training corpora require more tokens per word, often approaching one token per character. Code formats also show higher token density due to indentation and punctuation.
 
-Text that is not English prose costs more per unit of meaning. Vocabularies are built from
-corpora that are heavily English, so a language written in a non-Latin script often lands
-closer to one token per character. Recent tokenizers narrowed that gap considerably, but the
-direction still holds: the same document costs more in one language than another. Code has its
-own profile, with dense punctuation and identifiers that split at the case boundaries.
+## Tokenization edge cases
 
-## The failures this explains
+Character-level tasks (such as counting specific letters in a word or reversing a string) often fail because the model observes token IDs rather than individual characters. The model must infer character composition indirectly from patterns observed during training.
 
-Ask a model how many times the letter r appears in a word and it may get it wrong. This is
-routinely presented as evidence about reasoning. It is mostly evidence about tokenization.
+Similarly, multi-digit arithmetic requires coordinating across token chunks. When precision is required, delegate string operations and arithmetic to deterministic tools (`len(s)`, Python evaluators) rather than relying on language model generation.
 
-The model never saw the letters. It saw two or three token ids, and the relationship between
-those ids and their spelling is something it could only have learned indirectly, from text that
-happened to discuss spelling. Asking it to count letters is asking it to recover information
-the input representation dropped. The same goes for reversing a string and for arithmetic on
-long numbers, where the digits were grouped into chunks the model has to work across.
+## The shared context window budget
 
-A model that gets these right is usually spending tokens spelling the word out first, which is
-a workaround rather than a capability, and it is one reason reasoning models do better here.
-The real fix is a tool: `len(word)` is free, exact, and never has a bad day. Module 3 is
-about giving the model that option.
-
-## The context window is one budget
-
-The context window is the maximum length of the token sequence the model can process. It covers
-everything: the system message, every prior turn, the tool definitions you attached, the tool
-results, and the tokens the model is about to generate. One number, shared.
+The context window defines the maximum sequence length a model can process in a single request. This limit encompasses all prompt content: system instructions, conversation history, tool definitions, tool results, and the tokens generated in the response:
 
 ```python
-window = 128_000           # whatever your model's limit is
+window = 128_000           # maximum token capacity
 prompt_tokens = count(messages) + count(tool_schemas)
 room_for_reply = window - prompt_tokens
 ```
 
-That subtraction is the part people skip. A prompt that fits is not enough, because a prompt
-that leaves two hundred tokens of headroom produces a reply that stops mid sentence. Reserve
-the output budget before you decide the input fits. Most providers also expose a separate cap
-on output tokens, which is a second, smaller ceiling inside the first one.
+Applications must reserve sufficient headroom for the model response. If input tokens consume the context window up to the ceiling, the generation truncates immediately. Most providers also enforce an independent maximum output token limit (`max_tokens`).
 
-Current windows span a wide range, from tens of thousands of tokens at the small end to over a
-million at the large end, and the numbers move every few months. Do not build around a specific
-figure. Build so the figure is a constant you can change, and treat the shape of the constraint
-as the thing worth learning.
+Context window limits vary widely across model tiers. Design agent pipelines with configurable window parameters rather than hard-coded limits. Even within large context windows, placing relevant instructions near the beginning or end improves extraction accuracy.
 
-Bigger is also not uniformly better, because a model does not attend to a long prompt evenly,
-so putting only what matters in the context stays worthwhile even when everything would
-technically fit. The prompt engineering module measures that effect and turns it into an
-ordering rule.
+## Quadratic token accumulation in loops
 
-## Why the budget binds in an agent loop
+In multi-step agent loops, token usage grows quadratically. Because the model is stateless, every step resends the base prompt plus the accumulating history of tool calls and results.
 
-For a single question, the window is rarely the problem. In a loop it is the first thing to
-break, because of how the loop is shaped.
-
-The model has no memory between calls, so each step resends the entire conversation so far. If
-the base prompt is `B` tokens and every step adds `S` tokens of assistant output and tool
-results, then step one sends `B`, step two sends `B + S`, step three sends `B + 2S`. Over `n`
-steps the prompt tokens you pay for total:
+Given a base prompt of `B` tokens and `S` tokens added per step, step 1 sends `B`, step 2 sends `B + S`, and step 3 sends `B + 2S`. Across `n` steps, the total prompt tokens processed is:
 
 ```python
 def loop_cost(base_tokens, tokens_per_step, steps):
     return steps * base_tokens + tokens_per_step * steps * (steps - 1) // 2
 ```
 
-The second term is quadratic in the step count. It is worth watching the numbers rather than
-taking the formula's word for it. Here is an agent with a 2000 token base prompt, mostly tool
-schemas, adding 400 tokens per step:
+Consider an agent with a 2,000-token base prompt (including tool schemas) that adds 400 tokens per step:
 
-| Step | Prompt sent | Running total |
+| Step | Prompt tokens per call | Cumulative tokens paid |
 | --- | --- | --- |
 | 1 | 2000 | 2000 |
 | 2 | 2400 | 4400 |
@@ -111,69 +65,34 @@ schemas, adding 400 tokens per step:
 | 8 | 4800 | 27200 |
 | 16 | 8000 | 80000 |
 
-The per step cost rises gently, from 2000 to 8000 across the whole run. The total does not.
-Steps 9 through 16 are eight more units of work and 52800 more prompt tokens, which is nearly
-twice what the first eight steps cost put together. Nothing got harder. Every late step is
-simply paying for the history of every step before it.
+Steps 9 through 16 generate 52,800 prompt tokens, nearly double the token volume of steps 1 through 8. Unbounded agent loops risk substantial compute consumption, making hard step limits and context pruning mandatory.
 
-That is the shape to keep in mind: an agent that takes four tool calls to answer is cheap, and
-the same agent taking twenty on a harder question does not cost five times as much. It is why
-step budgets exist, and why an agent that fails to terminate is a billing incident rather than
-a hang.
+Prompt caching reduces the financial cost of repeated prompt prefixes by reusing KV cache state on provider hardware. However, caching does not reduce context window consumption: the prompt still consumes the same capacity against the model window limit.
 
-Prompt caching changes the price of this and not the arithmetic, and it is the reason the
-`prompt_tokens` you met in [reading a completion](lesson:ai-foundations.reading-a-completion) are not
-all billed at the same rate. The mechanism is the KV cache from the previous lesson, kept
-between requests: the provider stores the computed attention state for a prefix it has seen,
-and when your next request starts with exactly those tokens it reuses the state instead of
-recomputing it, and charges less for that span. Two consequences
-follow from "exactly". The match runs from the first token, so one edited character near the
-top invalidates everything after it, which is why the stable material belongs at the front and
-the volatile material at the back. And the token count is unchanged, so the window still fills
-at the same rate. Caching makes the resend cheaper. Only trimming makes it smaller.
+## Context management strategies
 
-## When you run out
+When conversation history approaches capacity, three primary reduction strategies apply:
 
-Three strategies, and each one loses something different.
-
-| Strategy | Cost | What you lose |
+| Strategy | Computational cost | Information tradeoff |
 | --- | --- | --- |
-| Trim | Free, no model call | Anything you dropped, silently |
-| Summarize | An extra model call per compaction | Detail, chosen by the model |
-| Retrieve | An index to build and maintain | Whatever the query failed to match |
+| Truncation / Trimming | Minimal (deterministic slicing) | Drops older messages entirely |
+| Summarization | Requires intermediate model calls | Retains high-level context but loses fine details |
+| Retrieval | Indexing and query overhead | Retrieves only fragments matching the query |
 
-Trimming drops old messages. It is instant and predictable, and the risk is that turn three
-referred to something in turn one that is now gone. Summarizing replaces a stretch of history
-with a shorter description, keeping the gist and losing the detail, and what counts as gist is
-decided by a model rather than by you. Do it repeatedly and you are summarizing summaries, and
-the drift compounds. Retrieval keeps the full history in a store outside the window and pulls
-back only what the current turn needs, which scales furthest and adds a component that can fail
-by returning the wrong thing.
+Production systems typically combine these approaches: pin the system message at index 0, retain recent dialogue turns verbatim, and summarize or retrieve older history as needed.
 
-Real systems combine them: pin the system message, keep the last few turns verbatim, summarize
-the middle, retrieve from the rest. Which mix is right depends on whether your failure mode is
-losing facts or losing thread, and that is worth measuring rather than guessing.
+## Exercise specification
 
-## Your exercise
+Implement six context budgeting and trimming functions:
+1. `estimate_tokens`: approximate token counts using character heuristics.
+2. `message_tokens`: calculate tokens for a message payload including role overhead.
+3. `conversation_tokens`: calculate total tokens across a message list.
+4. `headroom`: determine remaining token capacity given window limits and output budgets.
+5. `loop_cost`: compute cumulative prompt token consumption across multi-step execution.
+6. `trim_to_budget`: trim history to fit a token budget while preserving the system message and the newest user turn.
 
-You write the accounting layer: `estimate_tokens`, `message_tokens`, `conversation_tokens`,
-`headroom`, `loop_cost`, and `trim_to_budget`.
+When trimming history, preserve contiguous message spans. If an older message cannot fit within the remaining budget, halt trimming at that boundary rather than skipping it to include smaller, disconnected messages.
 
-The first four are arithmetic and exist so the last two have something to stand on.
-`loop_cost` is the quadratic growth from this lesson, expressed as a function. `trim_to_budget`
-is the real work: keep the system message pinned at the front, keep the newest user message
-whatever it costs, and fill the rest of the budget with the newest history you can afford.
+## Case study: GitHub Copilot context management
 
-The rule people get wrong is what to do when a message does not fit. Stop there, rather than
-skipping it and continuing to look for a smaller message further back. A conversation with a
-hole in the middle is worse than a shorter one, because the model reads it as continuous and
-has no way to know something was removed.
-
-
-## Seen in production
-
-GitHub's engineering team wrote up how Copilot assembles what it sends the model in
-[Inside GitHub: working with the LLMs behind GitHub Copilot](https://github.blog/2023-05-17-inside-github-working-with-the-llms-behind-github-copilot/).
-Read it for the part where they decide what to cut. Their budget problem is the one in this
-lesson with a much harder constraint attached, because the context has to be assembled in the
-milliseconds before you finish typing.
+GitHub detailed their context assembly pipeline in [Inside GitHub: working with the LLMs behind GitHub Copilot](https://github.blog/2023-05-17-inside-github-working-with-the-llms-behind-github-copilot/). The article outlines priority-based context pruning under strict latency budgets.

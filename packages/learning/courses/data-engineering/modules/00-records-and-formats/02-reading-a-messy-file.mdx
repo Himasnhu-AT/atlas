@@ -9,16 +9,11 @@ exercise:
   timeboxMinutes: 25
 ---
 
-You will never write a CSV parser at work. `csv` is in the standard library, it is correct,
-and reaching past it is the kind of thing that gets flagged in review.
+Production systems rely on standard libraries like Python's `csv` module rather than custom parsers. Implementing a parser manually once exposes the specific failure modes that occur in production pipelines when assumptions about input formatting break down.
 
-You are going to write one here anyway, once, because the failures of the naive version are
-the failures you will spend years diagnosing in other people's pipelines, and they are much
-easier to recognise if you have caused them yourself.
+## The naive parser and boundary cases
 
-## The naive parser, and the row it eats
-
-Splitting on the delimiter is the obvious approach.
+Splitting lines on delimiters is a common initial approach:
 
 ```python
 def parse(text):
@@ -27,59 +22,49 @@ def parse(text):
     return [dict(zip(header, line.split(","))) for line in lines[1:]]
 ```
 
-That works on most rows of most files, which is exactly what makes it dangerous. Here is a
-row from the extract:
+This implementation functions on basic inputs, which makes its edge cases difficult to detect. Consider this extract row:
 
 ```
 1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending
 ```
 
-The total is `1,499.00`, quoted because it contains a comma. The naive parser splits it into
-`"1` and `499.00"`, produces seven fields where the header promised six, and `zip` silently
-drops the extra one. No error, no warning. The largest order in the file quietly becomes
-`1` and the status disappears.
+The total value `1,499.00` contains a comma and is wrapped in double quotes. The naive parser splits this into `"1` and `499.00"`, yielding seven fields instead of the six defined in the header. Calling `zip` truncates the trailing element without raising an exception. The total value is recorded as `"1` and the status column is dropped.
 
-That is the shape of almost every data bug worth the name: **the wrong answer arrives looking
-exactly like a right one**.
+This illustrates a common failure mode: corrupt data often produces structurally valid records rather than raising runtime errors.
 
-## What quoting actually means
+## Quoting rules in delimited files
 
-Three rules cover nearly all of it.
+Standard delimited parsing depends on three core rules:
 
-A field may be wrapped in double quotes. Inside a quoted field, the delimiter is ordinary
-text. Inside a quoted field, two double quotes in a row mean one literal double quote.
+1. Fields containing delimiters or special characters may be enclosed in double quotes.
+2. Inside a quoted field, delimiter characters are treated as literal text.
+3. Inside a quoted field, two consecutive double quotes represent an escaped literal double quote.
 
-That is enough to make a parser that is a state machine rather than a split: you walk the
-text one character at a time, holding a flag for whether you are currently inside quotes, and
-the delimiter only ends a field when that flag is off.
+A reliable parser operates as a state machine: iterating over characters sequentially, maintaining state on whether the pointer is within quoted bounds, and terminating a field on delimiter characters only when outside quotes.
 
-A newline inside a quoted field is legal too, which is why splitting on `\n` before parsing is
-also wrong. The exercise leaves that case out, and it is the reason you use `csv` at work.
+Embedded newlines within quoted fields are also valid in CSV specifications. Pre-splitting raw input on `\n` fails on multiline fields, which is why standard library parsers process input as continuous streams.
 
-## The row with the wrong number of fields
+## Handling rows with mismatched field counts
 
-Look at this one:
+Consider this record:
 
 ```
 1007,ada@example.com,2026-03-05,1,9.99
 ```
 
-Five fields, six columns in the header. The export was truncated, or the writer skipped a
-trailing empty field, or somebody edited the file by hand.
+The record contains five fields against a six-column header due to upstream export truncation or missing trailing values.
 
-You have to decide what that row becomes, and there is no default that is right everywhere.
-Padding with `None` says "we do not know the status", which is true. Dropping the row says
-"this never happened", which is false and is the more common choice because it makes the
-error go away. `csv.DictReader` pads, and it is right to: a row that is present in the source
-should be present in what you parsed, even if what you parsed is incomplete.
+Parsing engines must handle mismatched lengths explicitly. Padding with `None` records that the final value was missing. Dropping the record removes evidence of the transaction entirely. Standard parsers such as `csv.DictReader` pad missing values with `None`. Retaining incomplete records ensures downstream systems have visibility into dropped or malformed data.
 
-The general rule, and it comes up in every module from here on: **losing a row is worse than
-keeping a bad one**, because a bad row can be found later and a missing one cannot.
+Preserving an incomplete record allows errors to be audited, whereas silent deletion makes failures untraceable.
 
 ## What the exercise asks
 
-Four functions. A field splitter that respects quotes, a parser that turns the whole text
-into dicts, a shape check that reports which rows do not match the header, and a small
-function that answers a question about the parsed data so you have something to look at.
+Implement four functions:
 
-Then you use `csv` for the rest of the course.
+1. A field splitter that handles quoted strings and escaped quotes.
+2. A parser that transforms raw delimited text into a list of dictionaries.
+3. A validation helper that identifies rows where field counts deviate from the header.
+4. An aggregation helper to inspect the parsed results.
+
+Subsequent modules use Python's built-in `csv` module for file ingestion.

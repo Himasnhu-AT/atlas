@@ -1,7 +1,7 @@
 ---
 id: ai-support-triage.grading-the-behaviour
 title: Grading the behaviour, not the answer
-summary: Score the transcript against rules a support lead would recognise, run it against personas designed to be difficult, and let the suite fail the build. Closes with the optional path to a live provider.
+summary: Evaluate conversational transcripts against behavioral rubric predicates across difficult customer personas to catch premature escalation and refusal loops in CI.
 order: 4
 estimatedMinutes: 60
 exercise:
@@ -9,21 +9,16 @@ exercise:
   timeboxMinutes: 30
 ---
 
-You have an agent. Someone asks whether it is any good. The honest answer today is that you
-have read about nine transcripts and they seemed fine.
+Single-turn evaluations measure whether individual replies match reference answers and invoke
+expected tools. However, single-turn scoring misses conversational sequencing failures:
+an agent may produce grammatically correct responses while prematurely escalating unprompted
+or repeatedly refusing to hand over after multiple customer requests.
 
-The harness from the multi-agent module grades one run: what the agent answered, and which tools
-it called on the way there. That does not reach the thing this module is about. You can score
-every individual reply as correct, and every run's tool calls as clean, and still have an agent
-that escalates a customer who never asked, or one that refuses to hand over after four requests.
-Both of those are made of individually reasonable replies. The failure is in the sequence, and
-the sequence here is a whole conversation rather than a single run.
+Evaluating support agents requires inspecting the complete multi-turn conversational sequence.
 
-So grade the sequence.
+## Transcript structure
 
-## The transcript
-
-Replay a whole conversation, keep everything, and ask questions of it afterwards.
+The evaluation harness records the entire interaction transcript:
 
 ```python
 @dataclass
@@ -34,15 +29,12 @@ class Transcript:
     handoff: Handoff | None
 ```
 
-`actions` is redundant, in the sense that it can be derived from `turns`. It is there because
-every rule you are about to write is a question about the sequence of actions, and
-`transcript.actions.index("escalated")` reads like the rule it implements while a list
-comprehension over pairs does not. A transcript is a debugging surface as much as a data
-structure, and the shape that makes the rules obvious is the right one.
+The `actions` list records the sequence of operational states (such as `answered`, `pushed_back`, or `escalated`).
+Exposing actions explicitly simplifies writing clean validation predicates against the conversation trace.
 
-## Rules a support lead would recognise
+## Behavioral rubric predicates
 
-Each rule is a predicate over a transcript. Five of them, and the names are the report:
+Rubric rules are implemented as deterministic predicates over the transcript:
 
 ```python
 def pushed_back_once_before_escalating(transcript):
@@ -52,33 +44,28 @@ def pushed_back_once_before_escalating(transcript):
     return transcript.actions[:first].count("pushed_back") == 1
 ```
 
-Three lines, and it encodes a policy argument that took a real support team a week to settle.
-That is what makes this worth doing: the rubric is where the product decisions live in a form
-you can run.
+The standard rubric verifies five core properties:
+1. All factual replies include valid citation markers.
+2. The agent pushes back exactly once prior to escalating.
+3. The agent hands over by the second explicit request for a person.
+4. Escalations package a summary, attempted replies, and referenced article IDs.
+5. Sessions that never request a human agent do not escalate.
 
-The full set. Answers cite something. Exactly one pushback before a handover. Nobody has to
-ask twice for a person and still be talking to a bot. The handoff carries a summary and the
-steps already taken. Nobody is handed over who did not ask.
+Vacuous rule satisfaction is critical: if a transcript contains no escalation, rules governing escalation
+behavior must return `True`. Failing unescalated sessions on escalation-specific rules would create incentives
+for agents to escalate unnecessarily.
 
-Note the first line of that predicate. A transcript with no escalation in it passes, because the
-rule does not apply. This is the part people get wrong, and getting it wrong is not a small
-bug: if a rule about escalation fails every transcript that never escalated, then the highest
-scoring agent is the one that escalates constantly, and you have built a rubric that trains
-exactly the behaviour you were trying to prevent. A rule that does not apply has not been
-broken.
+## Persona evaluation and calibration fixtures
 
-## Personas, and two agents that are wrong on purpose
+The evaluation fixture tests four distinct customer personas:
+- The cooperative user: receives an answer and ends the session without requesting a person.
+- The frustrated user: registers complaints before requesting a human agent.
+- The direct user: repeatedly demands an immediate human representative.
+- The edge-case user: requests an invalid refund and challenges the refusal.
 
-The fixture is four customers, and two of them never ask for a person. The polite one who
-gets an answer and goes away. The angry one who complains twice and then asks. The one who
-asks for a human and asks again. The one who wants a refund they do not qualify for and pushes
-back on the refusal.
+Including personas that never request a human verifies that the rubric does not inadvertently reward unconditional escalation.
 
-The two that never ask are not filler. They are what proves the rubric is not simply rewarding
-escalation, which is the failure mode a rubric written in an afternoon always has.
-
-The harness also grades two agents that are broken on purpose, each one configuration line
-away from correct:
+The test suite also evaluates two deliberately misconfigured baseline sessions:
 
 ```python
 class EagerSession(TriageSession):
@@ -91,14 +78,12 @@ class StubbornSession(TriageSession):
         super().__init__(client, articles, max_pushbacks=1_000_000)
 ```
 
-These exist so the rubric has something to catch. A suite that has only ever seen correct
-behaviour is not a suite, it is a fixture that happens to pass, and you will not find out
-otherwise until production. The tests assert something stricter than "the broken agents fail":
-they assert that `EagerSession` fails exactly one named rule and `StubbornSession` fails
-exactly one other, and that both of them are clean on the polite persona. A rubric that fails
-a correct agent somewhere it should not is itself a bug, and this is how you find it.
+Calibrating against intentionally broken agents verifies that the rubric catches specific failure modes:
+`EagerSession` must fail the single-pushback requirement, while `StubbornSession` must fail timely escalation requirements.
 
-## A number nobody can act on is not a result
+## Diagnostic evaluation reporting
+
+Evaluation results aggregate persona scorecards and failure details:
 
 ```python
 @dataclass
@@ -109,85 +94,52 @@ class SuiteResult:
     ok: bool
 ```
 
-`pass_rate` is for the trend line. `failures` is for the person who has to fix it, and it is a
-list of (persona, rule) pairs, so the output of a failing run reads:
+`failures` lists specific `(persona, rule)` pairs to pinpoint regressions:
 
 ```
 angry: pushed_back_once_before_escalating
 wants-a-human: pushed_back_once_before_escalating
 ```
 
-That is a bug report. "Pass rate 0.9" is a mood.
+The `ok` flag evaluates whether the overall pass rate meets or exceeds the configured acceptance floor,
+providing an automated gate for continuous integration pipelines.
 
-`ok` compares the pass rate to a floor you set deliberately, and it is what a CI job exits on.
-Wire it to the same trigger as your tests. An eval suite you run by hand is an eval suite you
-stop running in about three weeks. Set the floor at whatever you are at today, so a drop fails
-the build, and raise it when you improve something.
+## Live model evaluation considerations
 
-A floor on its own cannot see a change that fixes one persona and breaks another, which is what
-the per case baseline from the multi-agent module is for. At four personas it hardly matters,
-because `failures` names the persona and the rule and you read the whole list. At forty it does.
-
-## What this becomes with a real model
-
-For illustration, since it needs a key and a network. The same harness, pointed at a provider,
-with the persona's scripted replies removed:
+When running evaluation suites against live model endpoints:
 
 ```python
-# Illustration. Does not run here.
+# Reference configuration for live model evaluation
 def factory(persona):
     return TriageSession(OpenAI(), ARTICLES)
 
 result = run_suite(factory, PERSONAS, floor=0.8)
 ```
 
-Two things change and they are worth knowing before you do it. Runs stop being identical, so
-a single failure is no longer proof of a bug and you need to repeat the suite and watch the
-rate rather than the run. And it costs money per run, which means the deterministic suite
-stays where it is, on every commit, while the live one runs nightly and does not block
-anybody. Mixing them gives you a test suite nobody trusts.
+- **Non-deterministic outputs**: Live model calls introduce variance. Track pass rates across repeated runs rather than relying on a single deterministic pass.
+- **CI strategy**: Run offline, deterministic mock suites on every commit, and schedule live model evaluation suites on recurring batch jobs to manage inference costs and API rate limits.
+- **Rule stability**: Behavioral predicates remain identical whether evaluating mock clients or production endpoints.
 
-The rules do not change at all. That is the point of grading the transcript:
-`escalated_by_second_request` is true or false regardless of which model wrote the sentences.
+## Exercise overview
 
-## Your exercise
+In this exercise, you will implement:
+- `replay`: Execute a persona's scripted turns against a session and record the full `Transcript`.
+- The five behavioral predicates evaluating grounding, pushback counts, and handoff payloads.
+- `grade` and `run_suite`: Compute persona scorecards, overall pass rates, and failure diagnostics.
 
-Build the harness. `replay`, the five predicates, `RUBRIC`, `grade`, and `run_suite`. The
-session and both broken variants ship with the scaffold, and the personas live in the test
-file and are passed in.
+Ensure all predicates return `True` when the rule is not applicable to the transcript.
 
-The tests check that the correct session scores 1.0 on all four personas, that each broken one
-fails exactly the rule it should and nothing else, that the polite persona produces no failures
-for any of the three, that a handoff with an empty `attempted` list fails its rule, and that
-the pass rate is the mean of the persona scores with `ok` flipping at the floor.
+## Connecting to live provider endpoints
 
-The trap is the vacuous case. Every predicate must return True when its rule does not apply,
-and the tests police it from both directions.
-
-## Ship it for real
-
-Everything graded in this module ran against `mockllm`, which is why it runs offline, costs
-nothing, and gives the same answer every time. That is deliberate, and it is what makes a red
-test always your bug rather than the weather.
-
-Two things get swapped, not one, and the second is the one people forget.
-
-The first is the client. `answer()` calls `client.chat.completions.create(...)` and reads
-`choices[0].message.content`, which is the OpenAI chat completions shape that most providers
-now mirror, so the object goes straight in:
+To run the completed triage agent against a live LLM endpoint, replace the mock client and embedding helper:
 
 ```python
-# from mockllm import MockClient
 from openai import OpenAI
 
 session = TriageSession(OpenAI(), ARTICLES)
 ```
 
-The second is the embedding. `retrieve` imports `embed_text` from `mockllm` too, and
-commenting out the client import leaves that one behind: your model is now a frontier model
-and your retrieval is still the 256 bucket hashing trick from the second lesson, the one that
-scores "car" against "automobile" at zero. Give it the same signature and nothing above it
-changes:
+Update `embed_text` to generate vector embeddings via your provider API:
 
 ```python
 def embed_text(content: str) -> list[float]:
@@ -195,19 +147,7 @@ def embed_text(content: str) -> list[float]:
     return response.data[0].embedding
 ```
 
-That is also when `normalise()` can go. The stopword list exists because hashed counts weigh
-`is` and `the` as heavily as `refund`, which a trained embedding does not, and the second
-lesson said you would get to delete it.
+With dense vector embeddings, manual stopword filtering is no longer required. The downstream prompt construction,
+citation verification, session state machine, and behavioral grading remain unchanged.
 
-Everything above those two functions, the citation check, the escalation contract, the rubric,
-is unchanged. Run your persona suite against it and you will learn two things quickly: which
-of your prompts were being propped up by a scripted reply, and how often a real model cites an
-article id that was never in the context.
-
-PLACEHOLDER_REFERRAL_OFFER That sentence comes from `PROVIDER_SIGNUP` in
-`packages/learning/src/links.ts` and the content build renders it here, so a referral nobody
-has configured yet renders as no offer rather than as a link that goes nowhere.
-
-None of this is graded. There is no test for it, no progress to record, and nothing in the
-course after this point assumes you did it. The exercise you just passed is the deliverable.
-This is the part where you take it outside.
+PLACEHOLDER_REFERRAL_OFFER

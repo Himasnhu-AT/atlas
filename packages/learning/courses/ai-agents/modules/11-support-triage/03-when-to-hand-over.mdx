@@ -1,7 +1,7 @@
 ---
 id: ai-support-triage.when-to-hand-over
 title: When to hand over
-summary: Push back exactly once, then hand over, and carry the transcript summary and everything already attempted with you. Escalating empty handed is the failure mode that costs the most satisfaction.
+summary: Enforce a single pushback policy before escalation, retain recent topic context during redirection, and assemble structured handoff payloads for human operators.
 order: 3
 estimatedMinutes: 55
 exercise:
@@ -9,35 +9,29 @@ exercise:
   timeboxMinutes: 30
 ---
 
-The answering layer from the last lesson has no memory and no opinion about the conversation
-it is part of. It answers whatever it is handed. The session is the thing that decides whether
-this message should be answered at all, and it is a state machine with three states and two
-transitions.
+While the grounded answering layer operates statelessly, the session manager maintains conversation
+history and evaluates state transitions across three distinct states:
 
 ```
-answering  --customer asks for a person-->  pushed back
-pushed back --customer asks again-------->  escalated
-escalated  --anything at all------------->  escalated
+[ answering ] -> customer requests human -> [ pushed back ]
+[ pushed back ] -> customer requests human again -> [ escalated ]
+[ escalated ] -> subsequent messages -> [ escalated ]
 ```
 
-Everything difficult about a support agent lives in those two arrows.
+The session manager governs when to answer, when to offer one final automated attempt, and when to transfer control.
 
-## Detecting the request
+## Detecting escalation intent
 
-Start with keywords. Not because it is sophisticated, but because a request for a human is one
-of the few things customers say in a small, stable vocabulary, and a classifier here costs a
-model call on every single message to answer a question a regex answers correctly.
+Detecting requests for human assistance begins with targeted keyword and phrase matching.
+A deterministic keyword matcher avoids unnecessary model latency and cost on every inbound message:
 
 ```python
 WANTS_HUMAN = ("human", "real person", "agent", "representative", "someone else")
 ```
 
-Two rules make this work rather than embarrass you.
-
-Match on word boundaries. Without them, "this is a question about humanities funding" contains
-`human` and escalates a customer who was asking about a grant.
-
-Mask the phrases that merely contain a trigger word, before you match:
+Effective keyword detection requires two filters:
+- **Word boundaries**: Enforce regex word boundaries (`\b`) so terms like "human" do not match words like "humanities".
+- **Phrase exclusions**: Mask technical computing phrases before matching to eliminate false positives:
 
 ```python
 NOT_A_REQUEST = ("user agent", "agent string", "support agent", "this agent")
@@ -47,48 +41,27 @@ for phrase in NOT_A_REQUEST:
     text = text.replace(phrase, " ")
 ```
 
-`agent` is both a support word and a computing word. A customer pasting "my user agent string
-is broken" is asking for help, not for a person, and word boundaries do not save you here
-because "user agent" is two whole words. Every keyword detector in production grows an
-exclusion list like this within about a month of launch, built from the false positives. Ship
-it with one and read your logs.
+A customer reporting an issue with a "user agent string" is seeking technical help rather than a representative.
+Production keyword filters maintain explicit exclusion lists to balance deflection and routing precision.
 
-The asymmetry is worth stating plainly. A false positive escalates a customer who never asked,
-which quietly destroys the deflection number. A false negative traps somebody who did ask,
-which is the interaction people screenshot. When you are unsure, err toward hearing the
-request.
+## Single pushback policy
 
-## Push back exactly once
-
-Once, not zero and not twice.
-
-Zero pushbacks means the agent hands over anyone who says the word, including the many
-customers who ask for a person out of habit before they have seen an answer, and would have
-been perfectly happy with article A2. That is the whole business case going out of the door on
-a keyword.
-
-Two pushbacks is arguing with a customer who has now asked twice. There is no version of that
-which reads well in a screenshot, and the second offer is almost never better than the first,
-because nothing new has been learned between them.
-
-The number is configurable and the default is one:
+A balanced escalation policy allows exactly one pushback attempt by default:
 
 ```python
 def __init__(self, client, articles, max_pushbacks=1):
 ```
 
-Setting it to zero is a legitimate choice for a queue where nobody bluffs, such as billing
-disputes or anything with a regulator attached. Setting it above one is a decision somebody
-should have to defend.
+- **Zero pushbacks**: Escalates on the first trigger keyword, forfeiting automated resolution for users who might accept an immediate documentation answer.
+- **One pushback**: Attempts to provide a helpful answer while respecting explicit user requests.
+- **Multiple pushbacks**: Traps users in repetitive deflection loops, increasing frustration.
 
-## What the pushback offers matters
+Certain high-risk workflows (such as billing disputes or safety concerns) may configure `max_pushbacks=0` to ensure immediate escalation.
 
-The naive pushback retrieves against the message it just received. The message is "can I speak
-to a human", which retrieves nothing useful, so the customer gets a generic apology and asks
-again. You have spent your one attempt on nothing.
+## Contextual pushback retrieval
 
-The customer's question is still the question. Look back for the last message that was not a
-request for a person, and offer the best article for that:
+When a user says "Can I speak to a human?", retrieving articles against that phrase returns unhelpful results.
+The pushback attempt must search against the user's preceding substantive question:
 
 ```python
 def _topic(self, message):
@@ -98,15 +71,12 @@ def _topic(self, message):
     return message
 ```
 
-Now "my password reset link expired" followed by "can I speak to a human" offers the password
-reset article, which is a real second attempt rather than a stalling noise. When there is no
-earlier question, because the customer opened by asking for a person, fall back to the message
-itself and take what retrieval gives you.
+If a user asks "How do I reset my password?" and follows with "I want a person", the pushback retrieves
+documentation for the password inquiry. If no prior query exists, the system falls back to the current message.
 
-## The handoff is the deliverable
+## Structured handoff payloads
 
-When the agent gives up, a person picks the conversation up. What that person receives is the
-entire point of the escalation, and it is the part most implementations leave empty.
+When an agent escalates, it must supply the human operator with structured diagnostic context:
 
 ```python
 @dataclass
@@ -118,47 +88,32 @@ class Handoff:
     transcript_turns: int
 ```
 
-Every field earns its place by removing work from the human.
+- `summary`: One-line description of the initial inquiry and conversation length.
+- `attempted`: Ordered list of automated responses previously sent to the user, preventing human agents from repeating suggestions.
+- `article_ids`: Deduplicated list of knowledge base articles already referenced during the session.
+- `transcript_turns`: Total count of user interaction turns.
 
-`summary` is the one line they read before deciding whether to open the transcript. It quotes
-what the customer opened with and says how long this has been going on.
+Lists within the handoff payload must be copied to prevent mutation as subsequent session events occur.
 
-`attempted` is every reply the agent already sent, in order. Without it the human's first
-message is an answer the customer has already been given and already rejected, which is how a
-mildly annoyed customer becomes an angry one.
+## Terminal session state
 
-`article_ids` says which parts of the knowledge base were already tried, deduplicated. If the
-same three articles keep appearing in escalations, that is a documentation gap with a queue
-attached to it, and it is the single most actionable report a support agent can produce.
-
-`transcript_turns` is how much patience has already been spent. Two turns and one is a
-different ticket from nine turns and one.
-
-Copy the lists into the handoff rather than aliasing them. A payload that keeps changing after
-it has been handed over is a bug nobody finds by reading the code.
-
-## Then stop talking
-
-Once escalated, every later message returns the same handoff and never calls the model again.
+Once escalated, the session enters a terminal state. Subsequent messages return the existing handoff payload
+without triggering further model calls or article recommendations:
 
 ```python
 if self.escalated:
     return self._say(ALREADY_ESCALATED_TEXT, "escalated", self.handoff)
 ```
 
-Two reasons, one commercial and one human. The commercial one is that a conversation a person
-now owns generates model calls forever if you let it, on messages nobody will read. The human
-one is that an agent still offering help articles while somebody waits for a person is worse
-than an agent that says nothing. Returning the same handoff object, rather than building a
-fresh one, keeps a single escalation from becoming three tickets.
+Freezing the session prevents redundant model costs and ensures that multiple customer follow-ups append
+to a single escalation ticket rather than generating duplicate queue items.
 
-## The same idea in a framework
+## Framework delegation comparison
 
-For illustration, since it needs an API key and a network. The OpenAI Agents SDK gives handoff
-a first class shape:
+Modern agent frameworks provide abstractions for routing and state delegation:
 
 ```python
-# Illustration. Does not run here.
+# Reference example using the openai-agents package
 from agents import Agent, handoff
 
 billing = Agent(name="Billing specialist", instructions="...")
@@ -169,23 +124,18 @@ triage = Agent(
 )
 ```
 
-The framework routes the conversation and carries the message history across. What it does not
-decide is when to hand off, what counts as asking, how many attempts come first, or what the
-receiving side gets beyond the raw transcript. Those are the four decisions in this lesson,
-and they stay yours whichever framework you pick. Knowing that is the difference between
-choosing a framework and hoping one will make the product decisions for you.
+While frameworks handle message routing, core policy decisions (escalation trigger rules, pushback limits,
+and structured context payload formatting) remain application-level responsibilities.
 
-## Your exercise
+## Exercise overview
 
-Build the session. `wants_human`, `summarise`, and a `TriageSession` whose `handle` implements
-the contract above. The answering layer from the last exercise ships with the scaffold,
-already written.
+In this exercise, you will implement:
+- `wants_human`: Keyword detection with word boundaries and exclusion phrases.
+- `summarise`: Conversation summary generator for handoff tickets.
+- `TriageSession`: Session state machine coordinating answers, pushbacks, and terminal handoffs.
 
-The tests check that the first request pushes back and the second escalates, that the pushback
-offers the article for the last real question, that the handoff lists both earlier replies and
-counts the customer's turns, that a session which never asks never escalates however long it
-runs, that nothing calls the model after escalation, and that
-`wants_human("my user agent string is broken")` is False.
-
-Watch the order of operations in `handle`. The customer's turn goes into the transcript first,
-so a handoff built on that turn counts it.
+Test cases verify that:
+1. The first human request triggers a contextual pushback.
+2. The second human request triggers an immediate handoff.
+3. Handoff payloads aggregate attempted responses, referenced article IDs, and turn counts.
+4. Model execution ceases completely once escalated.

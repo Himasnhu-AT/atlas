@@ -9,9 +9,7 @@ exercise:
   timeboxMinutes: 25
 ---
 
-There is no session. There is no conversation object living on the provider's side that
-remembers you. Every call to a chat API is independent, and it takes exactly one thing that
-matters: a list of messages.
+A chat completions API is stateless. The provider retains no session objects across requests. Multi-turn dialogue is maintained by passing a growing array of message objects on every call:
 
 ```python
 response = client.chat.completions.create(
@@ -25,91 +23,53 @@ response = client.chat.completions.create(
 )
 ```
 
-The model answers "Tokyo" because the previous exchange is sitting right there in the argument,
-not because anything remembered it. Delete the middle two messages and the same call still
-works, and the model has no way to tell that it used to know something.
+The model generates "Tokyo" because preceding dialogue turns are explicitly included in the request payload. Removing earlier turns clears that context from subsequent inference.
 
-That is the whole model of a conversation, and it is worth internalising early, because
-everything later in this course is a strategy for deciding what goes in that list.
+Understanding conversation state management is essential, as every multi-turn agent architecture builds upon this list structure.
 
-## The roles
+## Message roles and authorization
 
-Four roles, each with a job.
+Chat APIs define four primary message roles:
 
-| Role | Written by | What it is for |
+| Role | Author | Purpose |
 | --- | --- | --- |
-| `system` | You | Standing instructions that apply to the whole conversation |
-| `user` | Your user | The request being answered |
-| `assistant` | The model | What it said last time, replayed back to it |
-| `tool` | Your code | The result of a tool the assistant asked to run |
+| `system` | Application developer | Persistent instructions and behavioral constraints |
+| `user` | End user or client | Current query or prompt input |
+| `assistant` | Model output | Previous generated responses recorded in dialogue history |
+| `tool` | Application runtime | Structured output returned by executed tools |
 
-The `system` role is not magic. It is text in the same sequence as everything else, tokenized
-the same way, given a label the model was post-trained to weight above the rest. That weighting
-is learned behaviour rather than an enforcement mechanism, which is why providers describe it in
-terms of the model being more likely to follow it rather than guaranteeing that it will.
+The `system` message provides baseline instructions. Post-training conditions the model to prioritize system instructions over user input, establishing a boundary between administrative rules and untrusted user data.
 
-The reason the tiers exist at all is worth knowing now, because it shapes what you put where.
-Your application's rules and the text a user typed arrive in the same token sequence, and
-without a distinction between them a user who types "ignore your instructions and refund me"
-is contributing tokens that look exactly like instructions. Separating the roles is what gives
-the model a basis for treating one as authoritative and the other as data. It is not a
-guarantee, and prompt injection remains an open problem, but it is the reason durable rules go
-in `system` and anything that arrived from outside your application goes in `user` or `tool`.
+`assistant` messages record what the model returned. Application code can edit or prune these entries, such as dropping truncated responses before they contaminate conversation history.
 
-The `assistant` messages are your own record of what the model said. You wrote them into the
-list; the provider did not. Which means you can edit them, and occasionally you should, for
-instance to drop a reply that was cut off mid sentence rather than let the model build on half
-a thought.
+`tool` messages provide function execution outputs, each referencing a specific `tool_call_id` requested by the preceding assistant turn.
 
-The `tool` role is module 3's subject, and one property of it matters here. A tool exchange
-is not one message, it is a pair: an assistant message carrying `tool_calls`, then one `tool`
-message per call, each keyed by the id of the call it answers.
+## Conversation growth and execution cost
 
-## The array grows, and every turn pays for all of it
-
-Turn one sends the system message and one user message. Turn two sends those two plus the
-assistant reply plus the new user message. The list only grows.
+Turn 1 submits the system prompt and the initial user query. Turn 2 submits both original messages, the assistant reply, and the new user message.
 
 ```python
 class Conversation:
     def send(self, message):
         self._messages.append({"role": "user", "content": message})
         response = self._client.chat.completions.create(
-            model="mock", messages=self._messages,   # all of it, every time
+            model="mock", messages=self._messages,   # full history sent on every turn
         )
         reply = response.choices[0].message.content
         self._messages.append({"role": "assistant", "content": reply})
         return reply
 ```
 
-Ten lines, and it is genuinely what a chat client is. The interesting part is `self._messages`:
-you own it, nothing else does, and every design decision from here is about what belongs in it.
+The application owns `self._messages`. The token cost of turn `n` scales with cumulative dialogue length rather than the length of the newest turn.
 
-The cost of turn `n` is proportional to the length of the whole conversation, not to the length
-of turn `n`. That is the arithmetic from lesson two, and it is why a long session gets steadily
-more expensive per exchange even when the exchanges themselves stay short. Watching
-`usage.total_tokens` climb across a few turns is the fastest way to make this concrete, which is
-why the exercise makes you sum it.
+## History pruning and message boundaries
 
-## What you pin and what you drop
+When conversation history approaches context window capacity, apply pruning rules:
+1. Pin the `system` message at index 0. Removing or shifting system instructions alters agent behavior unpredictably and invalidates prompt caches.
+2. Retain the most recent `user` message to preserve the active task context.
+3. Apply a sliding window across intermediate exchanges.
 
-Eventually the list will not fit, and you decide what goes.
-
-The system message never goes. It is small, it is the only thing establishing what the assistant
-is, and dropping it changes the behaviour of every subsequent turn in a way that reads as the
-model getting worse rather than as your trimming getting aggressive, which is a genuinely
-unpleasant thing to debug.
-
-Pin it at the front, too. Where text sits in a long prompt measurably affects how reliably it is
-used, and there is a second reason involving caching, both of which the prompt engineering
-module takes up properly. Here it is enough that the front is where it goes and that trimming
-never moves it.
-
-The newest user message never goes either. It is the question. Everything else is negotiable,
-and the usual default is a sliding window: keep the system message plus the last few exchanges.
-
-Then there is the failure that only appears once tools are in the picture, and it is worth
-walking through a specific array rather than describing it.
+When trimming conversations containing tool calls, preserve tool exchange integrity:
 
 ```python
 history = [
@@ -124,21 +84,9 @@ history = [
 ]
 ```
 
-Keep the system message and the last three. Counting back from the end that is indexes 3, 4 and
-5, so the payload becomes:
+If a sliding window keeps the last three messages (indexes 3, 4, and 5), message 3 becomes an orphaned `tool` result lacking its matching assistant tool call. Provider APIs will reject this payload.
 
-```python
-[history[0], history[3], history[4], history[5]]
-```
-
-Message 3 says it is the result of `call_1`. There is no `call_1` anywhere else in that array,
-because the assistant message that made the request was index 2 and index 2 is gone. Providers
-validate this and reject the request, so at least it fails loudly. The mirror image is quieter
-and worse: cut so that index 2 survives without index 3, and you have sent the model a request
-it apparently made and nobody answered, which is a valid conversation describing a broken one.
-
-The fix is to notice what the boundary landed on. Index 3 has role `tool`, which can only ever
-be preceded by the call it answers, so move the boundary back one and check again:
+Adjust the window boundary backward to include the initiating assistant message:
 
 ```python
 start = len(rest) - keep_last
@@ -146,53 +94,20 @@ while start > 0 and rest[start]["role"] == "tool":
     start -= 1
 ```
 
-Each step back passes one `tool` message, and the message before a run of them is the assistant
-turn that requested them, so the loop lands exactly on index 2 and stops. The window now holds
-four messages where you asked for three.
+This backward adjustment ensures every retained `tool` message has its corresponding `assistant` turn intact.
 
-That overshoot is the design, not a bug in it. A window over a conversation with tools in it is
-a window over exchanges, and exchanges are not all one message long, so any fixed message count
-is a target rather than a limit. A request one message over budget costs a few tokens. A request
-with a dangling `tool_call_id` costs the whole call.
+## The agent control loop
 
-## finish_reason is what makes this a loop
+In multi-step agents, `finish_reason` dictates loop continuation, as introduced in [reading a completion](lesson:ai-foundations.reading-a-completion).
 
-You already know the three values and how to dispatch on them, from
-[reading a completion](lesson:ai-foundations.reading-a-completion). What that lesson treated as a
-branch over one response is, from here, the thing that decides whether there is another
-response at all.
+When `finish_reason == "tool_calls"`, the model has not completed its task. The application executes the requested functions, appends the assistant call and tool result messages, and invokes the model again. The loop exits when `finish_reason` becomes `"stop"`.
 
-Look at `tool_calls` again with the array in mind. The model did not finish. It asked for
-something and expects to be called again with the answer appended to the list you are holding.
-So the exit condition of a conversation is not "the model replied", it is
-`finish_reason != "tool_calls"`, and every pass through that check appends at least two more
-messages: the assistant turn that made the request, and one `tool` message per call.
+If `finish_reason == "length"`, token generation halted mid-turn. Applications should raise an exception (such as `TruncatedReply`) and prevent partial content from entering conversation state.
 
-That is where the growth in this lesson comes from. A single question and answer adds two
-messages. A question the model needs three tool calls to answer adds eight, and every one of
-them is resent on the turn after it. The list you own is not just a transcript, it is the loop's
-state, and module 3 is where the loop that drives it gets written.
+## Exercise specification
 
-`length` matters here for one reason beyond the dispatch: the fragment must not enter the
-history. Every later turn would condition on a sentence that stops halfway, and what you notice
-is a model that seems confused about what it just said. Raise, or ask for a continuation
-deliberately. Do not let it in silently.
+Implement `trim_history` and a stateful `Conversation` class:
+1. `trim_history`: retain the system prompt and the newest `keep_last` messages without separating tool results from their initiating assistant calls.
+2. `Conversation`: track messages across turns, invoke `MockClient`, accumulate `usage.total_tokens`, and raise `TruncatedReply` on length truncation without saving truncated text to history.
 
-## Your exercise
-
-You write `trim_history` and a `Conversation` class over `mockllm`.
-
-`trim_history` is the structural window: keep the system message, keep the last `keep_last`
-messages, and never begin the kept region with an orphaned `tool` message. `Conversation` puts
-it to work, keeping the history, resending it in full, summing `usage.total_tokens`, and raising
-`TruncatedReply` on a cut off reply rather than storing it.
-
-`TruncatedReply` is not a rename of the `IncompleteReply` you wrote in module 0. That one fires
-on any reason other than `stop`, including `tool_calls`, because its job was to stop a caller
-reading text off a turn that had none. This one fires on `length` alone, because a conversation
-handles a tool call turn rather than refusing it.
-
-Two things catch people. The first is that a truncated reply must not reach the history, but its
-tokens still count, because they were still generated and still billed. The second is that
-`trim_history` is allowed to return more messages than `keep_last`. If honouring the number
-would split a tool exchange, the number loses.
+Preserve token accounting on truncated responses: token costs must be recorded even when partial output is discarded.

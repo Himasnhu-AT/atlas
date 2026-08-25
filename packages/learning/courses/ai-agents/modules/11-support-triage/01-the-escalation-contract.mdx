@@ -1,114 +1,60 @@
 ---
 id: ai-support-triage.the-escalation-contract
 title: The escalation contract
-summary: What production support agents are actually graded on, why a deflection rate flatters an agent that a resolution rate would not, and the spec for the agent you are about to build.
+summary: Evaluation metrics for support agents, trade-offs between deflection and resolution, and operational specifications for escalation boundaries.
 order: 1
 estimatedMinutes: 25
 ---
 
-A support agent is the most common agent in production and the one most often built badly.
-The reason is that it looks like a retrieval problem. Point a model at the help centre,
-answer questions, count the tickets you did not pay a person to read. Two weeks after launch
-the queue is full of customers writing "AGENT" in capital letters, and the answers that did
-land are the ones nobody needed.
+Support triage agents are widely deployed across production systems, but naive implementations
+often fail. Treating support purely as a retrieval-augmented generation (RAG) task causes agents
+to provide irrelevant documentation or frustrate users who require human intervention.
 
-The interesting part of a support agent is not the answering. It is the boundary: knowing
-what it does not know, and knowing when the conversation stopped being its job.
+Effective support agents prioritize clear boundary management: recognizing knowledge limits,
+grounding factual statements in retrieved documentation, and escalating cleanly to human operators.
 
-## What the numbers actually measure
+## Support metrics: deflection versus resolution
 
-Every vendor in this space quotes a deflection rate, and it is always higher than the number
-that describes your product. The gap is not dishonesty, it is a definition.
+Support systems typically track four core operational metrics:
 
-Deflection is normally counted as sessions that ended without a ticket being created. A
-customer who asked twice, got nothing useful, and closed the tab counts as deflected. So does
-one who was answered confidently and incorrectly and will be back on Thursday with a worse
-mood. Resolution is a different measurement and a much harder one, because it needs either a
-follow up or a human reading the transcript.
+1. **Deflection rate**: The proportion of sessions closed without creating a human support ticket. Deflection metrics alone can be misleading, as users who abandon frustrating interactions count as deflected alongside satisfied users.
+2. **Resolution rate**: The proportion of sessions where the user's issue was successfully resolved. Measuring resolution requires follow-up surveys or transcript analysis.
+3. **Escalation quality**: Whether the human agent who receives an escalated conversation receives sufficient context (summary, user intent, attempted steps) without asking the user to repeat information.
+4. **Time to human**: The duration a user requiring human assistance spends interacting with automated prompts before transfer.
 
-A support lead watches four numbers. Deflection, sessions closed without a human, which is easy
-to game and worth watching anyway. Resolution, sessions where the customer's problem actually
-went away, which is costly to measure and the only one that matters commercially.
+Evaluating support agents requires measuring both escalation quality and resolution accuracy rather than relying solely on raw deflection figures.
 
-Then the two that describe the boundary. Escalation quality, meaning whether the human who
-picked the conversation up had to start over. And time to human, meaning how long a customer
-who needed a person spent being offered help articles.
+## Balancing premature escalation and aggressive deflection
 
-The last two are where an agent earns or destroys its keep, and they are the two nobody
-instruments, because they need the transcript and not just the outcome. That is what the third
-exercise in this module builds.
+Support agents navigate two competing operational failure modes:
 
-## The two failure modes
+- **Premature escalation**: The agent escalates immediately upon encountering unfamiliar phrasing, even when the knowledge base contains the answer. This inflates human support costs without using automated documentation.
+- **Excessive deflection**: The agent repeatedly suggests articles despite direct user requests for human assistance. This damages user trust and creates poor customer experiences.
 
-There are exactly two ways to get the boundary wrong, and they pull against each other.
+Evaluation rubrics must penalize both failure modes to ensure the agent resolves addressable questions while transferring unresolvable issues promptly.
 
-Escalating too early is expensive and invisible. The agent hits an unfamiliar phrasing, gives
-up, and hands a person a question the knowledge base answers in one line. Nobody complains,
-because the customer got help. It just costs what it always cost, and the project quietly
-fails to pay for itself.
+## The escalation specification
 
-Refusing too long is cheap and extremely visible. The customer asks for a person, the agent
-offers another article, the customer asks again, the agent offers another article. This is
-the interaction that produces the screenshots. It is worse than having no agent at all,
-because a contact form does not argue.
+The support triage agent implemented in this module adheres to the following operational contract:
 
-An agent tuned only against deflection will always drift toward the second failure. It is the
-one that makes the number go up. So the rubric has to punish it explicitly, and it has to
-punish the first failure too, or you have just built a very expensive keyword router.
+- **Strict grounding**: Factual statements must cite retrieved knowledge base articles using bracketed identifiers (such as `[KB-12]`). Responses without supporting citations are rejected.
+- **Zero-retrieval short-circuit**: If retrieval returns no relevant articles, do not invoke the language model. Route immediately to the human queue to prevent hallucinations and eliminate unnecessary token costs.
+- **Explicit routing**: Out-of-scope queries trigger an escalation route rather than an unhelpful refusal.
+- **Single-attempt pushback**: When a user explicitly requests a human agent, attempt automated assistance at most once. A second request must trigger an immediate handoff.
+- **Contextual handoff payloads**: Handoffs must package the issue summary, attempted troubleshooting steps, and referenced articles for the receiving human agent.
+- **Terminal handoff state**: Once escalated, the automated agent halts further model calls and suggestions.
 
-## The contract
+## System architecture overview
 
-Write the behaviour down before writing the agent. This is the contract for what you are
-about to build, and every part of it is enforced by a test in the exercises.
+You will construct the support triage system across three stages:
 
-Answer only from retrieved context. Every factual sentence carries a bracket id pointing at
-the article it came from. A reply that cites nothing is a failure, not an answer, whatever
-it says.
+1. **Grounded answer engine**: Retrieves articles, formats the prompt, invokes the model, validates citations against retrieved context, and returns a structured `Reply` object with citation tracking and routing flags.
+2. **Session manager**: Manages conversation history, enforces the single-pushback rule, builds `Handoff` payloads, and transitions the session into a terminal state upon escalation.
+3. **Evaluation harness**: Executes test suites against multiple user personas, evaluating compliance against a five-rule rubric designed to identify both premature escalation and refusal loops.
 
-When retrieval comes back empty, do not call the model. You already know the answer cannot be
-grounded, so the call can only produce something plausible and unsupported, and you will pay
-for it.
+## Out-of-scope concerns
 
-Out of scope is a route, not a refusal. "I cannot help with that" is the end of the road.
-"Nothing here covers this, passing it to the support queue" is a next step.
-
-When the customer asks for a person, push back exactly once. Once is a genuine attempt at the
-answer they came for. Twice is arguing.
-
-When you hand over, hand over the work. The summary, everything already tried, and the
-articles already cited. A handoff without those makes the customer explain themselves twice,
-which is the single most reliable way to turn a neutral interaction into a bad one.
-
-Once a human owns the conversation, stop. No more model calls, no more suggestions.
-
-## What you are building
-
-Three slices, each one a working piece of the same artefact.
-
-The first is the answering layer: retrieve, build the prompt, call the model once, and check
-what came back against what was retrieved. It returns a `Reply` carrying the text, the
-citations that were real, the citations the model invented, and a route.
-
-The second is the session. It wraps the answering layer in the conversation rules above:
-recognising a request for a person, pushing back once, building the `Handoff`, and going
-quiet afterwards.
-
-The third is the harness. Personas designed to be difficult, a rubric of five rules a support
-lead would recognise, and a suite that fails the build. It grades two deliberately broken
-agents as well as the correct one, because a rubric that only ever sees correct behaviour is
-not a rubric, it is a fixture.
-
-## What is deliberately not here
-
-No ticket system, no CRM, no live chat transport. Those are integrations, and they are the
-easy part: a support platform's API is a POST with a JSON body and you have written a hundred
-of those.
-
-No fine tuning and no reranker. Both are real techniques and both are what you reach for
-after the boundary works. An agent with excellent retrieval and no escalation contract is
-still the agent people screenshot.
-
-No sentiment classifier deciding when to escalate. It is the first thing everyone builds and
-it is the wrong shape. Sentiment tells you the customer is angry. It does not tell you the
-knowledge base cannot help them, which is the fact you need. An angry customer whose question
-is answered by article A2 wants article A2, delivered without a fight.
+To focus on core agent control flow and evaluation, this module omits:
+- Direct CRM or live chat ticketing integrations.
+- Vector database fine-tuning and specialized rerankers.
+- Keyword sentiment classifiers. Routing relies on deterministic knowledge coverage and explicit user intent rather than sentiment heuristics.

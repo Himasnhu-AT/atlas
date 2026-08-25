@@ -1,0 +1,33 @@
+---
+id: quant-stat-arb.momentum-and-trend
+title: Time-series momentum and volatility scaling
+summary: Build trend-following signals and scale position weights inversely by realized volatility.
+order: 2
+estimatedMinutes: 20
+exercise:
+  id: momentum-signals
+  timeboxMinutes: 25
+---
+
+**Time-series momentum** (trend following) assumes that an asset with positive excess returns over a lookback window will continue to outperform over future horizons.
+
+Unscaled momentum strategies suffer from extreme tail risk: when market volatility surges during market crashes, unadjusted positions generate massive drawdowns.
+
+## Volatility scaling
+
+To equalize risk exposure across calm and turbulent regimes, quantitative trend strategies scale position sizes inversely by realized volatility:
+
+$$
+w_t = \text{sign}(R_{\text{lookback}}) \times \min\left(1.0, \; \frac{\sigma_{\text{target}}}{\sigma_{\text{realized}}}\right)
+$$
+
+Where:
+* $R_{\text{lookback}} = \frac{P_t - P_{t-N}}{P_{t-N}}$ is the lookback return over $N$ periods.
+* $\sigma_{\text{realized}} = \sqrt{252} \cdot \text{std}(r_{t-N \to t})$ is the annualized realized volatility over the same lookback.
+* $\sigma_{\text{target}}$ is the annualized target risk (e.g. 15% or 0.15).
+
+When market volatility is high ($\sigma_{\text{realized}} > \sigma_{\text{target}}$), position size contracts to protect capital. When volatility is subdued, position size expands toward the 1.0 leverage cap.
+
+## Exercise: calculate volatility-scaled momentum
+
+In this exercise, you will implement `calculate_volatility_scaled_momentum(prices, lookback, target_vol, annualized_factor)` to compute directional momentum and apply risk parity volatility scaling.

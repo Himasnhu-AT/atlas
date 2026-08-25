@@ -1,0 +1,61 @@
+---
+id: quant-options.binomial-trees
+title: Binomial trees and American options
+summary: Price American and European options with early exercise using the Cox-Ross-Rubinstein binomial lattice.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: binomial-tree
+  timeboxMinutes: 35
+---
+
+The Black-Scholes formula applies only to European options that cannot be exercised prior to expiration.
+
+Most listed equity options are **American options**, which allow the holder to exercise early at any date up to maturity. Because early exercise creates an optimal stopping problem with no closed-form analytical solution, numerical lattices such as the **Cox-Ross-Rubinstein (CRR) Binomial Tree** are used.
+
+## The CRR lattice parameters
+
+Over discrete time step $\Delta t = \frac{\tau}{N}$:
+
+1. Up factor: $u = e^{\sigma \sqrt{\Delta t}}$
+2. Down factor: $d = \frac{1}{u} = e^{-\sigma \sqrt{\Delta t}}$
+3. Risk-neutral up probability:
+
+$$
+p = \frac{e^{r \Delta t} - d}{u - d}
+$$
+
+## Backward induction and early exercise
+
+Pricing proceeds in reverse from expiration step $N$ back to step 0:
+
+1. **Terminal payoffs at step $N$**: For each node $j \in [0, N]$:
+
+$$
+S_{N, j} = S_0 \cdot u^j \cdot d^{N - j}
+$$
+
+Option values are initialized to intrinsic value: $V_{N, j} = \max(0, S_{N, j} - K)$ for calls.
+
+2. **Backward induction from step $i = N-1$ down to 0**:
+   At each node $(i, j)$, calculate the expected discounted continuation value:
+
+$$
+V_{\text{continuation}} = e^{-r \Delta t} \left[ p V_{i+1, j+1} + (1 - p) V_{i+1, j} \right]
+$$
+
+For an **American option**, the holder exercises if the immediate intrinsic value exceeds continuation value:
+
+$$
+V_{i, j} = \max\left( V_{\text{continuation}}, \; \text{Intrinsic}(S_{i, j}) \right)
+$$
+
+For a European option, $V_{i, j} = V_{\text{continuation}}$.
+
+## Memory efficiency in Python
+
+A full 2D tree stores $\frac{(N+1)(N+2)}{2}$ nodes in $O(N^2)$ space. By updating a single 1D array of size $N+1$ in place during backward sweeps, space complexity reduces to $O(N)$.
+
+## Exercise: build an American option pricer
+
+In this exercise, you will implement `price_binomial_tree(spot, strike, tau, r, sigma, steps, is_call, is_american)` in $O(N)$ space.

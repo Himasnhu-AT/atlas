@@ -9,17 +9,13 @@ exercise:
   timeboxMinutes: 30
 ---
 
-A backfill over thirty days dies on day twenty. What now?
+When a long-running batch job processing thirty historical partitions fails on partition twenty, restarting the entire job from the beginning introduces unnecessary latency, source database strain, and additional opportunities for transient failures.
 
-If the answer is "start again", the backfill is not really a tool, it is a gamble that gets
-worse as the range gets longer. And re-running the first nineteen days is not free even when
-it is safe: it is time, it is load on the source, and it is nineteen more chances to hit
-whatever killed day twenty.
+Resuming execution requires structured tracking of completed work.
 
-## A run has to leave a trace
+## Durable state tracking for pipeline runs
 
-Resuming needs one thing: a durable record of which partitions completed. Not in memory, not
-in the log, in a table.
+To enable deterministic resume behavior, the pipeline maintains a persistent run log in database storage:
 
 ```sql
 CREATE TABLE run_log (
@@ -31,61 +27,41 @@ CREATE TABLE run_log (
 );
 ```
 
-That is enough to answer "what is left", which is the only question a resume asks.
+This table allows resuming processes to identify unfinished partitions immediately.
 
-`running` matters as much as `done`. A partition marked `running` with no `finished_at` is one
-that was interrupted, and it is different from one that was never attempted: it may have
-written some rows. If the write is idempotent it can simply be redone, which is the whole
-reason the earlier lessons insisted on it.
+The `running` status is critical: a partition marked `running` without a `finished_at` timestamp indicates an interrupted job. Because individual partition operations are designed to be idempotent, interrupted partitions can be safely re-executed upon resumption.
 
-## Mark done after, not before
+## Ordering status transitions and data writes
 
-Same argument as the watermark, and it is the same mistake wearing a different hat. Write the
-partition, then mark it done, in the same transaction if you can. Marking it done first means
-a crash produces a partition that is recorded as complete and is not.
+Status updates must synchronize with data commits:
 
-If the target and the run log are in the same database, one transaction covers both. If they
-are not, you cannot have atomicity across them and the honest choice is to mark done **after**
-and accept that a crash in the gap means a partition gets redone. Redoing an idempotent
-partition costs time. Skipping one costs data.
+1. Write partition data.
+2. Mark the partition status as `done` within the same database transaction whenever possible.
 
-## Failure is a status, not an exception
+Marking a partition as `done` before committing its data risks recording a partition as complete when it was interrupted. When data writes and metadata updates live in separate datastores without cross-database transactions, update the metadata store **after** the data write commits. A crash between the two causes an idempotent partition re-run rather than silent data omission.
 
-A partition that failed should be recorded as failed, with the error, and the run should carry
-on to the next one.
+## Treating failure as operational state
 
-Stopping at the first failure is right for a daily run of one partition and wrong for a
-backfill of thirty, because one bad day should not hide the fact that the other twenty-nine
-were fine. What you want at the end is a report: twenty-nine done, one failed, here is which
-and why.
+Individual partition failures should be recorded as structured state in the run log rather than unhandled process crashes.
 
-The exception to that is a failure that means everything after it will also fail — the source
-is unreachable, the disk is full. Distinguishing "this partition is bad" from "everything is
-bad" is genuinely hard, and the usual compromise is a consecutive-failure limit: stop after
-three in a row, on the reasonable guess that it is no longer about the data.
+In multi-partition backfills, a single malformed partition should not halt processing for the remaining valid partitions. The runner logs the specific partition error, transitions its status to `failed`, and advances to the next partition.
 
-## Concurrency, briefly
+However, environmental failures (such as storage capacity limits or network disconnection) affect all subsequent runs. To handle widespread infrastructure issues, runners enforce a consecutive-failure threshold: aborting the job after three successive failed partitions.
 
-Two copies of the same backfill running at once is a real hazard, usually because somebody
-started it again thinking the first had died.
+## Guarding against concurrent executions
 
-The primary key on `partition` gives you a cheap defence: claim a partition by inserting a
-`running` row, and if the insert conflicts, somebody else has it. That is not a distributed
-lock and it will not save you from every interleaving, but it turns the common case from
-silent double-processing into a row that says who got there first.
+Concurrent runs across the same partition range risk conflicting writes.
+
+Using a `PRIMARY KEY` constraint on `partition` in the run log provides concurrency protection: a job attempts to insert a record with status `running`. If an active run record already exists, the conflicting insert alerts the runner that another process is handling the partition.
 
 ## What the exercise asks
 
-A run log, a resumable runner that skips what is done and retries what was interrupted, a
-consecutive-failure limit, and a report of what happened.
+Implement a run log table, a resumable batch runner that skips completed partitions and retries interrupted ones, a consecutive-failure threshold, and execution summary reporting.
 
-The test kills the runner partway through and resumes it, then checks the final state matches
-running it straight through.
-
+The test suite halts the runner partway through execution, restarts the process, and verifies that final storage state matches an uninterrupted run.
 
 ## Seen in production
 
-Spotify describe the machinery around running forecasts repeatedly in
+Spotify detailed the design of their recurring forecasting infrastructure in
 [How we built infrastructure to run user forecasts](https://engineering.atspotify.com/2022/06/how-we-built-infrastructure-to-run-user-forecasts-at-spotify/).
-The forecasting is not the point. Read it for what they built around the job so that running it
-again was routine rather than an event.
+The article highlights the operational tooling and state tracking required to make repeated batch runs routine and manageable.

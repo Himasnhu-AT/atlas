@@ -9,60 +9,46 @@ exercise:
   timeboxMinutes: 30
 ---
 
-Sooner or later a bug ships, and a month of output is wrong. Fixing the code is the easy half.
-The other half is re-running it over thirty days of history without making things worse.
+When business logic bugs affect historical records, repairing the dataset requires reprocessing historical partitions without introducing side effects or schema divergence.
 
-## The backfill and the daily run should be the same code
+## Unifying scheduled runs and historical backfills
 
-The failure mode here is a separate `backfill.py` that grew alongside the real pipeline,
-diverged from it, and is now the only thing anyone trusts to touch history.
+A common failure mode in data platforms is maintaining a separate, ad-hoc script for historical reprocessing that diverges from the production pipeline codebase.
 
-If a run is parameterised by the partition it covers, there is no separate script. Today's run
-is `run("2026-03-06")`. A backfill is that in a loop.
+When pipeline jobs are parameterized by target partition boundaries (such as a date parameter), the scheduled daily run and the historical backfill execute the exact same core logic:
 
 ```python
 for day in days_between("2026-02-01", "2026-03-06"):
     run(day)
 ```
 
-Which means everything the previous two lessons argued for is what makes a backfill possible
-at all. A run that owns a partition and replaces it is re-runnable over any partition. A run
-that appends is not, and its backfill has to be written separately, which is where the
-divergence starts.
+Partition-level replacement allows jobs to execute predictably over any historical date range. Pipelines relying on unkeyed appends cannot safely reprocess history without dedicated cleanup scripts.
 
-## Order, and whether it matters
+## Partition execution ordering constraints
 
-If partitions are independent, order does not matter and you can run them in parallel. If a
-day's output depends on the day before it — a running balance, a slowly changing dimension,
-anything cumulative — order matters absolutely and parallelism is not available.
+Partition dependencies determine whether historical ranges can execute concurrently:
 
-Say which one you have, in the code. A backfill that happens to be run in order and quietly
-requires it is a trap for whoever parallelises it later to make it finish before the morning.
+- **Stateless partitions:** When each date partition calculates output independently of adjacent dates, partitions can execute in parallel or arbitrary order.
+- **Stateful dependencies:** When output depends on previous state (such as rolling balances, cumulative sums, or Type 2 slowly changing dimensions), partitions must execute sequentially in strict chronological order.
 
-## Backfills are the operation most likely to break production
+Documenting execution ordering constraints explicitly in code prevents regressions when batch runners are refactored for concurrent execution.
 
-They are big, they run against the same tables the daily job uses, and they are run by hand at
-an unusual hour by somebody who is already having a bad day.
+## Operational safeguards for historical re-runs
 
-Three things help. Make it **resumable**, so a failure at day 20 of 30 does not mean starting
-over. Make it **report per partition**, so "it worked" is a list of days with row counts and
-not a single exit code. And make it possible to run against a **copy** first, which mostly
-means not hard-coding the target table.
+Backfills process large volumes of data against production tables. Three architectural practices mitigate operational risk:
 
-## Deleting is part of it
+1. **Resumable execution:** Tracking partition-level status ensures that failures on day 20 of a 30-day backfill do not require restarting from day one.
+2. **Partitioned reporting:** Emitting structured metadata per partition (including records read, records written, and execution time) provides clear visibility into reprocessing progress.
+3. **Target parameterization:** Allowing destination tables to be configured via parameters permits dry runs against staging tables before updating production datasets.
 
-A partition that used to have rows and now has none is a real result, and a backfill has to be
-able to produce it. If your write is "insert the rows for this day", a day that should now be
-empty keeps its old rows forever and nothing points at them.
+## Purging stale partition data
 
-Delete-then-insert handles this without thinking about it. A pure upsert does not, and needs a
-deliberate delete of the rows that were not in the new input. That case — data that used to
-exist and should stop existing — is the one most likely to be missed, because it never comes
-up while the pipeline is working.
+Reprocessing logic must handle partitions where source records were deleted or corrected to zero rows. An insert-only approach leaves outdated rows in the target table indefinitely.
+
+A delete-then-insert pattern within a single transaction handles empty partitions cleanly by removing obsolete records before inserting the updated record set. Pure upserts require explicit deletion logic for rows omitted from the updated payload.
 
 ## What the exercise asks
 
-A day range generator, a runner that processes one partition idempotently, a backfill that
-loops it and reports per day, and the handling for a partition that is now empty.
+Implement a date range generator, an idempotent single-partition runner, a backfill driver that iterates through date partitions with progress reporting, and cleanup logic for emptied partitions.
 
-The test that matters runs the backfill twice and checks the table is identical afterwards.
+The verification test executes the complete backfill process twice to confirm that target tables reach an identical state across repeated runs.

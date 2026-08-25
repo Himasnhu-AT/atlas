@@ -1,7 +1,7 @@
 ---
 id: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
 title: Guardrails that can stop a run
-summary: A tripwire that fires before the first model call costs nothing and is the only check that can save you money. One that fires on the output is a different job with a different failure mode.
+summary: Input guardrails evaluate user prompts before model execution to prevent unnecessary token costs, while output guardrails validate generated responses.
 order: 3
 estimatedMinutes: 40
 exercise:
@@ -9,12 +9,12 @@ exercise:
   timeboxMinutes: 25
 ---
 
-A guardrail is a function that looks at a value and decides whether the run may continue. In
-the Agents SDK it is a decorated function returning an object with a `tripwire_triggered`
-flag, and a tripped guardrail raises rather than returns.
+A guardrail is an evaluation function that assesses inputs or outputs and decides whether execution
+may continue. In modern agent runtimes, a tripped guardrail halts execution by raising an exception
+rather than relying on passive status flags.
 
 ```python
-# Illustration only. Needs the openai-agents package.
+# Reference example using the openai-agents package
 from agents import Agent, GuardrailFunctionOutput, Runner, input_guardrail
 
 @input_guardrail
@@ -28,79 +28,46 @@ async def not_a_homework_request(ctx, agent, user_input: str) -> GuardrailFuncti
 support = Agent(name="Support", instructions="...", input_guardrails=[not_a_homework_request])
 ```
 
-Two things there are worth stealing and one is worth arguing with. Steal the raise: a caller
-who has to remember to check a flag will forget on the day it matters, so a tripwire that
-stops the run is a control flow event, not a return value. Steal the info payload: the check
-knows why it refused, and something upstream has to explain that to a user or an operator.
+Using exceptions for tripwires ensures that callers cannot accidentally ignore policy violations.
+Attaching structured diagnostic metadata to the exception allows upstream callers to generate appropriate
+user-facing rejection messages or operational logs.
 
-The thing to argue with is where the check runs, and it is worth being precise about it.
+## Input versus output guardrails
 
-## The two positions are different jobs
+Guardrails serve distinct operational purposes depending on where they execute in the lifecycle:
 
-An input guardrail runs against what the user sent. Run it first and it costs one function
-call and no tokens. That is the only check in your system that can actually reduce the bill,
-because everything downstream of the first model call has already been paid for.
+- **Input guardrails**: Evaluate the initial user prompt before any model invocation. An input guardrail
+  can stop a run before consuming tokens, protecting budgets from out-of-scope requests or injection attempts.
+- **Output guardrails**: Evaluate text produced by the agent. By definition, tokens have already been consumed
+  and downstream tools may have executed. Output guardrails protect end users from unsafe content or malformed
+  responses, but they cannot reduce compute spend.
 
-An output guardrail runs against what your agent produced. By definition the run has
-happened, the tokens are spent, and possibly a tool has already written to a database. It
-protects the user from your agent, not your budget from the user.
+Production frameworks balance latency and cost when executing input guardrails. Some run input guardrails
+concurrently with the initial model request and cancel the stream if a tripwire fires. Evaluating guardrails
+strictly prior to model invocation introduces minor latency but guarantees zero token spend on rejected requests.
 
-That difference decides what you do when one fires. An input trip means someone asked for
-something you refuse, and the answer is a polite refusal. An output trip means your own
-system produced something you refuse, and the answer is a fallback response plus an alert,
-because a system that regularly generates output it then has to suppress has a prompt
-problem that suppression is not fixing.
+## Exception handling and short-circuit evaluation
 
-Real runtimes complicate the input case deliberately. The Agents SDK runs input guardrails
-concurrently with the agent's first turn so the latency overlaps, and cancels the run when
-one trips. That saves wall clock and gives back some of the savings, since tokens already in
-flight are billed. Running them strictly first, as you will, is simpler and strictly cheaper,
-and costs you the guardrail's latency on every request. Both choices are defensible. What is
-not defensible is not knowing which one your framework made, then wondering why a blocked
-request still shows up on the invoice.
+Guardrails should distinguish between intentional policy trips and internal software defects:
 
-## Failing closed, and failing honestly
+- **Do not catch unexpected exceptions**: If a guardrail raises a runtime error (such as a malformed regular expression or network failure), let the error propagate. Catching all exceptions and treating them as trips masks bugs under the guise of security.
+- **Short-circuit evaluation**: Evaluate guardrails sequentially in order of definition, halting immediately upon the first triggered tripwire. This avoids unnecessary computation and ensures exception messages report the exact rule that caused the rejection.
 
-A guardrail that raises `ValueError` because someone's regex does not compile is not a policy
-decision. It is a bug, and it has to surface as one.
+## Boundaries of guardrail responsibilities
 
-The tempting shortcut is a `try` around the check that turns any exception into a trip. It
-looks like defence in depth and it is the opposite: every broken check now silently refuses
-every request, and the dashboard shows a policy working perfectly. Let the exception
-propagate. The run fails loudly, someone fixes the check, and the failure mode is one you can
-see.
+Guardrails are not a replacement for domain-level access control or system design:
 
-Order matters for the same reason. Evaluate guardrails in the order they were declared and
-stop at the first trip. Running the rest costs money for information you are not going to
-act on, and the trail you hand to the exception should end at the check that made the
-decision so the log says what stopped the run rather than everything that had an opinion.
+- **Authorization belongs in tools**: Critical business constraints (such as maximum transaction limits) must be enforced directly inside tool functions, not in text-based guardrail checks.
+- **Tool scoping is primary**: The most reliable safeguard is omitting sensitive tools from agents that do not require them. Filtering prompts to prevent misuse of unnecessary tools is fragile compared to structural permission boundaries.
+- **Model-based guardrail costs**: When using an LLM classifier as a guardrail, ensure the classifier uses a lightweight, low-cost model relative to the primary agent to keep latency and expense bounded.
 
-## What guardrails are not
+## Exercise overview
 
-They are not authorisation. If the model must not refund more than fifty pounds, the check
-belongs inside the refund tool where it holds regardless of what any prompt says. A guardrail
-sits on the text going in and coming out, and text is the wrong place to enforce a rule that
-has a real subject and object.
+In this exercise, you will implement:
+- The `@guardrail` decorator that formats check functions.
+- The `TripwireTriggered` exception carrying diagnostic metadata.
+- `guarded_run` to evaluate input guardrails sequentially prior to agent execution.
 
-They are not a substitute for scoping. The strongest control available is not giving an agent
-the tool. A guardrail that scans for attempts to use a capability the agent should never have
-had is a worse version of removing the capability.
-
-And a guardrail that calls a model is a model call, with a model's latency, cost, and failure
-modes. A cheap classifier in front of an expensive agent is a good trade. A classifier as
-expensive as the agent it guards is not.
-
-## Your exercise
-
-The runner from the last exercise is given to you complete. Write the layer around it: the
-`guardrail` decorator, the `TripwireTriggered` exception, and `guarded_run`.
-
-The assertion that matters most is one line: when an input guardrail trips,
-`client.call_count` is zero. That is the entire argument for input guardrails, and any
-implementation that runs the agent first passes every other test in the file while failing
-this one.
-
-Watch the decorator's convention. A guardrail returns True when the tripwire fires, which
-reads backwards the first time: the function answers "did this trip", not "is this fine".
-The real SDKs do it this way, and getting the polarity wrong produces a system that blocks
-everything acceptable and permits everything else.
+Key requirements:
+1. When an input guardrail trips, the primary model client must not be called (`client.call_count == 0`).
+2. Guardrail functions return `True` when the tripwire fires (indicating a violation) and `False` when the input passes.

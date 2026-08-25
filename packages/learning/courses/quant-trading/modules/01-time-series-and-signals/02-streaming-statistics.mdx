@@ -1,0 +1,55 @@
+---
+id: quant-time-series.streaming-statistics
+title: Streaming statistics
+summary: Compute exponential moving averages with warmup and sliding window sample variance without catastrophic cancellation.
+order: 2
+estimatedMinutes: 20
+exercise:
+  id: streaming-stats
+  timeboxMinutes: 25
+---
+
+Trading systems process continuous market data tick-by-tick. Recalculating mean and variance over a full array on every new tick requires $O(W)$ time per event, where $W$ is the window length.
+
+Online streaming algorithms maintain rolling statistics in $O(1)$ time per update.
+
+## Exponential moving average with warmup
+
+The **Exponential Moving Average (EMA)** assigns exponentially decaying weights to older observations. For a span of $N$ periods, the smoothing multiplier $\alpha$ is:
+
+$$
+\alpha = \frac{2}{N + 1}
+$$
+
+A common error in naive implementations is initializing $\text{EMA}_0 = 0.0$, which distorts the first dozen values toward zero. A clean approach calculates the simple arithmetic average over the initial warmup window ($t < N$) before applying the recursive smoothing formula:
+
+$$
+\text{EMA}_t = \alpha P_t + (1 - \alpha) \text{EMA}_{t-1}
+$$
+
+## Sliding window variance and numerical stability
+
+Computing sample variance as $\frac{\sum X^2 - (\sum X)^2 / N}{N - 1}$ in floating point arithmetic can cause catastrophic cancellation when numbers are large and differences are small, sometimes resulting in negative values.
+
+To maintain precision:
+
+1. Maintain running sums of $X$ and $X^2$ over a queue of size $W$.
+2. Pop the oldest observation when the queue exceeds $W$.
+3. Compute the sample variance:
+
+$$
+s^2 = \max\left(0.0, \; \frac{\sum X^2 - N \bar{X}^2}{N - 1}\right)
+$$
+
+4. Calculate annualized volatility using the periods per year scaling factor (for daily returns, $A = 252$):
+
+$$
+\sigma_{\text{annualized}} = \sqrt{s^2 \cdot A}
+$$
+
+## Exercise: implement streaming EMA and variance
+
+In this exercise, you will implement two streaming classes:
+
+1. `StreamingEMA`: Online exponential moving average with initialization warmup.
+2. `RollingVariance`: Sliding window sample variance and annualized volatility calculator in $O(1)$ time per update.

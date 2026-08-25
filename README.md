@@ -57,16 +57,17 @@ a web reader.
 
 ## The courses
 
-Two, and the platform assumes there will be more.
+Three, and the platform assumes there will be more.
 
 | Course | Modules | Lessons | Exercises | Hours | Needs |
 |---|---|---|---|---|---|
 | AI agent engineering | 13 | 54 | 42 | 55 | Python 3.10+ |
 | Data engineering | 5 | 17 | 13 | 13.5 | Python 3.10+ |
+| Quantitative trading | 7 | 26 | 20 | 21 | Python 3.10+ |
 
-Neither needs anything installed beyond an interpreter. The AI course runs against `mockllm`;
-the data course uses `csv`, `json`, `sqlite3` and `datetime`, all standard library, and ships
-its own deterministic fixture generator the same way.
+None need anything installed beyond an interpreter. The AI course runs against `mockllm`;
+the data course uses standard library file and database tools; the quant course uses
+standard library math and collections with its own deterministic market data generator.
 
 ### AI agent engineering
 

@@ -6,79 +6,53 @@ order: 3
 estimatedMinutes: 30
 ---
 
-Five modules, one idea: **a pipeline is a promise about data that has to keep being true
-tomorrow**. This lesson makes the promise explicit, because a promise nobody wrote down is a
-promise nobody can hold you to and, more usefully, one nobody can rely on.
+Data pipelines establish structural commitments about published datasets. Making these commitments explicit turns an internal transformation workflow into an interface that downstream teams can depend on.
 
-## What a contract says
+## Components of a data contract
 
-A data contract is the answer to "what can I assume about this table". Four things:
+A data contract defines the structural guarantees of a dataset across four core pillars:
 
-**Shape.** These columns, these types, these are nullable and these are not. You have this
-already — it is the `CREATE TABLE` in
-[loading a table](lesson:de-storage.loading-a-table), plus the validator from
-[a schema that reports](lesson:de-cleaning.a-schema-that-reports).
+1. **Shape:** Column definitions, data types, and nullability constraints. This corresponds to the table schema defined in [loading a table](lesson:de-storage.loading-a-table) combined with the validation logic in [a schema that reports](lesson:de-cleaning.a-schema-that-reports).
+2. **Grain:** The primary entity represented by an individual row (for example, "one row per completed order"). Clearly defining table grain prevents double-counting issues like array explosion in [shapes that nest](lesson:de-records.shapes-that-nest) and duplicate join matches in [the rows a join loses](lesson:de-storage.the-rows-a-join-loses).
+3. **Freshness:** Expected update cadence, maximum allowable ingestion lag, and automated alerts for stagnant feeds.
+4. **Semantics:** Explicit definitions of business column contents (such as whether `total` is gross or net of sales tax, or whether `status` reflects the order state at extraction time).
 
-**Grain.** One row per what. "One row per order" is the single most important sentence about a
-table and the one most often absent, and every double-counting bug in this course came from
-somebody assuming a different grain from the one they got — the explode in
-[shapes that nest](lesson:de-records.shapes-that-nest) and the multiplying join in
-[the rows a join loses](lesson:de-storage.the-rows-a-join-loses) are the same bug arriving
-twice.
+## Executable contracts versus static documentation
 
-**Freshness.** How current this is, and how you will know when it is not.
+Static wiki documentation quickly falls out of sync with production code. A data contract becomes reliable when expressed as automated, executable assertions.
 
-**Semantics.** What the columns mean. `total` includes tax and excludes shipping. `status` is
-the status at load time and not now. Nothing in the schema can say either of those, and both
-are things somebody will otherwise assume wrongly.
+Each contract component maps directly to an automated verification stage:
 
-## The contract is a test, or it is a wiki page
+- **Shape and types:** Enforced by database schema constraints and ingestion validators.
+- **Grain and uniqueness:** Verified via key uniqueness assertions introduced in [counting is a test](lesson:de-contracts.counting-is-a-test).
+- **Freshness:** Monitored via independent schedule checkers.
+- **Semantic rules:** Verified through relational invariant tests (such as asserting that `total >= subtotal`).
 
-A contract written in a document is a description of how things were when somebody last
-looked. Written as checks that run, it is a description of how things are.
+Structuring contracts as executable test suites ensures that violations surface automatically before breaking downstream systems.
 
-Every promise above maps onto something from this course. Shape is the validator. Grain is the
-uniqueness check from [counting is a test](lesson:de-contracts.counting-is-a-test). Freshness
-is the previous lesson. Semantics is the only one that cannot be tested directly, and even it
-usually has a proxy: "total includes tax" implies `total >= subtotal`, and that is a check.
+## Managing schema and semantic evolution
 
-So the contract is not a new artefact. It is the checks you already have, gathered in one file,
-with the sentence each of them is defending written next to it.
+Schemas evolve as business requirements change. Managing changes through explicit contracts makes updates transparent:
 
-## Breaking a contract on purpose
+- **Non-breaking additions:** Appending new nullable columns or optional fields does not interrupt existing downstream consumers.
+- **Breaking modifications:** Dropping columns, renaming fields, altering entity grain, or changing value definitions invalidates downstream queries.
 
-Contracts change. A column gets added, a meaning gets refined, a grain genuinely needs to
-change.
+Breaking modifications require advance notification and versioned transitions to prevent silent report corruption.
 
-What makes that survivable is that the contract is somewhere consumers can see, and that
-breaking it is a visible act rather than a deploy that quietly starts producing different
-numbers. Adding a column breaks nothing. Removing one, renaming one, changing a grain, or
-changing what a value means, break everything downstream and cannot be detected by anybody
-downstream.
+## Summary of core pipeline principles
 
-The useful discipline is small: additive changes go out whenever, and anything else needs the
-consumers told first. That is not process for its own sake. It is that every alternative ends
-with somebody's report silently changing.
+Across these modules, dependable data engineering relies on consistent practices:
 
-## What this course was
+- Parse raw files with explicit handling for escaping, delimiters, and malformed lines.
+- Implement field coercion functions that return explicit error states rather than silent defaults.
+- Collect batch validation errors and route rejected records to quarantine stores instead of dropping them.
+- Enforce schema constraints and transaction boundaries during database writes.
+- Maintain idempotence across runs using keyed upserts and atomic partition replacement.
+- Track incremental watermarks and job completion states to make batch pipelines resumable.
+- Deploy automated assertions and independent freshness monitors to verify data integrity.
 
-You read a messy file without a library, and learned what the library is doing. You coerced
-values with a function that could admit it failed, validated a whole extract instead of one
-row, and quarantined the failures instead of dropping them. You put it in a table with
-constraints that refuse, read a query plan, and counted what a join threw away. You made a load
-idempotent, gave it a watermark that does not lose the boundary row, backfilled with the same
-code as the daily run, and made it resumable. Then you counted rows, checked freshness, and
-wrote the promise down.
+## Scaling beyond embedded engines
 
-None of it was clever. Every hard part was noticing that something could go wrong quietly, and
-adding the small boring thing that makes it go wrong loudly instead. That is the job.
+While SQLite serves as an effective learning environment and embedded engine, large-scale production platforms transition to distributed query engines (such as PostgreSQL, DuckDB, or Snowflake), columnar storage formats (such as Parquet), and workflow orchestrators (such as Airflow or Dagster).
 
-## Where to go next
-
-sqlite has taken you further than most people expect and there is a point where it stops. When
-you reach it, the words to look up are Postgres, columnar formats like Parquet, and an
-orchestrator such as Airflow or Dagster.
-
-None of that changes anything you have learned here. An orchestrator is the run log from
-[the partial run](lesson:de-pipelines.the-partial-run) with a web page on it. A warehouse is a
-table with better indexes. The promise, and the checks that keep it, are the same.
+The underlying architectural principles remain identical: orchestrators manage the execution state log described in [the partial run](lesson:de-pipelines.the-partial-run), data warehouses optimize partitioned storage, and automated contracts protect data consumers from silent failures.

@@ -6,75 +6,58 @@ order: 1
 estimatedMinutes: 20
 ---
 
-You have clean rows. You could stop here: keep them as a list of dicts, write some functions
-that filter and sum, and ship it. People do, and it works until it does not.
+In-memory data structures like lists of dictionaries allow arbitrary keys and variable types. While flexible during initial prototyping, they rely on application-level discipline to maintain consistency.
 
-## What a list of dicts cannot do
+## Invariant enforcement in relational tables
 
-It cannot stop you. Every constraint you rely on is a convention you are maintaining by hand.
+In-memory collections cannot enforce structural constraints:
 
-Nothing stops a second row with the same `order_id`. Nothing stops `quantity` being a string
-on one row and an integer on the next, which is easy to do when one code path uses your
-coercion and another was written in a hurry. Nothing stops a row referring to a customer who
-does not exist, and nothing tells you when one appears.
+- Duplicate records with identical identifiers can be appended freely.
+- Type consistency depends entirely on application code paths, allowing strings and integers to coexist in the same conceptual column.
+- Null values can appear in columns expected to be populated.
+- Foreign key relationships to nonexistent parent entities remain undetected.
 
-The failure mode is always the same: it works in testing, where you wrote the data, and breaks
-in production, where somebody else did.
+A database table enforces constraints directly at the storage level:
 
-A table can refuse all four. `PRIMARY KEY` refuses the duplicate. A column type refuses the
-wrong type, or at least records the intent. `NOT NULL` refuses the hole. `REFERENCES` refuses
-the orphan. Those refusals happen in the storage engine, below every code path, including the
-one somebody adds next year without reading this.
+- `PRIMARY KEY` rejects duplicate entity identifiers.
+- Column data types specify and validate expected representations.
+- `NOT NULL` constraints reject incomplete records.
+- `REFERENCES` foreign keys prevent orphan child records.
 
-## sqlite, specifically
+Enforcing constraints at the database boundary ensures that data integrity rules apply consistently to all current and future write paths.
 
-`sqlite3` is in the standard library, the database is one file, and there is no server. That
-makes it the right thing for this course and a genuinely good default for real work at small
-and medium scale.
+## SQLite type affinity and strict mode
 
-It has one behaviour you have to know about, because it will bite you. sqlite uses **type
-affinity** rather than strict typing: declaring a column `INTEGER` and inserting the string
-`"two"` succeeds, and the value comes back as the string `"two"`.
+Python includes `sqlite3` in its standard library, providing a self-contained, serverless relational database engine.
+
+By default, SQLite uses **type affinity** rather than rigid type enforcement. Declaring a column as `INTEGER` and inserting the string `"two"` succeeds, storing the text value directly:
 
 ```sql
 CREATE TABLE orders (quantity INTEGER);
 INSERT INTO orders VALUES ('two');   -- accepted
 ```
 
-So the type declaration is documentation and a conversion hint, not a guarantee. That is
-exactly why the previous module exists: coercion at the edge is not made redundant by having a
-schema. In sqlite it is the only thing actually enforcing the type.
+In default SQLite tables, column types act as conversion recommendations rather than strict guarantees. Input validation at the ingestion boundary remains necessary to ensure type safety.
 
-Modern sqlite offers `STRICT` tables, which do enforce it, and using them is the right call
-when your version supports it. Both are in the exercise.
+Modern SQLite versions support `STRICT` tables, which reject values that do not match declared data types. Specifying `STRICT` during table creation enforces strict typing at the engine level.
 
-## Parameters, not string formatting
+## Parameterized queries and statement security
 
-One rule, and it is not negotiable.
+Database operations must use parameter substitution rather than string interpolation:
 
 ```python
-cursor.execute(f"INSERT INTO orders VALUES ('{order_id}')")   # no
-cursor.execute("INSERT INTO orders VALUES (?)", (order_id,))  # yes
+cursor.execute(f"INSERT INTO orders VALUES ('{order_id}')")   # unsafe
+cursor.execute("INSERT INTO orders VALUES (?)", (order_id,))  # safe
 ```
 
-The first is SQL injection. In a pipeline the attacker is usually not a person, it is a
-customer name containing an apostrophe, and the result is a crash at three in the morning
-rather than a breach. The fix is the same either way, it is shorter, and it is faster because
-the driver can reuse the prepared statement.
+String interpolation introduces SQL syntax errors whenever values contain characters like apostrophes or quotes, and exposes databases to injection vulnerabilities. Parameterized queries escape inputs correctly and enable query plan caching.
 
-## Loading is not one insert at a time
+## Transaction boundaries during batch loads
 
-A separate transaction per row means an fsync per row, and a ten thousand row load that should
-take a second takes minutes. Batch the inserts and commit once, or once per few thousand.
+Executing individual `INSERT` statements with auto-commit triggers disk synchronization (`fsync`) on every row, slowing down bulk ingestion. Grouping inserts within explicit transactions commits data in batches.
 
-The second reason matters more than the speed: one transaction means the load either happened
-or it did not. A load that dies halfway through with no transaction leaves a table holding
-part of an extract, and nothing in the table says which part.
+Transactions also provide atomic isolation: either the entire batch commits successfully, or the entire operation rolls back on error. Ingestion jobs that fail without transactions leave tables partially populated with untracked subsets of data.
 
-## What the next lessons do
+## Upcoming storage concepts
 
-Load the cleaned orders into a real table with real constraints, look at what the query
-planner does with and without an index, and then join orders to customers and count what the
-join threw away.
-
-That last one is where most of the actual bugs live.
+Subsequent lessons cover loading validated records into constrained tables, analyzing query execution plans with indexes, and auditing relational joins for record loss.

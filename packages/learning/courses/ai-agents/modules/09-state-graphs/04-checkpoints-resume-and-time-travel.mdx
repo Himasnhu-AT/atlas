@@ -1,7 +1,7 @@
 ---
 id: ai-state-graphs.checkpoints-resume-and-time-travel
 title: Checkpoints, resume, and time travel
-summary: "Write the state after every super step and three features you did not build appear: resume after a crash, replay from an earlier point, and fork a run into an alternative branch."
+summary: Persisting state after every super-step enables crash recovery, historical replay, and thread branching from saved state records.
 order: 4
 estimatedMinutes: 55
 exercise:
@@ -9,149 +9,99 @@ exercise:
   timeboxMinutes: 30
 ---
 
-Durable execution sounds like infrastructure. In a graph runtime it is one dict written at the
-end of every super-step, and the features people pay for are three different ways of reading
-it back.
+Durable execution in a graph runtime requires writing a checkpoint dictionary at the end of
+each super-step. Because the scheduler maintains no external execution queues or transient
+flags, the complete runtime state consists solely of channel values, channel versions, and `versions_seen`.
+Persisting these three structures fully captures the execution state.
 
-That is only true because of a decision made two lessons ago. There is no queue of pending
-work and no scheduler state living outside the channels. Everything the runtime needs to decide
-what happens next is the values, the versions, and `versions_seen`. Snapshot those three and
-you have snapshotted the run.
+## The checkpoint record
 
-## The record
-
-Seven fields, and the names are borrowed from LangGraph rather than invented, so the first real
-checkpoint you open reads as recognition rather than translation.
+The checkpoint structure aligns with conventions used in production systems like LangGraph:
 
 ```python
 @dataclass
 class Checkpoint:
-    v: int                       # format version, always 1 for now
-    id: str                      # sorts chronologically as a string
-    ts: str                      # ISO 8601, for humans, never for sorting
+    v: int                       # schema version
+    id: str                      # lexicographically sortable identifier
+    ts: str                      # ISO 8601 timestamp for display
     channel_values: dict
     channel_versions: dict
     versions_seen: dict
     updated_channels: list
 ```
 
-`v` is there before you need it. The day the shape of this record changes there are already
-checkpoints in a database in the old shape, and a version field is the difference between a
-migration and an outage.
-
-`ts` is for display. Sorting on a timestamp works until two super-steps land in the same
-microsecond, and then your history is in an order that is almost right, which is worse than
-obviously wrong. The `id` is what sorts, which is why it is a zero padded counter:
+- `v`: Schema version number to support future migrations of stored state records.
+- `ts`: Display timestamp. Timestamps alone are insufficient for deterministic ordering due to potential sub-millisecond collisions.
+- `id`: A zero-padded numeric string (e.g. `0000000001`) that sorts chronologically when compared as text. Production implementations often use ULIDs or UUIDv6.
+- `updated_channels`: Lists which channels modified during the super-step, aiding debugging and audit inspection.
 
 ```python
 def new_checkpoint_id(counter):
     return f"{counter:010d}"
 ```
 
-Plain `str(counter)` puts "10" before "2". Production implementations use a ULID or a UUIDv6,
-which is the same trick with a timestamp in the high bits so ids from different processes
-still interleave correctly.
+## Thread configuration and addressing
 
-`updated_channels` is what that super-step wrote. It is not needed to restore anything, and it
-is what makes a history readable: a list of thirty checkpoints where each one says which
-channels moved is a run you can actually follow.
-
-## Threads, and the config that names them
-
-A checkpoint belongs to a thread. A thread is one conversation, one run, one support ticket:
-whatever unit should be resumable. It is addressed by a config dict, and the whole API is
-built around one convention.
+Checkpoints belong to a thread representing an isolated workflow, conversation, or task.
+Threads are referenced via configuration dictionaries:
 
 ```python
-{"thread_id": "incident-4181"}                              # wherever this thread got to
-{"thread_id": "incident-4181", "checkpoint_id": "00000002"} # exactly this point
+{"thread_id": "incident-4181"}                              # latest checkpoint in thread
+{"thread_id": "incident-4181", "checkpoint_id": "00000002"} # specific historical checkpoint
 ```
 
-Ask for a thread with no checkpoint id and you get its newest checkpoint. That default is
-resume, in its entirety. There is no separate resume call and no flag, because "carry on from
-wherever this thread is" and "load the newest checkpoint" are the same sentence.
+Omitting `checkpoint_id` retrieves the latest checkpoint for that thread. Resuming execution
+consists of loading the newest checkpoint and running the standard scheduler loop.
 
-## Resume falls out
+## Resuming from saved state
 
-Restore `channel_values`, `channel_versions` and `versions_seen`, then run the scheduler
-exactly as before. Nodes that completed are marked as having seen their subscriptions at the
-versions they read, so they are not eligible and do not run. Nodes that never got to run have
-seen nothing and are eligible. The scheduler does not know it is resuming and does not have a
-code path for it.
+To resume execution:
+1. Load `channel_values`, `channel_versions`, and `versions_seen` from the checkpoint.
+2. Invoke the scheduler.
 
-The test in the exercise is the one that matters in production: a node calls a model client,
-the next node raises, and the run dies. Re-run the same thread and the model client's call
-count stays at one. The node that failed runs again, because it never recorded having seen
-anything. Everything before it is skipped, because it did.
+Completed nodes have their subscribed channel versions recorded in `versions_seen`, so they do not
+re-run. Unexecuted or pending nodes detect version differences and execute normally. The scheduler
+requires no special-case logic for resume operations.
 
-Two details are easy to get wrong and both are checked.
+Important implementation details:
+- **Deep copies**: Copy channel values when writing checkpoints. Storing raw dictionary references
+  allows subsequent node mutations to alter historical records retrospectively.
+- **Sequential IDs**: Resumed runs must continue checkpoint numbering from the existing thread count
+  rather than resetting to zero, avoiding ID collisions.
 
-Deep copy the values into the checkpoint. `state.values()` hands back a new dict holding the
-same list objects, so a checkpoint that stores it directly keeps pointing at the live state,
-and every checkpoint in the thread ends up showing the final values. The history looks
-plausible and is entirely fictional.
+## Replay and thread branching
 
-Continue the thread's numbering. A resumed run that starts its counter at zero writes ids that
-already exist and overwrites its own past. Take the counter from how many checkpoints the
-thread already holds.
-
-## Time travel and forking
-
-Once every super-step is addressable, replay is asking for an older id instead of the newest
-one.
+Specifying an older checkpoint ID restores execution state to that historical point:
 
 ```python
 config = {"thread_id": "incident-4181", "checkpoint_id": older_id}
 run_with_checkpoints(graph, saver, config)
 ```
 
-That restores the state as it was at that point and runs forward. New checkpoints get new ids
-and append to the thread, which is deliberate: replay adds to history rather than editing it,
-so the run you replayed is still there to compare against.
+Replaying appends new checkpoints to the thread history without overwriting past entries.
 
-Forking is the same read with a write into a different thread. Copy the checkpoint under a new
-`thread_id`, give it a `parent_config` naming the thread and id it came from, and run that.
-The original thread does not move.
+Forking creates a new thread starting from an existing checkpoint. The runtime copies the checkpoint
+into a new `thread_id` and records a `parent_config` referencing the source:
 
-`parent_config` is doing quiet work here. Within a thread it chains each checkpoint to the one
-before it, which is a list. Across threads it points a fork at its origin, which makes the
-whole history a tree. That single field is what a "rewind and try a different tool" button in
-an agent UI is built on, and what an evaluation harness uses when it runs the same prefix
-against four different prompts and compares the four tails.
+- Within a thread, checkpoints form a chronological sequence.
+- Across forks, `parent_config` pointers form a version tree, supporting features like trying alternate tools or running comparative prompt evaluations from a shared prefix.
+- Storage must namespace records by thread first, ensuring strict data isolation between parallel runs.
 
-The other thing forking buys is isolation, and the exercise checks it: two threads on the same
-graph never see each other's values. That is a property of the storage layout, not of the
-runtime. Key by thread and then by checkpoint id, rather than flattening everything into one
-dict of ids, and the isolation is structural instead of something you have to remember.
+## Production checkpointer considerations
 
-## What a real saver adds
+In-memory storage is useful for testing and transient graphs. Production checkpointers (such as PostgreSQL or Redis backends) add:
+- Serialization handling for non-JSON Python objects.
+- Write-ahead checkpoints recorded before external API invocations.
+- TTL policies to prune historical threads automatically.
+- Pending writes tracking: persisting individual node outputs before the super-step merge. This prevents re-executing completed side effects (like payments or emails) if a sibling node fails during the same step.
 
-Yours is a dict. `langgraph-checkpoint-postgres` is the same three methods over a table, and
-the interface is deliberately small enough that swapping them changes nothing else in the
-system. What the real ones add is mostly operational: serialisation that survives values which
-are not JSON, a write ahead of the model call rather than after it, and a time to live so a
-million abandoned threads do not sit in your database forever.
+## Exercise overview
 
-One thing they add is not operational, and it is the honest gap in what you are building.
+In this exercise, you will implement:
+- `Checkpoint`, `new_checkpoint_id`, and `CheckpointTuple`.
+- `InMemorySaver` with `get`, `put`, `list`, and `get_tuple` operations.
+- `run_with_checkpoints` to execute graphs step-by-step and persist checkpoints.
+- `fork` to branch a thread from any historical checkpoint.
 
-A super-step that crashes halfway through is not checkpointed at all in your version. Node
-left finished and returned an update, node right raised, and because the merge happens after
-every node returns, left's work is discarded and left runs again on resume. For a pure
-function that is fine. For a node that charged a credit card it is not.
-
-The fix is pending writes: persist each node's output as it returns, alongside the checkpoint
-it belongs to, and on resume replay the completed nodes' writes rather than the nodes. It is
-maybe forty more lines and it is a good stretch goal once the exercise passes. It is not
-graded, because it needs a failure injection harness that is more interesting to write than to
-read.
-
-## Your exercise
-
-Write the persistence layer: `Checkpoint`, `new_checkpoint_id`, `CheckpointTuple`,
-`InMemorySaver`, `run_with_checkpoints`, and `fork`. The engine from the previous two exercises
-is in the file, with `run_steps` exposed as a generator that yields after every super-step,
-which is exactly where a checkpoint goes.
-
-The tests crash a run on purpose, resume it, replay it from an older checkpoint, and fork it.
-None of that requires new machinery. If your `InMemorySaver` is right, all four are reads of
-the same seven fields.
+The test suite validates recovery after injected failures, deterministic replay from historical checkpoints,
+and state isolation across branched threads.

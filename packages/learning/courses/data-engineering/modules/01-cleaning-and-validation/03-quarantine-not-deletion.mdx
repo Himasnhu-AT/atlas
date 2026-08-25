@@ -9,36 +9,27 @@ exercise:
   timeboxMinutes: 25
 ---
 
-The validator gives you valid rows and broken rows. The tempting next line is:
+When validation separates records into valid and invalid collections, the default impulse is often to ingest the valid records and ignore the rest:
 
 ```python
 load(valid)
 ```
 
-and the broken ones are gone. The load succeeded. Everything downstream runs. Nobody
-finds out.
+Discarding invalid records allows pipelines to finish without runtime exceptions, but causes downstream calculations to misrepresent the underlying source events.
 
-## What a dropped row costs
+## The cost of silent record dropping
 
-Say a hundred of ten thousand orders fail validation because an upstream change started
-sending `quantity` as `2 items` instead of `2`.
+Suppose one hundred out of ten thousand records fail validation because an upstream service changed `quantity` from `"2"` to `"2 items"`.
 
-If you drop them, the daily revenue figure is short by whatever those hundred orders were
-worth. The report renders, the number looks like a number, and it is wrong. Nobody
-investigates a number that looks fine.
+Discarding these records reduces total reported revenue by the sum of those one hundred transactions. Downstream reports render normally, but the aggregated numbers are incorrect. Silent omissions rarely trigger alerts.
 
-If you keep them, the revenue figure is still short — you have not fixed anything — but there
-are a hundred rows sitting in a quarantine table with `not an integer: '2 items'` next to
-them, and the next person to look knows exactly what happened and when it started.
+Retaining rejected records in a quarantine store does not immediately correct the revenue total (the invalid rows are not yet loaded), but it records the full payload along with the reason: `not an integer: '2 items'`. Data teams can pinpoint when the schema divergence began and quantify the discrepancy.
 
-The second world is not more correct. It is more **findable**, and findability is what
-separates a data bug that gets fixed on Tuesday from one that gets fixed next quarter after
-somebody notices the annual total does not reconcile.
+Findability separates issues discovered and resolved within hours from discrepancies detected quarters later during financial reconciliations.
 
-## A quarantine row is the original plus the reason
+## Structure of a quarantine record
 
-Keep the row exactly as it arrived. Not the partly-coerced version, not the row with the bad
-field blanked. The raw one.
+A quarantine record must retain the unparsed payload alongside error metadata:
 
 ```python
 {
@@ -50,34 +41,24 @@ field blanked. The raw one.
 }
 ```
 
-The raw row is what makes the quarantine repairable. When somebody fixes the upstream system
-or decides `unknown` means one, the quarantined rows can be re-run through the same validator
-and loaded. If you kept a cleaned-up version, you have to go back to the source file, which
-may have been rotated away.
+Preserving the unmodified source record enables replayability. Once an upstream bug is fixed or a parsing rule is updated, quarantined records can be reprocessed through the validation pipeline without requiring source file retrieval from cold storage.
 
-## Quarantine is not an error log
+## Durability of quarantine storage
 
-It is a table, or a file, that stays. Not a line in stdout that scrolls past, and not a
-warning in a log with a thirty-day retention.
+A quarantine system requires structured, queryable persistence, such as a database table or partitioned storage location. Transient standard output or log streams with short retention periods do not provide reliable audit capabilities.
 
-The test is whether you can answer "how many rows have we quarantined this month, and why" in
-one query. If the answer lives in a log aggregator you are hoping somebody thought to search,
-you do not have a quarantine, you have a habit of writing warnings.
+A functioning quarantine system allows engineers to query aggregate failure counts, failure reasons, and affected time ranges with standard SQL queries.
 
-## The number that matters
+## Monitoring error rates and threshold shifts
 
-A quarantine only works if somebody looks. The thing to surface is not the count, which is
-noise on a good day, but the **rate**, and specifically a rate that moved.
+Absolute error counts are less informative than error rates relative to historical baselines.
 
-Two rows a day failing is a fact of life. Two hundred is a change. The check that catches it
-is not clever: yesterday's rate, today's rate, and a threshold. Module 4 makes it a real
-check; this lesson is where the number comes from.
+A pipeline that consistently rejects two rows per run is operating within expected noise parameters. A sudden jump to two hundred rejections indicates upstream schema changes or transmission corruption. Comparing error rates across consecutive runs with an alert threshold flags anomalies before downstream consumers rely on incomplete datasets.
 
 ## What the exercise asks
 
-Build a quarantine record from a broken row, summarise a quarantine by field and problem, and
-write the comparison that says whether today's failure rate has moved enough to be worth
-somebody's attention.
+Implement three functions:
 
-That last function is deliberately small and deliberately not clever. It is a threshold on a
-ratio. Almost every useful data check is.
+1. Build a structured quarantine record from an invalid row and its validation errors.
+2. Summarize quarantine records by field and failure type.
+3. Evaluate whether the daily error rate exceeds a specified threshold compared to historical baselines.

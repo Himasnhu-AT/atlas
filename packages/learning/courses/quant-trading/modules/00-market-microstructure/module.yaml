@@ -1,0 +1,11 @@
+id: quant-microstructure
+slug: market-microstructure
+name: Market microstructure and order books
+summary: "How trades happen: price-time priority, limit order book queues, cancellations, and order book imbalance."
+version: 1.0.0
+track: foundations
+order: 0
+isActive: true
+prerequisites: []
+difficulty: beginner
+estimatedHours: 2

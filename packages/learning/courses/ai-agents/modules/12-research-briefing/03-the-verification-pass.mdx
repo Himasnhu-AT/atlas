@@ -1,7 +1,7 @@
 ---
 id: ai-research-briefing.the-verification-pass
 title: The verification pass
-summary: Re-read the source before believing the citation. Cheap deterministic checks run first, the model only judges what actually exists, and a brief that fails ships redacted rather than confident.
+summary: Verify citations by running deterministic substring checks before invoking model judges. Redact unverified statements in-place to preserve verified claims.
 order: 3
 estimatedMinutes: 60
 exercise:
@@ -9,20 +9,17 @@ exercise:
   timeboxMinutes: 40
 ---
 
-The brief from the last lesson is fully cited and completely untrustworthy. Every sentence names
-a note, and nothing has checked that the note says what the sentence claims, or that the quote in
-the note is in the document at all.
+A generated research brief may contain accurate-looking citations where the cited text does not
+appear in the source document, or where the prose misrepresents the excerpt.
 
-A citation is a claim about a document. Claims about documents are checkable, and the document is
-sitting right there.
+Verifying citations requires a multi-stage validation pass: deterministic substring checks run first
+to confirm the quote exists in the source text, followed by targeted model adjudication to verify that
+the source passage supports the drafted claim.
 
-## Do the free checks first
+## Prioritizing deterministic checks before model verification
 
-Verification has an obvious expensive implementation: send every sentence and its source to a
-model and ask. On a brief with twenty claims that is twenty calls, and a fair number of them are
-being spent to have an opinion about a passage that does not exist.
-
-Order the checks by price. String search is free and settles the biggest question:
+Evaluating every claim with an LLM call is computationally expensive. Running deterministic substring
+matching first filters out hallucinated quotes without consuming tokens:
 
 ```python
 span = locate(note.quote, doc)
@@ -30,109 +27,73 @@ if span is None:
     return Verification(..., verdict="NOT_IN_SOURCE", span=None)
 ```
 
-If the quoted text is not in the document, you are done. No model call, no ambiguity, and the
-failure you have caught is the worst one: a quote the pipeline invented. Only when the quote is
-genuinely there does the interesting question arise, which is whether the sentence built on it
-actually follows.
+If the quote snippet does not exist in the source document, the claim immediately receives a `NOT_IN_SOURCE`
+verdict. The pipeline only invokes a model judge when the quote is physically present in the reference document.
 
-## Matching quotes that are not byte identical
+## Offset-preserving string normalization
 
-A quote copied out of a wrapped paragraph carries a newline where the source has a space, and
-often loses a trailing comma. Comparing raw strings rejects almost every honest citation, so the
-comparison happens on a normalised form: lowercase, punctuation dropped, whitespace collapsed.
+Quotes extracted from formatted documents frequently differ in whitespace, capitalization, or punctuation
+from the source text. Exact byte matching fails on benign formatting variations.
 
-That creates the problem the exercise is really about. You find the match in the normalised
-string, and a position in the normalised string is useless. Nobody reads that string. The
-redaction step later needs to cut the original.
-
-So build the normalised text one character at a time and keep a parallel list of where each
-surviving character came from:
+To match quotes reliably while preserving character offsets for redactions, normalize text into lowercase
+alphanumeric characters while tracking source index mappings:
 
 ```python
 characters, offsets = [], []
 for index, character in enumerate(text):
-    ...
+    # normalize character while storing original source offset
     characters.append(character.lower())
     offsets.append(index)
 ```
 
-The span is then `offsets[found]` to `offsets[found + len(needle) - 1] + 1`, which indexes back
-into the real document, punctuation, line breaks and all. This is a small piece of code that you
-will write again: the same shape appears in any highlighter, any diff viewer, and any citation
-feature that has to point at the original text rather than a cleaned copy of it.
+The matching slice `offsets[found]` to `offsets[found + len(needle) - 1] + 1` maps the normalized match back
+to the exact span in the original unnormalized document text.
 
-Write that pass once and let `normalise` return the string half of it. Two normalisations that
-drift apart is the failure this design is least able to survive, and the drift does not announce
-itself: `normalise` says the quote is in the document, `locate` cannot find it, and the citation
-is reported `NOT_IN_SOURCE` and cut from the brief as though somebody had made it up. The words
-that expose it are the ordinary ones. `don't` and `co-operate` are one token to a pass that drops
-punctuation and two to a pass that treats it as a separator, and both readings look right until
-they disagree.
+## Constrained LLM claim adjudication
 
-## Judging what is actually there
+When a quote is verified to exist in the source document, an LLM judge evaluates whether the claim logically
+follows from the cited passage. The evaluation prompt is strictly constrained: one claim sentence compared
+against one extracted source passage.
 
-Only now does a model get involved, and it gets the narrowest possible question: here is one
-sentence, here is the passage it cites, does the passage state it. Not the whole document, not
-the whole brief. One sentence, one span.
-
-The judge answers with a tool call, which gives you a verdict from a fixed set rather than a
-paragraph you have to parse:
+The judge returns a structured tool call selecting from a closed set of verdicts:
 
 ```python
 VERDICTS = ("SUPPORTED", "UNSUPPORTED", "NOT_IN_SOURCE")
 ```
 
-A verdict outside that set becomes `UNSUPPORTED`. The tempting alternative is to treat anything
-unrecognised as passing, on the grounds that the model did not say no. A judgement you could not
-parse is a judgement that did not happen, and the whole point of this pass is that unchecked
-claims do not ship.
+Any unrecognized or malformed verdict defaults to `UNSUPPORTED` to ensure unverified claims do not pass
+by default. Retaining the judge's diagnostic reasoning assists subsequent auditing.
 
-Keep the model's reason either way. When someone asks in three weeks why a claim was cut, the
-reason is the only record of what was actually said.
+## Redaction and verification reporting
 
-Model graded checks have known biases, which is another argument for using them last and
-narrowly. Judges favour longer answers and text that reads like their own. Asking "does this
-passage state this sentence" about two sentences of text is about the most constrained question
-you can hand one, and constrained questions are where they are reliable.
+The verification summary records overall status via `Report.ok`, which evaluates to `True` only when all
+evaluated claims receive a `SUPPORTED` verdict and no uncited statements remain.
 
-## A verdict the pipeline can act on
-
-`Report.ok` is deliberately blunt. It is True when every verdict is `SUPPORTED` and, if you asked
-for it, when nothing was left uncited. A brief that is ninety percent verified is a brief with an
-unverified claim in it. Callers that want to be more forgiving have the counts.
-
-Then the part that decides what a failure looks like to a reader:
+When unverified claims are detected, the system redacts the failing sentence directly within the generated prose:
 
 ```python
 text = text.replace(sentence, f"[removed: {verdict}]")
 ```
 
-The failed sentences are replaced in place and every other character is left exactly as it was.
-The alternative designs are both worse. Refusing to return anything throws away the work that
-verified fine. Returning the brief with a warning attached at the top produces a document that
-reads as confident prose, because nobody reads the banner.
+In-place redaction highlights exactly which statements lacked evidentiary support while preserving verified
+portions of the brief.
 
-A visible hole is honest. It tells the reader precisely which sentence could not be supported,
-leaves the ones that could intact, and makes the failure impossible to miss in a screenshot.
+## Cost-benefit trade-offs of verification
 
-## What this costs, and what it buys
+Verification introduces additional model invocations proportional to the number of cited claims.
+In exchange, deterministic string filtering catches fabricated quotes at zero token cost, and surviving claims
+are validated against their source contexts.
 
-Verification roughly doubles the number of model calls. In exchange, the fabricated quote in your
-own test fixture is caught for free by a string search, and every surviving sentence has been
-read back against its source.
+For mission-critical reports and analytical briefs, rigorous verification prevents hallucinated assertions
+from propagating into downstream decisions.
 
-Whether that trade is worth it depends on what the brief is for. For a summary someone skims, no.
-For anything a person will forward, cite, or make a decision on, an unverified citation is worse
-than no citation, because it looks like diligence.
+## Exercise overview
 
-## Your exercise
+In this exercise, you will implement:
+- `normalise`: Normalize strings while recording original character offsets.
+- `locate`: Find substring spans in source documents using offset mappings.
+- `verify_claim`: Check quote presence and invoke the LLM judge for present quotes.
+- `verify_brief`: Orchestrate claim verification across all sentences, tracking verification token spend under `by_stage['verify']`.
+- `redact_unverified`: Replace failed sentences with visible in-place redaction tags.
 
-Write `normalise`, `locate`, `verify_claim`, `verify_brief` and `redact_unverified`.
-
-The assertion to read first is the one checking `client.call_count` after a fabricated quote. It
-is zero, and it stays zero, because the free check runs before the paid one.
-
-Both verification functions take the budget, and the judged calls go on it under their own
-stage. That is what makes the ordering above visible as a number rather than as an intention:
-`by_stage['verify']` counts the claims a model actually had to judge, so a brief whose quotes
-were all fabricated verifies for free and says so.
+Test cases verify that fabricated quotes trigger zero model calls (`client.call_count == 0`) and that in-place redactions format accurately.

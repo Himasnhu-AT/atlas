@@ -1,0 +1,53 @@
+---
+id: quant-stat-arb.cross-sectional-factors
+title: Cross-sectional factor ranking and dollar neutrality
+summary: Rank a multi-asset universe by factor scores and construct dollar-neutral long/short portfolios.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: factor-rebalancer
+  timeboxMinutes: 30
+---
+
+Time-series strategies trade one asset against its own history. **Cross-sectional factor strategies** rank an entire universe of assets simultaneously at timestamp $t$.
+
+By buying the highest-ranked assets and selling short the lowest-ranked assets, the portfolio eliminates broad market direction (beta), profiting solely from the relative outperformance of the factor.
+
+## Dollar neutrality and gross exposure
+
+A **dollar-neutral portfolio** balances aggregate long notional value against short notional value:
+
+$$
+\sum_{i=1}^M w_{\text{long}, i} = +0.5, \quad \sum_{j=1}^M w_{\text{short}, j} = -0.5
+$$
+
+Net market exposure sums to zero:
+
+$$
+\text{Net Exposure} = \sum_{k=1}^N w_k = 0.0
+$$
+
+Gross market exposure sums to full capital utilization:
+
+$$
+\text{Gross Exposure} = \sum_{k=1}^N |w_k| = 1.0
+$$
+
+If the broader stock market crashes by 20% overnight, a perfectly dollar-neutral portfolio experiences approximately zero direct market beta loss, as short gains offset long losses.
+
+## Ranking and quantile selection
+
+At each rebalancing interval:
+1. Compute the raw factor metric (e.g. 12-month momentum, book-to-market value, earnings quality) for every asset in the universe.
+2. Sort the universe in descending order of factor score.
+3. Allocate positive weight equally across the top $K$ assets.
+4. Allocate negative weight equally across the bottom $K$ assets.
+5. Set all middle assets to zero weight.
+
+## Exercise: construct dollar-neutral factor weights
+
+In this exercise, you will implement `construct_dollar_neutral_weights(scores, top_n)` to:
+
+1. Validate universe size against requested top/bottom slice size $K$.
+2. Rank assets by factor score.
+3. Assign equal weights to top long and bottom short buckets such that total net weight is 0.0 and total gross weight is 1.0.

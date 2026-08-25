@@ -9,25 +9,12 @@ exercise:
   timeboxMinutes: 25
 ---
 
-Your agent emits a record per step. That was the easy half, and on its own it produces a log
-nobody reads.
+Emitting structured telemetry logs during agent execution is the foundation of production observability. However, telemetry only provides value if the storage and query layer is structured to answer operational questions.
 
-The other half is the query layer, and it is worth designing deliberately, because the queries
-are not arbitrary. Production asks three questions and almost nothing else.
-
-What happened in this one run. Somebody has a complaint, a screenshot and a timestamp, and you
-need the sequence of steps that produced what they are looking at. This is the question that
-gets asked under pressure, and it is answerable only if every record carries the same run id.
-
-What is failing across all runs. Not which run failed, but which kind of failure is common
-enough to be worth an afternoon. This is the question that decides what you work on next.
-
-What is this costing. Not curiosity: a per-request cost you cannot state is a per-request cost
-you cannot price, and an agent whose unit economics are unknown is a product decision waiting
-to be made badly.
-
-Each of the three wants a different shape from the same records, which is why the ledger has
-three methods rather than a search box.
+Production telemetry primarily addresses three requirements:
+1. **Root cause analysis for single runs.** Inspecting the exact sequence of steps, tool calls, and model outputs for a specific user session.
+2. **Failure classification across aggregated runs.** Categorizing errors across all executions to prioritize engineering fixes.
+3. **Unit economic tracking.** Calculating cost per successfully completed task to guide pricing and operational scaling.
 
 ## Runs and steps
 
@@ -44,151 +31,77 @@ class StepRecord:
     payload: dict = field(default_factory=dict)
 ```
 
-The run id is the only field that has to be right. Everything else is a nice to have that
-degrades gracefully, but a step with no run id belongs to nothing and answers no question.
-Generate it at the entry point, thread it through every component including the ones that call
-out to other services, and put it in whatever the user sees when something goes wrong. A
-support ticket that arrives with a run id in it is a five minute investigation. The same ticket
-without one is an afternoon of grepping timestamps.
+The `run_id` binds individual execution steps to a single session. Generate a unique ID at the system entry point, propagate it across internal service boundaries and tool calls, and include it in client-facing error responses.
 
-Splitting `kind` from `outcome` is the other decision worth copying. Where a step happened and
-what happened to it are independent, and keeping them independent is what makes the failure
-table below a table rather than a chain of special cases.
+Separating `kind` from `outcome` keeps step classification orthogonal: `kind` identifies the component type (model invocation, tool execution, or validation check), while `outcome` records whether the step succeeded, failed, or timed out.
 
-Three words in this course are close enough to run together, so they are worth pinning down
-here, where they first have to be told apart. A trajectory is one run's steps, which is what the
-eval harness grades. A transcript is a conversation's turns, which is what the support project
-grades. Tracing is the act of emitting records about either, which is what produces the
-`StepRecord` above. Different objects, one habit.
+Core telemetry terminology:
+- **Trajectory:** The sequence of internal steps and tool calls executed during a single agent run.
+- **Transcript:** The user-facing conversational turns exchanged during a session.
+- **Tracing:** The runtime instrumentation that records step events into structured telemetry objects like `StepRecord`.
 
-## What never goes in
+## Sensitive data and redaction strategies
 
-Payloads are where the value is and where the liability is. The prompt contains what the user
-typed. The tool arguments contain the account they typed it about. Somewhere in there is an
-authorization header that got logged because it was on the request object.
+Telemetry payloads capture prompts, tool inputs, and intermediate outputs. These structures frequently contain personal data, credentials, and customer identifiers.
 
-Redaction is a requirement, not a nicety, and the reason is that logs are not one copy. Once a
-prompt is in a log it is in every backup of that log, in whatever aggregator ships it, and in
-the index that makes it searchable. The deletion request that arrives eighteen months later is
-somebody's whole week, and the same is true of the security review that asks which of your
-systems have seen a card number.
+Redaction prevents sensitive data from propagating into persistent log storage and indexing tiers. Two architectural approaches manage redaction:
 
-Where you redact is a real decision with a real tradeoff, so make it deliberately.
+**Ingress redaction (scrub on write).** Sanitize sensitive keys before writing records to disk. This guarantees that backend storage never holds sensitive credentials or payment details, satisfying data retention and compliance requirements. However, scrubbing parameters can hinder debugging if the redacted argument caused the underlying runtime error.
 
-Redacting on the way in means the secret never lands in storage at all. That is the stronger
-position for the deletion request and the security review, because the honest answer becomes
-"that system has never held one". What it costs you is the incident you cannot debug: the
-argument you scrubbed is sometimes exactly the argument that caused the bug, and it is gone.
+**Egress redaction (scrub on read).** Store complete telemetry payloads in encrypted, access-restricted datastores and apply redaction filters at query time when presenting logs to operators. This preserves complete diagnostic traces but requires strict retention policies, encryption, and access controls.
 
-Redacting on the way out keeps the complete record and filters at the boundary where somebody
-reads it, which is what the exercise does. That buys debuggability and it means the store now
-holds sensitive data, so the protection has moved from "we do not have it" to access control,
-retention limits and encryption, all of which are things you now have to actually operate.
-
-Neither is the correct answer everywhere. The usable rule is to redact on the way in for the
-categories you can never justify holding, secrets and payment details, and on the way out for
-the ones you need for debugging and can defend keeping for a bounded window. Either way the
-key list is a parameter rather than a constant, because what counts as sensitive is a property
-of your product and changes when the product does.
+A balanced approach applies ingress redaction unconditionally to high-risk secrets (API tokens, passwords, payment numbers) and egress redaction to operational identifiers requiring diagnostic inspection.
 
 ## Five failure buckets
 
-An error rate is one number covering five problems with five different fixes, which is why a
-rising error rate tells you that something is wrong and nothing about what to do.
+Aggregating all errors into a single error rate obscures actionable signals. Classify failures into discrete operational categories:
 
-| bucket | signal | what fixes it |
+| Category | Indicator | Remediation |
 | --- | --- | --- |
-| provider error | a model call raised | retry with backoff, or a fallback provider |
-| tool error | your tool raised | your code, or the service behind it |
-| malformed tool call | the model produced arguments that did not fit the schema | the schema, or the prompt around it |
-| step budget exhausted | the loop hit its cap | the loop, or a deliberate raise of the cap |
-| output rejected | the final answer failed its own contract | the contract, or the prompt behind it |
+| Provider error | Model API raises 5xx or rate limit | Implement exponential backoff or provider fallback |
+| Tool error | Underlying tool or external service throws exception | Debug tool implementation or upstream service health |
+| Malformed tool call | Model generates arguments violating tool schema | Refine tool parameter descriptions or adjust prompt formatting |
+| Step budget exhausted | ReAct loop reaches iteration cap | Adjust execution limits or resolve cyclical reasoning loops |
+| Output rejected | Final generation fails schema validation or guardrail | Update validation constraints or refine output prompting |
 
-Counting them separately turns a graph into a work item. Provider errors climbing means an
-upstream incident and you wait. Malformed tool calls climbing after a deploy means somebody
-changed a schema. Budget exhaustion climbing means the agent has started going in circles,
-which is a different bug from either.
-
-Keep a sixth bucket for combinations you did not anticipate, and watch it. A failure nobody has
-a name for is the one worth looking at, and the alternative to a bucket is a silent drop.
+Classifying failures into specific buckets provides clear operational routing: rising provider errors indicate external outages, whereas climbing malformed tool calls following a deployment point to schema incompatibilities.
 
 ## Cost per completed task
 
-Token usage comes back on every response, so the arithmetic is not the hard part:
+Token consumption is reported on model completions:
 
 ```python
 total += step.prompt_tokens / 1000 * prompt_price
 total += step.completion_tokens / 1000 * completion_price
 ```
 
-Two things about that snippet. Prices are passed in rather than written down, because they
-change, they differ per provider and per contract, and a number baked into a reporting function
-is wrong within a quarter. And a model the price table does not know raises rather than costing
-zero, because a model that costs nothing is the most expensive default there is and you find
-out about it at the end of the month.
+Pricing tables should be passed as runtime configuration rather than hardcoded in source files, ensuring costs adapt as provider rates fluctuate. Unknown model identifiers should raise explicit errors rather than defaulting to zero cost.
 
-The number that matters is cost per completed task, not cost per call. Those two can move in
-opposite directions on the same change, which is the whole argument:
+Track financial metrics based on **cost per completed task** rather than **cost per API call**:
 
 ```
-                        before      after adding a cheap validation retry
-model calls             300         500
-total cost              $9.00       $10.45
-cost per call           $0.030      $0.021     down 30%
-tasks completed         90          95
-cost per completed      $0.100      $0.110     up 10%
+                        Before      After validation retry
+Model calls             300         500
+Total cost              $9.00       $10.45
+Cost per call           $0.030      $0.021     (Down 30%)
+Tasks completed         90          95
+Cost per completed      $0.100      $0.110     (Up 10%)
 ```
 
-Nothing dishonest happened. The retries really are cheaper than the calls they sit next to, so
-the average call really did get cheaper, and reliability really did improve. And the thing you
-are actually buying, a completed task, got more expensive. Cost per call is an average over a
-denominator you control by changing how you slice the work, which makes it a number you can
-move without moving anything real. Cost per completed task has a denominator that means
-something, so it only improves when the economics improve.
+Adding lightweight retries lowers the average cost per call while increasing total inference cost per successful user outcome. Evaluating economics by completed tasks aligns measurement with delivered business value.
 
-Two details make it honest. Failed runs are charged, because they consumed tokens and produced
-nothing. Leaving them out is how a report shows a cost improvement that is really a reliability
-regression: drop 10 percent of tasks on the floor, exclude their spend, and both your cost and
-your average look better while the product got worse.
+Failed runs must be factored into cost aggregations because they consume tokens without delivering results. When zero tasks complete successfully within a reporting window, cost per completed task evaluates to `math.inf` rather than zero.
 
-And when nothing completed, the honest answer is not zero. Dividing by zero is not an error
-condition here, it is the correct question giving an unbounded answer: you spent money and
-shipped nothing, so `math.inf` is the number, and returning 0.0 would report the most expensive
-possible state as the cheapest one.
+## Early warning signals: step count and latency
 
-## The signal that arrives first
+Aggregate error rate acts as a lagging indicator. When underlying components degrade (such as degraded search relevance or ambiguous prompts), the agent initially compensates by taking additional steps within its execution budget.
 
-Error rate is a lagging indicator. By the time it moves, the agent has been failing for a
-while.
+Mean step count per completed task reveals degradation before hard budget limits trigger failures. An agent whose average trajectory climbs from 3 steps to 7 steps against an 8-step ceiling signals imminent failure risk, even while current runs report success.
 
-Step count per completed task moves earlier, and the reason is structural rather than
-statistical. The step budget is a buffer. When something degrades, a search tool returning
-worse results, a prompt change that makes the model less decisive, the loop absorbs it by
-taking more steps, and it keeps succeeding while it does. The error rate does not move at all
-until the degradation is large enough to exhaust the buffer, at which point runs start failing
-all at once and it looks sudden.
+Summary reports should track mean step counts across completed runs and flag individual outliers approaching step limits.
 
-Watching mean steps is watching the buffer drain. An agent that used to finish in three steps
-and now finishes in seven, against a cap of eight, is one bad day from a step-budget outage,
-and every one of those runs is currently recorded as a success.
+## Exercise instructions
 
-So the summary reports the mean step count over completed runs, and names the individual runs
-whose step count crossed a threshold. Those are not errors and should not page anyone. They are
-the runs to read first, and reading two of them usually tells you what the graph was going to
-tell you a week later.
+In this exercise, you build an observability ledger. Implement `redact` to sanitize sensitive dictionary keys recursively, build `classify_failure` to categorize execution errors across the five standard buckets, implement `cost_of` to calculate token expenses against configurable pricing tables, and construct the `Ledger` query interface.
 
-The same argument applies to duration, which is why the run record carries its own start and
-end rather than the ledger measuring anything. Every number here is a function of records that
-were handed in, so the reporting layer has no clock in it and its tests need no fixture.
-
-## Your exercise
-
-Build the ledger. `redact` and `classify_failure` first, then `cost_of`, then the `Ledger` that
-answers the three questions.
-
-The tests check that redaction reaches into nested dicts and dicts inside lists and never
-mutates the stored record, that each of the five buckets is distinguished, that an unpriced
-model raises rather than costing nothing, and that ingesting the same run twice is refused.
-
-The one worth thinking about is cost per completed task when nothing completed. Returning zero
-says the run was free, which is the opposite of true.
+The test suite validates recursive payload sanitization without mutating original records, accurate failure classification, strict exception handling for unpriced models, duplicate run ingestion guards, and proper evaluation of `math.inf` when calculating unit costs with zero completions.

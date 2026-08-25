@@ -9,7 +9,7 @@ exercise:
   timeboxMinutes: 30
 ---
 
-Joining orders to customers is a one-liner.
+Joining transactional tables to dimension tables is a standard operation in analytical transformations:
 
 ```sql
 SELECT o.order_id, o.total, c.country
@@ -17,68 +17,41 @@ FROM orders o
 JOIN customers c ON c.email = o.customer;
 ```
 
-Run it on the sample and you get fewer rows than there are orders. Nothing raises. The result
-is a perfectly good table, and a total computed from it is wrong.
+Executing this join on uncleaned data often returns fewer rows than the source `orders` table. The query finishes without error, but aggregate sums calculated from the output omit unmatched transactions.
 
-## Why rows disappear
+## Root causes of dropped records in joins
 
-Three reasons, and they need different fixes.
+Unmatched records in relational joins occur for three distinct reasons:
 
-The customer genuinely does not exist in the reference table. Order 1008 has a blank customer
-and has nothing to match. That is a real data problem and the row should be quarantined, not
-dropped by a join.
+1. **Missing dimension keys:** The foreign key does not exist in the referenced table. For example, order 1008 has an empty customer string and cannot match any customer record. This is a validation failure that belongs in quarantine storage.
+2. **Casing and whitespace mismatches:** Unsanitized keys like `" Grace@Example.com "` fail to match normalized entries like `"grace@example.com"`. Normalizing values at the ingestion boundary avoids ad-hoc `lower(trim(...))` calls in downstream queries that invalidate indexes.
+3. **Pipeline synchronization lag:** The order arrived after recent customer signups, but before the customer dimension table refreshed. This indicates an upstream dependency orchestration issue.
 
-The customer exists but does not match. `Grace@Example.com` with the surrounding whitespace is
-the same person as `grace@example.com`, and a join on raw values misses it. That is a
-normalisation problem, and it belongs at the coercion layer in module 1 rather than being
-patched with `lower(trim(...))` in every query that touches the column, which as the last
-lesson noted also throws away the index.
+All three failure modes present identically in the final result: missing rows.
 
-The reference table is stale. The customer signed up this morning and the dimension was loaded
-last night. That is an ordering problem in the pipeline, and it is the next module's subject.
+## Auditing join cardinality and drops
 
-All three look identical in the output: rows that are not there.
-
-## Count the difference, every time
-
-The fix is not to stop using inner joins. It is to know what they cost.
+Inner joins discard non-matching rows by definition. The pipeline should quantify and monitor these drops:
 
 ```sql
-SELECT count(*) FROM orders;                                    -- 9
-SELECT count(*) FROM orders o JOIN customers c ON ...;          -- 7
+SELECT count(*) FROM orders;
+SELECT count(*) FROM orders o JOIN customers c ON c.email = o.customer;
 ```
 
-Two rows did not join. That number should be recorded by the pipeline, next to the row counts
-it already records, and it should be compared to yesterday's. A join that has always dropped
-two rows is a known issue. A join that dropped two yesterday and four hundred today is an
-incident, and the shape of the alert is exactly the rate check from
-[quarantine, not deletion](lesson:de-cleaning.quarantine-not-deletion).
+Tracking the difference between source row count and joined row count across pipeline runs establishes a baseline. A steady drop rate of two rows per batch may reflect known test accounts, whereas a sudden drop of several hundred rows signals a pipeline incident. The alerting pattern mirrors the rate check introduced in [quarantine, not deletion](lesson:de-cleaning.quarantine-not-deletion).
 
-## A left join is not the fix, it is a different question
+## Left joins and missing attributes
 
-Switching to `LEFT JOIN` keeps every order and fills the missing country with NULL. That is
-right when the country is genuinely optional. It is wrong when a missing country means the
-order is broken, because now the broken rows are inside your clean table with a NULL that
-every downstream query has to remember to handle.
+Replacing an inner join with a `LEFT JOIN` preserves all order records by setting missing customer columns to `NULL`.
 
-The choice is the same one as the quarantine lesson's: keep the row somewhere marked, or keep
-it inline and flagged. Both are defensible. Silently dropping it is not, and that is what the
-unadorned inner join does.
+This approach is appropriate when the relationship is optional. When dimensional attributes are mandatory, converting missing relations to nulls transfers the burden of null-handling to every downstream consumer. Explicitly capturing unjoined records in an audit table or quarantine store preserves traceability without polluting reporting models.
 
-## The multiplying join
+## Detecting Cartesian multiplication in joins
 
-One more, because it is the reason totals come out too big.
+If a dimension table contains duplicate join keys, an inner join emits multiple output rows for each matching input row. Joining orders to a customer table containing two duplicate records for `ada@example.com` outputs every order placed by Ada twice.
 
-If the right-hand table has more than one matching row, the join produces more than one output
-row per input row. Join orders to a customers table that accidentally holds two rows for
-`ada@example.com` and every one of Ada's orders appears twice, along with its total.
-
-This is the same double counting as the explode in
-[shapes that nest](lesson:de-records.shapes-that-nest), arriving by a different route, and the
-same check catches it: the output of a join to a reference table should have the same number
-of rows as the input, and if it does not, that table is not unique on the key you joined.
+This produces the same double-counting distortion seen with unnesting operations in [shapes that nest](lesson:de-records.shapes-that-nest). Pipelines should verify that the joined row count does not exceed the source table count when joining to a dimensional entity on its primary key.
 
 ## What the exercise asks
 
-Run a join, count what it dropped, classify why each row dropped, and detect the multiplying
-case. Four small queries that together turn a silent failure into a number.
+Execute a relational join, calculate dropped record counts, classify reasons for unmatched rows, and detect duplicate key multiplication across dimension tables.

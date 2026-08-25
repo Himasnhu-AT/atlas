@@ -1,0 +1,13 @@
+id: quant-stat-arb
+slug: statistical-arbitrage
+name: Statistical arbitrage and factor models
+summary: "Mean-reverting pairs trading strategies, volatility-scaled momentum signals, dollar-neutral cross-sectional factors, and Kelly position sizing."
+version: 1.0.0
+track: strategies
+order: 3
+isActive: true
+prerequisites:
+  - quant-time-series
+  - quant-backtesting
+difficulty: intermediate
+estimatedHours: 3

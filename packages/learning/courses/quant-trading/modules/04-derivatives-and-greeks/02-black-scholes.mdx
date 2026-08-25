@@ -1,0 +1,52 @@
+---
+id: quant-options.black-scholes
+title: The Black-Scholes-Merton model
+summary: Price European call and put options using the continuous Black-Scholes-Merton closed-form formula.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: black-scholes-pricing
+  timeboxMinutes: 25
+---
+
+The **Black-Scholes-Merton (BSM)** model prices European options assuming the underlying asset follows a Geometric Brownian Motion with constant volatility $\sigma$ and constant risk-free rate $r$.
+
+## The closed-form analytical equations
+
+For current spot price $S$, strike price $K$, time to maturity $\tau = T - t$ in years, risk-free interest rate $r$, and implied volatility $\sigma$:
+
+$$
+d_1 = \frac{\ln(S / K) + \left(r + \frac{1}{2}\sigma^2\right)\tau}{\sigma \sqrt{\tau}}, \quad d_2 = d_1 - \sigma \sqrt{\tau}
+$$
+
+The theoretical fair price for a European call option $C$ is:
+
+$$
+C = S \cdot \Phi(d_1) - K e^{-r \tau} \cdot \Phi(d_2)
+$$
+
+The theoretical fair price for a European put option $P$ is:
+
+$$
+P = K e^{-r \tau} \cdot \Phi(-d_2) - S \cdot \Phi(-d_1)
+$$
+
+Where $\Phi(x)$ is the standard normal cumulative distribution function (CDF).
+
+## Computing normal CDF in standard Python
+
+In the Python standard library, the error function `math.erf` provides exact standard normal probabilities without external dependencies:
+
+$$
+\Phi(x) = \frac{1}{2} \left[ 1 + \text{erf}\left( \frac{x}{\sqrt{2}} \right) \right]
+$$
+
+## Boundary and edge conditions
+
+A production pricing function handles edge cases cleanly:
+* At expiration ($\tau \le 0$): Return intrinsic value ($\max(0, S - K)$ for call, $\max(0, K - S)$ for put).
+* Zero volatility ($\sigma \to 0$): Option value converges to discounted forward intrinsic value.
+
+## Exercise: implement Black-Scholes pricing
+
+In this exercise, you will implement `black_scholes_call` and `black_scholes_put` using `math.erf` and `math.exp`.

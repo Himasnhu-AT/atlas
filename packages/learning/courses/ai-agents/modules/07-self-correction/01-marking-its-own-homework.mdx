@@ -6,91 +6,52 @@ order: 1
 estimatedMinutes: 25
 ---
 
-The cheapest idea in agent engineering is to ask twice. Generate an answer, then ask whether the
-answer is right. It costs one extra call and it sounds like it should catch a lot.
+A common intuition in agent design is to ask the model to review its own output before returning a response. Generating a draft and subsequently prompting the model to verify accuracy adds an extra API call.
 
-Sometimes it does. Often it produces a confident endorsement of a wrong answer, which is worse
-than not asking, because now there is a check on the record.
+In practice, direct self-evaluation often confirms incorrect answers with high confidence, creating a false record of verification.
 
-## Why the second look agrees
+## Sources of confirmation bias
 
-When you send *"Here is my answer. Is it correct?"*, the model reads the answer, the question,
-and usually the reasoning that produced it. Everything that led to the error is still there.
+When prompted with *"Here is my answer. Is it correct?"*, the model receives the answer, the initial question, and the intermediate reasoning steps. The elements that contributed to the initial mistake remain present in context.
 
-If the error came from a misread number in a document, the misread number is still in the
-context. If it came from an ambiguous question, the question is still ambiguous. The second
-pass is not a fresh attempt; it is the same attempt with the conclusion already written down,
-and a conclusion in the context is a strong hint about what the answer should be.
+If an error originated from a misread number or an ambiguous specification, those same inputs persist in the evaluation turn. The second pass repeats the initial evaluation with the proposed conclusion already acting as an anchor in the context window.
 
-There is a second effect on top of that: models are agreeable. Asked *"is this right?"* they say
-yes more often than the answer deserves, and asked *"this is wrong, isn't it?"* they will
-frequently find a fault in a correct answer. The framing moves the verdict, which means the
-verdict is partly measuring your framing.
+Model behavior also exhibits sycophancy. Prompts framed as *"Is this right?"* bias the model toward agreement. Conversely, prompts asking *"What is wrong with this?"* frequently cause the model to introduce unwarranted edits into correct solutions. The framing of the review prompt directly shifts the verdict.
 
-## The property that matters
+## Spectrum of verification independence
 
-Every pattern in this module is a way of buying **independence**: making the second look depend
-on less of what produced the first.
+Verification techniques can be categorized by how much contextual dependency they eliminate between generation and evaluation:
 
-Rank them by how much they remove:
+**Same-context review.** Re-evaluating the complete transcript with the conclusion visible. This provides minimal independence and rarely catches subtle reasoning errors.
 
-**Ask again, same context.** Removes nothing. Nearly worthless.
+**Sampled self-consistency.** Generating multiple answers independently from the same prompt without cross-referencing previous drafts. Comparing multiple runs reveals whether the model reliably converges on the same conclusion.
 
-**Ask again with the conclusion hidden.** Sample the same question twice and compare. Removes
-the anchor, keeps the context. This is self-consistency, and it works because two independent
-attempts at a hard question disagree in a way one attempt cannot reveal.
+**Claim decomposition.** Extracting discrete factual claims from the draft and validating each assertion independently without the surrounding narrative context. This constitutes chain-of-verification.
 
-**Ask about a piece, not the whole.** Decompose the answer into individual claims and check each
-one on its own, without the surrounding argument. Removes most of the reasoning that produced
-the error. This is chain of verification.
+**Deterministic and external validation.** Executing code in an interpreter, checking schemas, running unit tests, or querying a relational database. External validation removes the LLM from the judging loop entirely.
 
-**Check against something outside the model.** Run the code. Query the source document. Compare
-the number to the database. Removes the model from the check entirely.
+Prioritize checks that minimize shared context with the original generation step.
 
-That last one is the strongest and it is not always available, which is why the others exist.
-But the ordering is the point: **prefer the check that reads least of what you are checking.**
+This structural requirement mirrors the principle in [a guardrail that cannot be talked out of](lesson:ai-agent-security.a-guardrail-that-cannot-be-talked-out-of). In security contexts, a validator reading a compromised transcript inherits the compromise. In self-correction, an evaluator reading flawed reasoning inherits the flaw.
 
-You have met this argument before. In
-[a guardrail that cannot be talked out of](lesson:ai-agent-security.a-guardrail-that-cannot-be-talked-out-of)
-it was about attackers, and the conclusion was that a checker reading the poisoned transcript
-shares the poisoning. This is the same structure with a different cause: a checker reading the
-flawed reasoning shares the flaw. Security and correctness turn out to want the same thing.
+## Boundaries of self-correction
 
-## What self-correction cannot fix
+Self-correction mechanisms have clear operational limits:
 
-Worth saying plainly, because these patterns get sold as more than they are.
+**Missing parametric knowledge.** If a required fact is absent from model weights and context, additional reasoning turns cannot deduce it. Missing information requires explicit retrieval mechanisms.
 
-**A model that does not know something will not discover it by thinking harder.** If the answer
-depends on a fact absent from the context, no number of passes retrieves it. The fix is
-retrieval, which is the last lesson of this module.
+**Flawed core strategy.** If the fundamental planning approach is invalid, recursive reflection typically refines the phrasing of the flawed plan rather than discovering an alternate strategy.
 
-**Reflection cannot rescue a bad plan.** If the approach was wrong, critiquing the output tends
-to produce a better-written version of the same wrong thing.
+**Drift across iterations.** Open-ended loops that rewrite output until satisfied can drift away from the original user requirements over multiple turns. Verification loops must enforce strict iteration bounds.
 
-**More passes are not monotonically better.** Loops that revise until satisfied can drift:
-each pass makes a small change to please the critic, and after four passes the answer has moved
-away from the question. Bounded loops, always.
+## Cost and latency trade-offs
 
-## The cost, which is the reason to be selective
+Every verification layer introduces multiplicative API calls. Decomposing an answer into five claims requires six calls instead of one. Sampling five paths for self-consistency multiplies token consumption by five.
 
-Every pattern here multiplies calls. Chain of verification on a five-claim answer is six calls
-instead of one. Self-consistency at n=5 is five. Both together is thirty.
+In production environments, these calls increase latency and infrastructure costs. Tracking consumption via structured metrics, as outlined in [observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost), reveals whether accuracy gains justify the additional inference expense.
 
-At the sizes in this course that is nothing. In production it is your bill and your latency, and
-`run_ledger` from
-[observability and cost](lesson:ai-multi-agent-and-production.observability-and-cost) is what
-tells you whether the accuracy you bought was worth it.
+Target verification strictly at high-impact outputs where errors carry operational or reputational cost. The [research briefing](lesson:ai-research-briefing.the-verification-pass) project applies this distinction by isolating factual claims for verification while avoiding redundant passes over stylistic prose.
 
-The honest default is to apply verification to the things that are expensive to get wrong and
-to leave everything else alone. A wrong summary is a nuisance. A wrong citation in a document
-somebody publishes is a different category, which is why the
-[research briefing](lesson:ai-research-briefing.the-verification-pass) project verifies claims
-and does not verify prose.
+## Module roadmap
 
-## What this module builds
-
-Reflection and its failure mode. Chain of verification, which is the general form of the
-project's verification pass. Self-consistency, and using disagreement as a confidence signal.
-Then retrieval that grades its own results and re-queries when they do not support the
-question, which is the same idea applied to the part of the system that actually can go and
-find the missing fact.
+This module covers reflection patterns and their failure modes, chain-of-verification implementations, self-consistency mechanisms with confidence scoring, and self-correcting retrieval loops that grade query relevance dynamically.

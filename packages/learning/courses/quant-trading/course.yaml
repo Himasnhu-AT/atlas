@@ -1,0 +1,23 @@
+id: quant-trading
+slug: quant-trading
+name: Quantitative trading
+summary: "A backtest is a hypothesis about market mechanics that has to survive execution friction. Build a limit order book, quantitative time series signals, an event-driven backtester, options pricing models, portfolio risk systems, and statistical validation that resists overfitting."
+version: 1.0.0
+order: 2
+isActive: true
+
+tracks:
+  - id: foundations
+    name: Foundations
+    note: Microstructure, order books, and time series math.
+  - id: strategies
+    name: Systematic strategies
+    note: Event-driven backtesting, statistical arbitrage, and execution friction.
+  - id: risk
+    name: Derivatives and risk
+    note: Options pricing, the Greeks, and portfolio tail risk.
+  - id: validation
+    name: Validation and research
+    note: Data structures, path labeling, and deflated performance metrics.
+
+lib: lib

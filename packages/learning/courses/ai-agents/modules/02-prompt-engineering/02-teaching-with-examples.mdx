@@ -9,17 +9,11 @@ exercise:
   timeboxMinutes: 25
 ---
 
-Zero shot is a prompt with no examples in it. Few shot is a prompt with some. The interesting
-question is not which is better, it is what an example gives you that a sentence cannot.
+Zero-shot prompts rely exclusively on natural language instructions. Few-shot prompts augment instructions with concrete input-output demonstrations. Few-shot examples anchor formatting, label sets, and boundary disambiguation more reliably than descriptive prose.
 
-Mostly it is not task understanding. A current model knows what classifying a support ticket
-means before you show it anything. What it does not know is which label set you use, what you do
-with the ambiguous ones, and what shape you want back, and those are painful to write as prose
-and trivial to demonstrate.
+## What demonstrations communicate
 
-## What an example actually communicates
-
-Try writing the rule instead and watch how long it takes.
+Natural language guidelines often struggle to articulate edge cases concisely:
 
 ```
 Labels are bug, billing, feature, other. A crash is a bug. A wrong charge is billing.
@@ -28,7 +22,7 @@ something that does exist is not feature, it is other, unless the thing is broke
 in which case it is a bug. A refund request is billing even when it is caused by a bug.
 ```
 
-Now the same thing as four examples.
+The same policy expressed as four demonstrations:
 
 ```python
 EXAMPLES = [
@@ -39,116 +33,47 @@ EXAMPLES = [
 ]
 ```
 
-The fourth pair settles the refund question in nine words. The rules version needs a paragraph
-and still leaves the overlap ambiguous.
+Demonstrations define the label space and resolve edge cases (such as bug-induced refund requests) directly.
 
-This generalises. Examples are unusually good at conveying the label space, the exact output
-format, and how the boundary cases resolve, and they do much less for the model's grasp of the
-task itself.
+Research shows that few-shot examples primarily establish the expected output format and task boundaries. Prioritize examples that resolve ambiguous edge cases rather than repeating obvious baseline instances.
 
-There is direct evidence for the strong form of it. On classification tasks, replacing the
-labels in the demonstrations with random ones costs far less accuracy than you would expect,
-which is hard to explain if the examples were teaching the input to output mapping and easy to
-explain if they were mostly showing the shape of the problem: here is the kind of text that
-arrives, here is the set of answers that exist, here is what an answer looks like. Later work
-found the labels matter more as the number of examples grows and on tasks the model has not
-effectively already learned, so this is not licence to put wrong labels in your prompt.
+## Sizing the example set
 
-The useful reading is about where your attention goes. If examples teach form loudly and content
-quietly, then time spent making the four labels in your bank perfectly consistent buys less than
-time spent making sure one of them is a boundary case, and a bug where the model answers in the
-wrong format is much more likely to be your examples' fault than a bug where it answers wrongly.
+Determine example counts empirically through benchmark measurements.
 
-## How many
+Diminishing returns typically follow a standard curve:
+- **0 to 1 example**: Provides the largest reliability improvement by locking in the output schema and syntax.
+- **2 to 5 examples**: Expands coverage across edge cases and minority classes.
+- **Beyond 5 examples**: Returns diminish while per-request input token costs and latency continue to climb.
 
-The honest answer is that you measure it, and the honest reason is that the curve depends on
-your task, your model, and how well your instruction is written.
+Example ordering also influences output probabilities. Fix the sequence of static examples during evaluation to prevent ordering permutations from confounding benchmark results.
 
-The shape is reliable even when the numbers are not, and it follows from what examples do. Zero
-to one is the largest single jump, because that is where format stops being guessed, and format
-is what one example pins completely. One to a handful buys less, and what it buys is coverage:
-each new example only helps on inputs that resemble it, so the second and third examples are
-worth having when they land in parts of the input space the first one did not. Past that the
-curve flattens, because you have run out of distinct regions to cover and are adding examples
-that repeat a lesson already taught. Every one of them still costs input tokens on every call
-forever.
+## Selecting balanced examples
 
-That is also the diagnostic. If adding an example did nothing, ask what input it was supposed to
-help with and whether an earlier example already covered it. Nine examples that are the same
-example nine times is the usual answer.
+When curating an example bank:
+- Prioritize boundary cases and difficult classifications over straightforward instances.
+- Ensure every valid output category or fallback state appears at least once in the demonstration set.
 
-There is a second effect worth knowing before you tune anything. The order of the examples
-changes the result, sometimes by a lot: permuting the same few shot examples has been measured
-to move accuracy across a wide band on the same task and model.
+Dynamic example selection (retrieving the `k` nearest examples for each incoming query) improves accuracy on diverse inputs. To prevent majority-class bias, cap the number of selected examples that share the same output label.
 
-Two things follow. Pick an order and fix it, because otherwise order is a variable moving
-underneath every comparison you make and none of your results mean what you think they mean. And
-treat any measured difference between five examples and six as suspect until you have checked
-that it survives a reordering, since a gap that size can be the permutation rather than the
-count.
+Note the cost tradeoff: dynamic examples modify the prompt prefix on every call, preventing prompt caching. Fixed examples in the system prompt benefit from KV caching across requests. See [anatomy of a prompt](lesson:ai-prompt-engineering.anatomy-of-a-prompt) and [measuring a prompt](lesson:ai-prompt-engineering.measuring-a-prompt).
 
-## Picking them
+## Spurious patterns in demonstration sets
 
-The easy middle is the part you did not need help with. Cover the boundary instead.
+Models condition on all shared attributes across demonstrations. If every example in your set shares an unintended property, the model treats that property as a rule.
 
-Sort your labelled data by how confidently you could label it yourself. The cases you had to
-think about are the cases the model has to think about, and one of those is worth three obvious
-ones. Include at least one example of every output you want to be possible, including the escape
-hatch: a label that appears in the instructions and never in the examples is one the model will
-avoid.
-
-The other axis is similarity to the input at hand. With a large bank, selecting the examples
-nearest the current input beats a fixed set, which is what the exercise builds. It is also where
-an unbalanced bank starts to bite: five nearest neighbours that all happen to be billing tickets
-is a prompt that says billing five times before it asks a question. Capping how many examples
-can share an output keeps the selection honest.
-
-Dynamic selection has a cost that is easy to miss and lands on the bill rather than in the
-output. A prompt whose examples change per request has a different prefix on every call, so the
-prefix reuse from [anatomy of a prompt](lesson:ai-prompt-engineering.anatomy-of-a-prompt) never happens, and
-you pay full price for the whole prompt every time. A fixed set of examples in the system
-message is reused after the first call. That is a real tradeoff rather than a footnote: on a
-task where a fixed set scores nearly as well, fixed is the cheaper answer, and the only way to
-know whether "nearly as well" is true of your task is to measure both, which is
-[measuring a prompt](lesson:ai-prompt-engineering.measuring-a-prompt).
-
-### The accidental property
-
-A set of examples teaches everything its members have in common, including what you did not
-mean.
-
-Pick four examples that happen to be short and the model learns to write short answers. Pick
-four where the answer happens to sit in the first sentence and it learns to stop reading early.
-Pick four where the correct label happens to be the second option you listed and you have taught
-position rather than meaning, which holds up beautifully until you reorder the label list.
-
-The mechanism is the same one that makes examples work at all, which is why you cannot opt out
-of it. Nothing marks which features of an example are the lesson. The model conditions on all of
-them, so any property shared by every example is a property of "what an answer looks like here",
-and a property that holds four times out of four is a strong signal whether you meant it or not.
-None of this shows up when you read the prompt, because a shared property is invisible while you
-are judging each example on its own merits.
-
-The check is mechanical. Lay the examples out as a table with a column per attribute you can
-think of and look for a column with one value in it.
-
-| Example | Length | Answer in first sentence | Label |
+| Example | Text length | Location of core issue | Target label |
 | --- | --- | --- | --- |
-| crash on startup | short | yes | bug |
-| charged twice | short | yes | billing |
-| dark mode | short | yes | feature |
-| refund after sync loss | short | yes | billing |
+| crash on startup | short | first sentence | bug |
+| charged twice | short | first sentence | billing |
+| dark mode | short | first sentence | feature |
+| refund after sync loss | short | first sentence | billing |
 
-Three of those four columns are constant, and this set teaches a model to answer from the first
-sentence of a short ticket. One long, rambling example whose real complaint is in the last line
-breaks the pattern.
+In this table, all inputs are brief and state the problem in the first sentence. The model may learn to truncate its analysis to the opening phrase. Include varied lengths and structures to prevent spurious correlations.
 
-## Formatting, and the delimiter
+## Formatting demonstrations
 
-Examples teach the delimiter as hard as they teach the content, so use one and use it identically
-every time.
-
-The chat shape gives you the cleanest option, which is one message per turn:
+Use consistent delimiters or native chat message turns when formatting examples:
 
 ```python
 messages = [{"role": "system", "content": SYSTEM}]
@@ -158,39 +83,21 @@ for example_input, example_output in examples:
 messages.append({"role": "user", "content": user_input})
 ```
 
-The alternation is the delimiter, so there is nothing to be inconsistent about, and the real
-input arrives in exactly the position the assistant turns have been following. Pasting examples
-into one big string with your own markers works too, as long as the markers never drift. One
-example written `Input:` and the rest written `INPUT:` teaches the model that the format is
-negotiable, which is what you were using examples to prevent.
+Alternating `user` and `assistant` roles establishes the conversation structure without requiring custom delimiter parsing.
 
-## Reasoning before the answer
+## Step-by-step reasoning in prompts
 
-Asking the model to work through a problem before stating its answer helps on tasks with several
-dependent steps, and the reason is not mysterious: each generated token is computed from the
-tokens before it, so writing the intermediate steps gives the final answer more to condition on.
+Prompting models to produce intermediate reasoning before generating a final answer improves accuracy on multi-step analytical tasks.
 
-The qualifications matter more than the technique. It costs output tokens and latency on every
-call, and on a task with no intermediate steps it buys nothing. It is largely built into
-reasoning models already, which spend a budget of tokens working before they answer, so telling
-one to think step by step mostly duplicates what it is doing and can make the output worse. And
-the reasoning it prints is not a guaranteed account of how it reached the answer. Models have
-been shown to produce plausible reasoning that never mentions the feature actually driving the
-decision, so you can read the chain, find it convincing, and still be wrong about why the answer
-came out that way.
+Consider the operational constraints:
+- Intermediate tokens increase output latency and token costs.
+- Native reasoning models already allocate intermediate thinking budgets; adding redundant step-by-step instructions can degrade performance.
+- Generated reasoning strings reflect plausible explanations rather than guaranteed internal computational traces.
 
-Use it where the task has steps. Do not use it as a general purpose quality booster, and do not
-treat the printed reasoning as an audit trail.
+## Exercise specification
 
-## Your exercise
-
-Build the selection and assembly layer: turning an example bank and one real input into the
-message list you send.
-
-You write overlap scoring between two strings, selection of the nearest examples subject to a cap
-on how many can share an output label, message assembly, and the top level call composing them.
-
-The tests check the ordering rule, that the cap keeps a lopsided bank from producing a lopsided
-prompt, and that ties resolve the same way on every run. The part people get wrong is the
-ordering: the most similar example goes last, nearest the real input, so a plain descending sort
-is backwards.
+Implement demonstration selection and prompt assembly functions:
+1. Compute string overlap similarity scores between inputs and candidate examples.
+2. Select the top examples subject to a maximum count per target label.
+3. Order the selected examples so that the most similar example appears last (closest to the user input).
+4. Assemble the final message list with interleaved user and assistant roles.

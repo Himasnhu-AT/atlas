@@ -1,0 +1,50 @@
+---
+id: quant-risk.drawdown-analysis
+title: Drawdowns and duration analysis
+summary: Compute maximum drawdown, drawdown series, and max duration underwater across portfolio equity curves.
+order: 2
+estimatedMinutes: 20
+exercise:
+  id: drawdown-tracker
+  timeboxMinutes: 25
+---
+
+A strategy can generate a 30% annualized return while subjecting the investor to a 60% peak-to-trough decline that takes three years to recover.
+
+Quant risk management quantifies both the depth of loss and the time spent recovering capital.
+
+## High-water marks and drawdown depth
+
+At step $t$, the **high-water mark (peak)** is the highest equity achieved up to that point:
+
+$$
+M_t = \max_{0 \le s \le t} E_s
+$$
+
+The **drawdown** $\text{DD}_t$ is the percentage decline from the peak:
+
+$$
+\text{DD}_t = \frac{M_t - E_t}{M_t}
+$$
+
+The **Maximum Drawdown (MDD)** is the worst peak-to-trough decline observed over the entire life of the strategy:
+
+$$
+\text{MDD} = \max_{0 \le t \le T} \text{DD}_t
+$$
+
+## Drawdown duration (time underwater)
+
+Drawdown depth measures severity; **drawdown duration** measures the psychological and financial endurance required to trade the strategy.
+
+The duration is the number of time intervals elapsed between establishing a peak high-water mark and either setting a new peak or reaching the end of the evaluation window:
+
+$$
+\text{Duration}_t = t - \text{argmax}_{0 \le s \le t} E_s
+$$
+
+A strategy that suffers a modest 10% drawdown but remains underwater for 500 consecutive trading days often causes investors to liquidate right before a recovery.
+
+## Exercise: track equity drawdowns and duration
+
+In this exercise, you will implement `calculate_drawdown_metrics(equity_curve)` to extract maximum drawdown percentage, maximum duration underwater, and current terminal drawdown.
