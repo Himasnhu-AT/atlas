@@ -1,0 +1,83 @@
+test_box_str_allocates_fresh_objects (__main__.TestBoxingAndEquality) ... ERROR
+test_equality_different_types (__main__.TestBoxingAndEquality) ... ERROR
+test_equality_different_values (__main__.TestBoxingAndEquality) ... ERROR
+test_equality_matching_types_and_values (__main__.TestBoxingAndEquality) ... ERROR
+test_incref_and_decref (__main__.TestPyObject) ... ERROR
+test_initial_state (__main__.TestPyObject) ... ok
+test_cached_integers_share_identity (__main__.TestSmallIntegerCache) ... ERROR
+test_uncached_integers_get_fresh_allocations (__main__.TestSmallIntegerCache) ... ERROR
+
+======================================================================
+ERROR: test_box_str_allocates_fresh_objects (__main__.TestBoxingAndEquality)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/test.py", line 69, in test_box_str_allocates_fresh_objects
+    s1 = box_str("hello")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/solution.py", line 60, in box_str
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_equality_different_types (__main__.TestBoxingAndEquality)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/test.py", line 89, in test_equality_different_types
+    num = box_int(42)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/solution.py", line 53, in box_int
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_equality_different_values (__main__.TestBoxingAndEquality)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/test.py", line 84, in test_equality_different_values
+    a = box_int(10)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/solution.py", line 53, in box_int
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_equality_matching_types_and_values (__main__.TestBoxingAndEquality)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/test.py", line 78, in test_equality_matching_types_and_values
+    a = box_int(500)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/solution.py", line 53, in box_int
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_incref_and_decref (__main__.TestPyObject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/test.py", line 26, in test_incref_and_decref
+    obj.incref()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/solution.py", line 33, in incref
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_cached_integers_share_identity (__main__.TestSmallIntegerCache)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/test.py", line 46, in test_cached_integers_share_identity
+    a = box_int(val)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/solution.py", line 53, in box_int
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_uncached_integers_get_fresh_allocations (__main__.TestSmallIntegerCache)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/test.py", line 57, in test_uncached_integers_get_fresh_allocations
+    a = box_int(val)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/04-python-runtime-exercises-boxed-object-model/solution.py", line 53, in box_int
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.001s
+
+FAILED (errors=7)

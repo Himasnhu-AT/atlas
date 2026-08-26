@@ -81,14 +81,15 @@ If you have spent several minutes rereading lines without forming new hypotheses
 All exercises execute against `mockllm`, a deterministic client included with the course. The mock client accepts pre-scripted responses and returns standard completion objects matching production SDK structures:
 
 ```python
-client = MockClient([text("Six on weekdays.")])   # in this course
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])   # in production
+client = MockClient([text("Six on weekdays.")])   # in this course and in CI
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])   # only in a live integration
 
 # Everything below this line is identical either way.
 response = client.chat.completions.create(model=MODEL, messages=messages)
 ```
 
-Mirroring standard API response schemas ensures that production code uses identical data access patterns.
+Mirroring standard API response schemas lets the same application code be exercised offline and, separately,
+in an explicitly configured live integration. This course does not run that live path.
 
 This setup offers three practical benefits:
 1. Fast test execution (typically under one second).

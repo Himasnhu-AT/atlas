@@ -23,6 +23,32 @@ export async function generateMetadata({
   return { title: course.name, description: course.summary }
 }
 
+const COURSE_REQUIREMENTS: Record<
+  string,
+  { prerequisites: string; recommended: string | null; audience: string }
+> = {
+  'intro-programming': {
+    prerequisites: 'None',
+    recommended: 'Start here if new to low-level memory, systems programming, or C/C++',
+    audience: 'Engineers wanting to understand physical memory in C, RAII in C++, and dynamic runtimes in Python.',
+  },
+  'ai-agents': {
+    prerequisites: 'Python 3.10+ standard library',
+    recommended: 'Introduction to programming (Modules 00–04)',
+    audience: 'Engineers building autonomous loops, tool schemas, multi-agent systems, and eval harnesses.',
+  },
+  'data-engineering': {
+    prerequisites: 'Python 3.10+ standard library',
+    recommended: 'Introduction to programming (Modules 00–01)',
+    audience: 'Engineers building idempotent pipelines, quarantine validators, SQLite storage, and data contracts.',
+  },
+  'quant-trading': {
+    prerequisites: 'Python 3.10+, basic probability and statistics',
+    recommended: 'Introduction to programming',
+    audience: 'Engineers building limit order books, time-series signals, event-driven backtesting, and portfolio risk systems.',
+  },
+}
+
 export default async function CoursePage({
   params,
 }: {
@@ -36,12 +62,23 @@ export default async function CoursePage({
   const user = await currentUser()
   const access = await accessFor(user?.id)
 
-  // Tracks come from the course's own `course.yaml`. They used to be a hardcoded
-  // map in this file, which is why every course would otherwise have had to
-  // describe itself in the AI course's vocabulary.
+  const reqs = COURSE_REQUIREMENTS[course.slug] || {
+    prerequisites: 'Python 3.10+ standard library',
+    recommended: 'Introduction to programming',
+    audience: course.summary,
+  }
+
+  // Tracks come from the course's own `course.yaml`.
   const tracks = course.tracks.filter((track) =>
     modules.some((module) => module.track === track.id),
   )
+
+  const totalLessons = modules.reduce((n, m) => n + m.lessons.length, 0)
+  const totalExercises = modules.reduce(
+    (n, m) => n + m.lessons.filter((l) => l.exercise).length,
+    0,
+  )
+  const totalHours = Math.round(modules.reduce((n, m) => n + m.estimatedHours, 0))
 
   return (
     <>
@@ -50,20 +87,62 @@ export default async function CoursePage({
       <main id="main" className="pt-20 pb-28 sm:pt-24">
         <Wrap>
           <PageHeader
-            eyebrow="What you will build"
+            eyebrow={`Learning Track · ${modules.length} Modules · ${totalLessons} Lessons · ${totalExercises} Exercises · ${totalHours}h`}
             title={
               <>
-                The <em className="italic text-accent">curriculum</em>
+                The <em className="italic text-accent">{course.name}</em> curriculum
               </>
             }
             lead={course.summary}
           />
 
+          {/* Prerequisites and Focus Card */}
+          <Reveal delay={0.08}>
+            <div className="mt-10 border border-rule bg-paper-raised p-6">
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div>
+                  <p className="text-eyebrow font-medium uppercase text-muted">
+                    Prerequisites & Preparation
+                  </p>
+                  <p className="mt-2 font-serif text-ink">
+                    <span className="font-medium text-ink">Prerequisites:</span>{' '}
+                    <span className={reqs.prerequisites === 'None' ? 'text-accent font-medium' : 'text-ink-soft'}>
+                      {reqs.prerequisites}
+                    </span>
+                  </p>
+                  {reqs.recommended && (
+                    <p className="mt-1.5 text-caption text-muted">
+                      <span className="font-medium text-ink-soft">Recommended:</span> {reqs.recommended}
+                    </p>
+                  )}
+                  <p className="mt-2 text-caption text-muted">
+                    <span className="font-medium text-ink-soft">Scope:</span> {reqs.audience}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-eyebrow font-medium uppercase text-muted">
+                    Track Architecture
+                  </p>
+                  <ul className="mt-2 space-y-1.5 text-caption">
+                    {course.tracks.map((t) => (
+                      <li key={t.id} className="text-ink-soft">
+                        <span className="font-mono text-muted">[{t.id}]</span>{' '}
+                        <span className="font-medium text-ink">{t.name}:</span>{' '}
+                        <span className="text-muted">{t.note || ''}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </Reveal>
+
           {tracks.map((track) => (
-            <section key={track.id} className="mt-20 first:mt-16">
+            <section key={track.id} className="mt-16 first:mt-12">
               <Reveal>
                 <Eyebrow>{track.name}</Eyebrow>
-                {track.note && <p className="mt-3 max-w-[52ch] text-ink-soft">{track.note}</p>}
+                {track.note && <p className="mt-2 max-w-[56ch] text-ink-soft">{track.note}</p>}
               </Reveal>
 
               <RuledList>
@@ -82,10 +161,15 @@ export default async function CoursePage({
                       }
                       href={`/learn/${course.slug}/${module.slug}`}
                     >
-                      <p>{module.summary}</p>
-                      {module.prerequisites.length > 0 && (
+                      <p className="text-ink-soft">{module.summary}</p>
+                      {module.prerequisites.length > 0 ? (
                         <p className="mt-2 text-caption text-muted">
-                          After {prerequisiteNames(course, module.prerequisites)}
+                          <span className="font-medium text-ink-soft">Requires:</span>{' '}
+                          {prerequisiteNames(course, module.prerequisites)}
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-caption text-muted">
+                          <span className="text-ink-soft">No prerequisites</span> · First module in track
                         </p>
                       )}
                     </RuledRow>

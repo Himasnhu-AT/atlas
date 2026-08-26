@@ -1,0 +1,165 @@
+---
+id: intro-python-runtime.dynamic-attribute-lookup-and-mro
+title: Dynamic attribute lookup and C3 linearization
+summary: Dictionary-backed instance attributes, descriptor protocol mechanics, multiple inheritance ambiguities, and the C3 method resolution order algorithm.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: c3-linearization-mro
+  timeboxMinutes: 30
+---
+
+In compiled languages like C++, member variables and virtual methods are resolved using fixed byte offsets within a struct and vtable indices computed at compile time. In Python, object attributes and methods are resolved at runtime through hash tables and a deterministic inheritance linearization algorithm.
+
+## Instance dictionaries and class dictionaries
+
+In standard Python classes, each instance contains an internal hash table accessed via `__dict__`. When an attribute is assigned (`obj.x = 10`), Python inserts the key-value pair into the instance's dictionary.
+
+Attribute lookup (`obj.name`) follows a specific resolution order:
+
+1. Search the class dictionary `type(obj).__dict__` and its base classes for a data descriptor (an object defining both `__get__` and `__set__`). If found, invoke `descriptor.__get__(obj, type(obj))`.
+2. Search the instance dictionary `obj.__dict__`. If `name` exists, return `obj.__dict__['name']`.
+3. Search `type(obj).__dict__` and its base classes for a non-data descriptor (defining only `__get__`, such as standard methods) or a plain class attribute. If found, invoke `descriptor.__get__(obj, type(obj))` or return the class attribute value.
+4. If the attribute is not found, call `type(obj).__getattr__(obj, 'name')` if defined, or raise `AttributeError`.
+
+```python
+class Counter:
+    threshold = 100  # class attribute in Counter.__dict__
+
+    def __init__(self, count: int) -> None:
+        self.count = count  # instance attribute in self.__dict__
+
+c = Counter(5)
+c.count      # resolves via c.__dict__['count'] -> 5
+c.threshold  # missing in c.__dict__, resolves via Counter.__dict__['threshold'] -> 100
+
+c.threshold = 200  # inserts 'threshold' into c.__dict__
+c.threshold        # resolves to 200 from c.__dict__
+Counter.threshold  # remains 100 in Counter.__dict__
+```
+
+## The descriptor protocol
+
+The descriptor protocol powers properties, methods, classmethods, and staticmethods in Python. Any object implementing at least one of `__get__`, `__set__`, or `__delete__` is a descriptor.
+
+```python
+class TypedProperty:
+    def __init__(self, name: str, expected_type: type) -> None:
+        self.name = name
+        self.expected_type = expected_type
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return instance.__dict__.get(self.name)
+
+    def __set__(self, instance, value):
+        if not isinstance(value, self.expected_type):
+            raise TypeError(f"{self.name} must be {self.expected_type.__name__}")
+        instance.__dict__[self.name] = value
+```
+
+When a function is defined inside a class, it is stored as a plain function in `Class.__dict__`. Function objects implement `__get__`, making them non-data descriptors. When accessed via an instance (`obj.method`), the function's `__get__` method returns a `types.MethodType` object that binds the instance `self` as the first argument.
+
+## Multiple inheritance and the diamond problem
+
+When a class inherits from multiple parents, attribute resolution order becomes ambiguous if two parent classes implement the same method or share a common ancestor:
+
+```
+      O (object)
+     / \
+    A   B
+     \ /
+      D
+```
+
+In early Python versions (Python 2.2 and earlier), method lookup used a naive depth-first, left-to-right search (D -> A -> O -> B -> O). This broke the principle of inheritance: `O` was searched before `B`, meaning methods on the root base class could override specialized implementations on sibling classes.
+
+To guarantee consistent method resolution, Python 2.3 introduced the C3 linearization algorithm.
+
+## The C3 linearization algorithm
+
+The C3 linearization algorithm computes a deterministic, monotonic Method Resolution Order (MRO) for any class hierarchy. Monotonicity ensures that if class `A` precedes class `B` in the MRO of parent class `P`, `A` must also precede `B` in the MRO of any child class inheriting from `P`.
+
+The linearization $L(C)$ of a class $C$ with base classes $B_1, B_2, \dots, B_n$ is defined recursively:
+
+$$L(C) = [C] + \text{merge}(L(B_1), L(B_2), \dots, L(B_n), [B_1, B_2, \dots, B_n])$$
+
+The base case for a root class with no parents is:
+
+$$L(\text{object}) = [\text{object}]$$
+
+The merge operation proceeds through a sequence of reduction steps:
+
+1. Examine the head (first element) of the first non-empty list in the merge candidate list. Let this candidate be $H$.
+2. Check if $H$ is a good head: $H$ must not appear in the tail (any position after index 0) of any other list in the merge candidate list.
+3. If $H$ is a good head:
+   Append $H$ to the resulting MRO list.
+   Remove $H$ from every list in the merge candidate list where it appears at the head.
+   Restart the search from the first non-empty candidate list.
+4. If $H$ is not a good head (it appears in the tail of another candidate list):
+   Move to the next non-empty list in the merge candidate list and test its head.
+5. If all non-empty lists have been examined and no good head can be selected, the class hierarchy is inconsistent. Linearization fails and Python raises a `TypeError`.
+6. Repeat until all candidate lists are empty.
+
+## Walking through a diamond linearization
+
+Consider the diamond hierarchy where `A(O)`, `B(O)`, and `D(A, B)`:
+
+First, compute the base linearizations:
+
+$$L(O) = [O]$$
+
+$$L(A) = [A] + \text{merge}([O], [O]) = [A, O]$$
+
+$$L(B) = [B] + \text{merge}([O], [O]) = [B, O]$$
+
+Now compute $L(D)$:
+
+$$L(D) = [D] + \text{merge}(L(A), L(B), [A, B])$$
+
+$$L(D) = [D] + \text{merge}([A, O], [B, O], [A, B])$$
+
+Step 1: Check head of list 1: `A`.
+Is `A` in the tail of `[B, O]`? No.
+Is `A` in the tail of `[A, B]`? No (`A` is head, not tail).
+`A` is a good head. Output: `[D, A]`.
+Remaining lists: `merge([O], [B, O], [B])`.
+
+Step 2: Check head of list 1: `O`.
+Is `O` in the tail of `[B, O]`? Yes (`O` appears at index 1).
+`O` is not a good head. Move to list 2.
+
+Step 3: Check head of list 2: `B`.
+Is `B` in the tail of `[O]`? No.
+Is `B` in the tail of `[B]`? No.
+`B` is a good head. Output: `[D, A, B]`.
+Remaining lists: `merge([O], [O], [])`.
+
+Step 4: Check head of list 1: `O`.
+`O` is not in the tail of any list.
+`O` is a good head. Output: `[D, A, B, O]`.
+Remaining lists: `merge([], [], [])`.
+
+Final MRO for `D`: `[D, A, B, O]`.
+
+## Inconsistent hierarchies
+
+If inheritance relationships create cyclic precedence requirements, C3 cannot produce a monotonic order:
+
+```python
+class A: pass
+class B: pass
+class X(A, B): pass
+class Y(B, A): pass
+
+# This declaration raises TypeError:
+# Cannot create a consistent method resolution order (MRO) for bases A, B
+class Z(X, Y): pass
+```
+
+In `Z(X, Y)`, `X` requires `A` before `B`, but `Y` requires `B` before `A`. During the merge step:
+
+$$\text{merge}([X, A, B, O], [Y, B, A, O], [X, Y])$$
+
+After selecting `X` and `Y`, the remaining merge candidates are `merge([A, B, O], [B, A, O])`. The head `A` appears in the tail of `[B, A, O]`, and the head `B` appears in the tail of `[A, B, O]`. Neither can be selected, and Python halts class creation with a `TypeError`.

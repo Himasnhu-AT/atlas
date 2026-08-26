@@ -162,6 +162,21 @@ class TestSumInRange(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertIn("unreadable", result["detail"])
 
+    def test_a_null_is_skipped_for_the_sum_not_read_as_zero(self):
+        connection = seeded(GOOD + [(4, "a@b.c", "2026-03-06", None, "shipped")])
+
+        result = check_sum_in_range(connection, "total", [60.0])
+
+        self.assertTrue(result["passed"])
+        self.assertNotIn(
+            "unreadable", result["detail"], "a null is absent, not malformed"
+        )
+        self.assertIn("60", result["detail"])
+
+    def test_refuses_a_column_it_cannot_vouch_for(self):
+        with self.assertRaises(ValueError):
+            check_sum_in_range(seeded(GOOD), "total; DROP TABLE orders", [60.0])
+
     def test_passes_with_no_history(self):
         self.assertTrue(check_sum_in_range(seeded(GOOD), "total", [])["passed"])
 

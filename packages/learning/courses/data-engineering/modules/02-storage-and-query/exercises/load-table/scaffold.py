@@ -70,6 +70,9 @@ def duplicate_keys(rows: list[dict], key: str = "order_id") -> dict:
         `identical` holds keys whose duplicate rows are equal in every column.
         `conflicting` holds keys whose rows differ somewhere. Both are sorted.
 
+        A key is conflicting if any copy differs from the first copy, even when
+        other copies agree. Rows missing the key are ignored by this report.
+
         A key that appears once is in neither list.
     """
     raise NotImplementedError

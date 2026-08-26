@@ -34,7 +34,7 @@ $$
 w_0 = 1, \quad w_k = -w_{k-1} \cdot \frac{d - k + 1}{k}
 $$
 
-Because $|w_k| \to 0$ as $k \to \infty$, weights are truncated once $|w_k| < \text{threshold}$ (e.g. $10^{-4}$). The fractionally differentiated value at time $t$ is the dot product of historical prices with the truncated weight vector:
+For $d \in (0, 1]$, weights are generated while their magnitude remains material; because $|w_k| \to 0$ as $k \to \infty$, they are commonly truncated once $|w_k| < \text{threshold}$ (for example, $10^{-4}$). The transformed value at time $t$ is the dot product of available history with that weight vector:
 
 $$
 \tilde{X}_t = \sum_{k=0}^{\min(t, K)} w_k X_{t-k}

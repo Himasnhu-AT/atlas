@@ -68,6 +68,47 @@ class TestLimitOrderBook(unittest.TestCase):
         self.assertEqual(len(trades), 0)
         self.assertEqual(unfilled, 50.0)
 
+    def test_partially_filled_taker_stays_registered(self):
+        self.book.add_limit_order(Order("ask1", Side.SELL, 100.0, 30.0))
+        trades = self.book.add_limit_order(Order("buy1", Side.BUY, 100.0, 50.0))
+
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0].quantity, 30.0)
+        self.assertEqual(trades[0].maker_order_id, "ask1")
+        self.assertEqual(self.book.best_bid, 100.0)
+
+        # The 20-share remainder is still resting, so it remains cancellable;
+        # its ID nevertheless cannot be submitted a second time.
+        with self.assertRaises(ValueError):
+            self.book.add_limit_order(Order("buy1", Side.BUY, 101.0, 10.0))
+        self.assertTrue(self.book.cancel_order("buy1"))
+
+        # A fully filled maker is terminal: neither reusable nor cancellable.
+        with self.assertRaises(ValueError):
+            self.book.add_limit_order(Order("ask1", Side.SELL, 101.0, 5.0))
+        self.assertFalse(self.book.cancel_order("ask1"))
+
+        self.assertEqual(self.book.best_bid, 100.0)
+
+    def test_market_order_price_time_priority(self):
+        first = Order("ask1", Side.SELL, 100.0, 20.0, timestamp=1.0)
+        second = Order("ask2", Side.SELL, 100.0, 25.0, timestamp=2.0)
+        self.book.add_limit_order(first)
+        self.book.add_limit_order(second)
+
+        trades, unfilled = self.book.execute_market_order(Side.BUY, 35.0)
+        self.assertEqual([(trade.maker_order_id, trade.quantity) for trade in trades], [("ask1", 20.0), ("ask2", 15.0)])
+        self.assertEqual(unfilled, 0.0)
+
+    def test_invalid_orders_do_not_mutate_book(self):
+        before = (self.book.best_bid, self.book.best_ask, self.book.spread)
+
+        self.assertEqual(self.book.add_limit_order(Order("bad", Side.BUY, -1.0, 10.0)), [])
+        trades, unfilled = self.book.execute_market_order(Side.BUY, 0.0)
+
+        self.assertEqual((trades, unfilled), ([], 0.0))
+        self.assertEqual((self.book.best_bid, self.book.best_ask, self.book.spread), before)
+
 
 if __name__ == "__main__":
     unittest.main()

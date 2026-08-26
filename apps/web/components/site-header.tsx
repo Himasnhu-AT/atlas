@@ -1,5 +1,5 @@
 import Link from 'next/link'
-
+import { isAdmin } from '@/lib/server/admin'
 import { currentUser } from '@/lib/server/session'
 import { AccountMenu } from './account-menu'
 
@@ -12,27 +12,29 @@ import { AccountMenu } from './account-menu'
  */
 export async function SiteHeader() {
   const user = await currentUser()
+  const admin = isAdmin(user?.email)
 
   return (
     <header className="sticky top-0 z-40 border-b border-rule bg-paper/92 backdrop-blur-[2px]">
-      <div className="mx-auto flex h-16 w-full max-w-page items-center gap-6 px-6 sm:px-8">
+      <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-6 px-6 sm:px-8">
         <Link
           href="/"
           className="inline-flex min-h-11 items-center font-serif text-[17px] font-medium tracking-[-0.01em] text-ink"
         >
-          Atlas
+          SynthAI Labs
         </Link>
 
         <nav aria-label="Main" className="flex items-center gap-5 text-caption sm:gap-7">
           <NavLink href="/learn">Courses</NavLink>
-          <NavLink href="/atlas">Atlas</NavLink>
+          <NavLink href="/atlas">Roadmap</NavLink>
           {user && <NavLink href="/ledger">Ledger</NavLink>}
-          {user && <NavLink href="/dashboard">Progress</NavLink>}
+          {user && <NavLink href="/dashboard">Dashboard</NavLink>}
+          {admin && <NavLink href="/admin">Admin</NavLink>}
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
           {user ? (
-            <AccountMenu displayName={user.displayName} email={user.email} />
+            <AccountMenu displayName={user.displayName} email={user.email} isAdmin={admin} />
           ) : (
             <>
               <Link

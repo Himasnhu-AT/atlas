@@ -1,0 +1,85 @@
+EEEEEEEE
+======================================================================
+ERROR: test_field_mutation_via_method (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 75, in test_field_mutation_via_method
+    point_class = define_class("Point", methods={"set_x": set_x, "get_x": get_x})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_inheritance_and_fallback_to_base_method (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 24, in test_inheritance_and_fallback_to_base_method
+    shape_class = define_class("Shape", methods={"describe": describe})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_method_overriding (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 37, in test_method_overriding
+    shape_class = define_class("Shape", methods={"render": base_render})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_method_with_multiple_arguments (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 107, in test_method_with_multiple_arguments
+    calc_class = define_class("Calculator", methods={"add_three": add_three})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_missing_method_raises_attribute_error (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 62, in test_missing_method_raises_attribute_error
+    empty_class = define_class("Empty")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_multi_level_inheritance (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 53, in test_multi_level_inheritance
+    class_a = define_class("ClassA", methods={"level_a": level_a})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_polymorphic_collection_dispatch (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 90, in test_polymorphic_collection_dispatch
+    animal_class = define_class("Animal")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_single_class_method_invocation (__main__.TestVTableDispatchEngine)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/test.py", line 12, in test_single_class_method_invocation
+    rect_class = define_class("Rectangle", methods={"area": area})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-vtable-dispatch-engine/solution.py", line 58, in define_class
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.001s
+
+FAILED (errors=8)

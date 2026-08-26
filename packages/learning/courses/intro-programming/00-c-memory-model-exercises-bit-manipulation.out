@@ -1,0 +1,235 @@
+EEEEEEEEEEEEEEEEEEEEEEE
+======================================================================
+ERROR: test_even_parity (__main__.TestComputeParity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 122, in test_even_parity
+    self.assertEqual(compute_parity(3), 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 93, in compute_parity
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_negative_value_raises (__main__.TestComputeParity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 138, in test_negative_value_raises
+    compute_parity(-1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 93, in compute_parity
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_odd_parity (__main__.TestComputeParity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 130, in test_odd_parity
+    self.assertEqual(compute_parity(7), 1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 93, in compute_parity
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_single_bits (__main__.TestComputeParity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 115, in test_single_bits
+    self.assertEqual(compute_parity(1), 1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 93, in compute_parity
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_zero (__main__.TestComputeParity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 112, in test_zero
+    self.assertEqual(compute_parity(0), 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 93, in compute_parity
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_extract_basic (__main__.TestExtractBitfield)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 23, in test_extract_basic
+    self.assertEqual(extract_bitfield(0b10110100, 2, 4), 13)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 28, in extract_bitfield
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_extract_negative_input (__main__.TestExtractBitfield)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 34, in test_extract_negative_input
+    self.assertEqual(extract_bitfield(-1, 0, 8), 255)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 28, in extract_bitfield
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_extract_single_bit (__main__.TestExtractBitfield)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 29, in test_extract_single_bit
+    self.assertEqual(extract_bitfield(0b1000, 3, 1), 1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 28, in extract_bitfield
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_extract_zero_length (__main__.TestExtractBitfield)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 26, in test_extract_zero_length
+    self.assertEqual(extract_bitfield(0xFF, 4, 0), 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 28, in extract_bitfield
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_invalid_parameters (__main__.TestExtractBitfield)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 39, in test_invalid_parameters
+    extract_bitfield(100, -1, 4)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 28, in extract_bitfield
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pack_empty (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 46, in test_pack_empty
+    self.assertEqual(pack_flags([]), 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 43, in pack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pack_multiple (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 54, in test_pack_multiple
+    self.assertEqual(pack_flags([True, False, True, True]), 13)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 43, in pack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pack_single (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 49, in test_pack_single
+    self.assertEqual(pack_flags([True]), 1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 43, in pack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pack_unpack_roundtrip (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 71, in test_pack_unpack_roundtrip
+    packed = pack_flags(flags)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 43, in pack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_unpack_basic (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 57, in test_unpack_basic
+    self.assertEqual(unpack_flags(13, 4), [True, False, True, True])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 60, in unpack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_unpack_invalid_count (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 67, in test_unpack_invalid_count
+    unpack_flags(13, -1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 60, in unpack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_unpack_with_padding (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 60, in test_unpack_with_padding
+    self.assertEqual(unpack_flags(13, 6), [True, False, True, True, False, False])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 60, in unpack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_unpack_zero_count (__main__.TestPackUnpackFlags)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 63, in test_unpack_zero_count
+    self.assertEqual(unpack_flags(13, 0), [])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 60, in unpack_flags
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_invalid_bit_width (__main__.TestSignExtend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 105, in test_invalid_bit_width
+    sign_extend(5, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 77, in sign_extend
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_negative_values_extended (__main__.TestSignExtend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 84, in test_negative_values_extended
+    self.assertEqual(sign_extend(0b1111, 4), -1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 77, in sign_extend
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_positive_values_unchanged (__main__.TestSignExtend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 78, in test_positive_values_unchanged
+    self.assertEqual(sign_extend(0b0101, 4), 5)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 77, in sign_extend
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_raw_negative_input (__main__.TestSignExtend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 101, in test_raw_negative_input
+    self.assertEqual(sign_extend(-1, 8), -1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 77, in sign_extend
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_single_bit_width (__main__.TestSignExtend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/test.py", line 97, in test_single_bit_width
+    self.assertEqual(sign_extend(0, 1), 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-bit-manipulation/solution.py", line 77, in sign_extend
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 23 tests in 0.001s
+
+FAILED (errors=23)

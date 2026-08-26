@@ -132,6 +132,11 @@ class TestColumnValues(unittest.TestCase):
         rows = parse_rows(orders_csv())
         self.assertIn("Grace@Example.com", column_values(rows, "customer"))
 
+    def test_returns_stripped_values(self):
+        rows = [{"customer": " Ada <ada@example.com> "}]
+
+        self.assertEqual(column_values(rows, "customer"), ["Ada <ada@example.com>"])
+
     def test_an_unknown_column_gives_nothing(self):
         rows = parse_rows(orders_csv())
         self.assertEqual(column_values(rows, "not_a_column"), [])

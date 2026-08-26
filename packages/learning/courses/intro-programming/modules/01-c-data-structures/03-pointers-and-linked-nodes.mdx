@@ -1,0 +1,136 @@
+---
+id: intro-c-data-structures.pointers-and-linked-nodes
+title: Linked nodes and pointer manipulation
+summary: Singly and doubly linked lists, pointer manipulation without sentinel nodes, O(1) node splicing, and cache locality trade-offs.
+order: 3
+estimatedMinutes: 20
+exercise:
+  id: doubly-linked-list
+  timeboxMinutes: 25
+---
+
+While contiguous arrays organize elements adjacently in linear memory, linked structures decouple logical sequence from physical address space.
+
+In a linked list, each element is allocated as an independent node on the heap containing the data payload and one or more memory addresses pointing to predecessor or successor nodes.
+
+## Node structure and memory overhead
+
+A doubly linked list node stores two pointer addresses alongside its value payload:
+
+```c
+struct Node {
+    void* val;          // 8 bytes (on 64-bit architecture)
+    struct Node* prev;  // 8 bytes
+    struct Node* next;  // 8 bytes
+};
+```
+
+On a 64-bit platform, the pointers alone consume 16 bytes per node. When storing a 4-byte integer `val`, alignment rules force the struct size to 24 bytes. In addition, heap allocators (such as `ptmalloc` in glibc) prepend an 8 or 16-byte chunk header to every heap allocation to track chunk sizes and status flags.
+
+Storing a single 4-byte integer in a linked list node consumes between 32 and 40 bytes of physical memory, representing an 8x to 10x overhead compared to a contiguous array.
+
+```
++-------------------+-------------------+-------------------+
+|  prev pointer     |  val payload      |  next pointer     |
+|  (8 bytes)        |  (8 bytes)        |  (8 bytes)        |
++-------------------+-------------------+-------------------+
+```
+
+## Pointer manipulation without sentinel nodes
+
+A doubly linked list container maintains direct references to the endpoints:
+
+```c
+struct DoublyLinkedList {
+    struct Node* head; // pointer to first node, or NULL if empty
+    struct Node* tail; // pointer to last node, or NULL if empty
+    size_t size;       // count of active nodes
+};
+```
+
+When implementing linked lists without dummy sentinel nodes, every insertion and removal must account for boundary conditions:
+
+### Inserting into an empty list
+When `head` and `tail` are both `NULL`, creating a new node requires setting both `head` and `tail` to point to the newly allocated node. The new node's `prev` and `next` pointers are initialized to `NULL`.
+
+### Inserting at the front (push front)
+If the list contains existing nodes:
+1. Set `new_node->next = head`.
+2. Set `new_node->prev = NULL`.
+3. Set `head->prev = new_node`.
+4. Update `head = new_node`.
+
+### Removing the sole element
+When `head == tail` and a pop operation occurs, both `head` and `tail` must be reset to `NULL` to avoid leaving dangling pointers in the container.
+
+## Constant-time pointer splicing
+
+The primary advantage of a doubly linked list over an array is $O(1)$ node splicing. Once a pointer to a specific `Node` is held, that node can be unlinked and repositioned without shifting any other elements in the list.
+
+### Unlinking a node (`remove_node`)
+
+To remove a target node `curr` in $O(1)$ time:
+
+```c
+if (curr->prev != NULL) {
+    curr->prev->next = curr->next;
+} else {
+    list->head = curr->next; // curr was the head node
+}
+
+if (curr->next != NULL) {
+    curr->next->prev = curr->prev;
+} else {
+    list->tail = curr->prev; // curr was the tail node
+}
+
+curr->prev = NULL;
+curr->next = NULL;
+list->size--;
+```
+
+```
+Before unlinking node B:
+[Node A] <====> [Node B] <====> [Node C]
+(A->next = B)   (B->prev = A)   (C->prev = B)
+                (B->next = C)
+
+After updating pointers:
+[Node A] <====================> [Node C]
+(A->next = C)                   (C->prev = A)
+```
+
+### Relinking to front (`move_to_front`)
+
+In systems like Least Recently Used (LRU) caches, accessing an item requires promoting its node to the head of the list. With a doubly linked list and a hash map pointing to nodes, this operation runs in $O(1)$ time:
+
+1. If `node == head`, the node is already at the front; no action is needed.
+2. If `node == tail`, advance `tail = node->prev` and set `tail->next = NULL`.
+3. If `node` is in the middle, bypass `node` by setting `node->prev->next = node->next` and `node->next->prev = node->prev`.
+4. Splice `node` before `head`: set `node->next = head`, `node->prev = NULL`, `head->prev = node`, and `head = node`.
+
+## Pointer chasing and CPU cache misses
+
+Although linked lists provide $O(1)$ theoretical time complexity for insertions and deletions when given a node pointer, searching for a value by index or predicate requires linear traversal ($O(N)$).
+
+During traversal, the CPU performs **pointer chasing**. Because each node is allocated independently on the heap, adjacent nodes reside at non-contiguous memory addresses.
+
+When the CPU dereferences `node->next`, the target address is rarely in L1 or L2 CPU cache. The CPU execution pipeline stalls for 50 to 200 clock cycles while waiting for a cache line fetch from main DRAM.
+
+In contrast, a contiguous dynamic array stores elements sequentially. The CPU hardware prefetcher detects the linear memory access pattern and loads subsequent cache lines into L1 cache before the instructions request them. As a result, sequential iteration over an array is typically 10 to 50 times faster than traversing a linked list of equal size.
+
+Linked lists are preferred when:
+1. Frequent $O(1)$ node splicing or reordering is required (such as LRU cache eviction policies).
+2. Large objects are manipulated, where pointer swapping is cheaper than moving payloads.
+3. Stable node addresses are needed so external pointers do not invalidate during insertions.
+
+## Exercise: doubly linked list
+
+In this exercise, you will implement a `Node` structure and a `DoublyLinkedList` container without sentinel nodes:
+
+1. Implement `Node(val, prev=None, next=None)` to store values and bidirectional links.
+2. Implement `push_front(val)` and `push_back(val)` returning the newly created `Node`.
+3. Implement `pop_front()` and `pop_back()` returning the removed value, raising `IndexError` on empty lists.
+4. Implement `remove_node(node)` to unlink any arbitrary node in $O(1)$ operations.
+5. Implement `move_to_front(node)` to splice an existing node to the list head in $O(1)$ time.
+6. Implement `to_list()` and `size()` to verify state and node count.

@@ -1,0 +1,115 @@
+EEEEEEEEEEE
+======================================================================
+ERROR: test_empty_stack_variable_access_raises (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 115, in test_empty_stack_variable_access_raises
+    stack = CallStack()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_invalid_max_depth (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 73, in test_invalid_max_depth
+    CallStack(max_depth=0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pop_empty_raises (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 59, in test_pop_empty_raises
+    stack = CallStack()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pop_frame (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 44, in test_pop_frame
+    stack = CallStack()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_push_and_depth (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 32, in test_push_and_depth
+    stack = CallStack(max_depth=4)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_stack_overflow_limit (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 64, in test_stack_overflow_limit
+    stack = CallStack(max_depth=3)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_unwind_trace (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 122, in test_unwind_trace
+    stack = CallStack()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_variable_lookup_and_mutation (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 78, in test_variable_lookup_and_mutation
+    stack = CallStack()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_variable_lookup_isolation (__main__.TestCallStack)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 94, in test_variable_lookup_isolation
+    stack = CallStack()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 54, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_frame_custom_locals (__main__.TestFrame)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 26, in test_frame_custom_locals
+    f = Frame("main", {}, 0x0, locals={"status": 0})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 36, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_frame_initialization (__main__.TestFrame)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/test.py", line 19, in test_frame_initialization
+    f = Frame("compute", {"x": 10, "y": 20}, 0x401050)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-call-stack-simulator/solution.py", line 36, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.001s
+
+FAILED (errors=11)

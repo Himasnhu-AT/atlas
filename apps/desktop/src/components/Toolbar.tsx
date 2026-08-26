@@ -45,7 +45,7 @@ export function Toolbar({
   onNext,
 }: ToolbarProps) {
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-rule bg-paper-raised px-3">
+    <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 overflow-x-auto border-b border-rule bg-paper-raised px-3 py-2">
       <Button
         variant="primary"
         size="sm"
@@ -84,7 +84,7 @@ export function Toolbar({
         Solution
       </Button>
 
-      <div aria-hidden className="mx-1 h-5 w-px bg-rule" />
+      <div aria-hidden className="mx-1 h-6 w-px bg-rule" />
 
       <Button
         variant={done ? 'ghost' : 'secondary'}

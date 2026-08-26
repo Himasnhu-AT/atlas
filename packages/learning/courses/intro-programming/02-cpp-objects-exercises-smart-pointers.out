@@ -1,0 +1,93 @@
+test_clears_value_on_zero_use_count (__main__.TestSharedPtrBasics) ... ERROR
+test_multiple_owners_sharing (__main__.TestSharedPtrBasics) ... ERROR
+test_null_pointer_operations (__main__.TestSharedPtrBasics) ... ERROR
+test_single_owner_lifecycle (__main__.TestSharedPtrBasics) ... ERROR
+test_default_unattached_weak_ptr (__main__.TestWeakPtrBasics) ... ERROR
+test_lock_acquires_shared_ownership (__main__.TestWeakPtrBasics) ... ERROR
+test_weak_observer_does_not_affect_use_count (__main__.TestWeakPtrBasics) ... ERROR
+test_weak_ptr_expires_when_shared_pointers_reset (__main__.TestWeakPtrBasics) ... ERROR
+
+======================================================================
+ERROR: test_clears_value_on_zero_use_count (__main__.TestSharedPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 46, in test_clears_value_on_zero_use_count
+    cb = ControlBlock(value="secret_data")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 26, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_multiple_owners_sharing (__main__.TestSharedPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 24, in test_multiple_owners_sharing
+    sp1 = SharedPtr({"key": "data"})
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 42, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_null_pointer_operations (__main__.TestSharedPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 54, in test_null_pointer_operations
+    sp = SharedPtr()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 42, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_single_owner_lifecycle (__main__.TestSharedPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 14, in test_single_owner_lifecycle
+    sp = SharedPtr("managed_resource")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 42, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_default_unattached_weak_ptr (__main__.TestWeakPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 102, in test_default_unattached_weak_ptr
+    wp = WeakPtr()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 103, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_lock_acquires_shared_ownership (__main__.TestWeakPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 77, in test_lock_acquires_shared_ownership
+    sp = SharedPtr("lockable_payload")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 42, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_weak_observer_does_not_affect_use_count (__main__.TestWeakPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 68, in test_weak_observer_does_not_affect_use_count
+    sp = SharedPtr("observed_data")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 42, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_weak_ptr_expires_when_shared_pointers_reset (__main__.TestWeakPtrBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/test.py", line 91, in test_weak_ptr_expires_when_shared_pointers_reset
+    sp = SharedPtr("transient_object")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-smart-pointers/solution.py", line 42, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.001s
+
+FAILED (errors=8)

@@ -1,0 +1,65 @@
+EEEEEE
+======================================================================
+ERROR: test_accumulate_operations (__main__.TestGenericAlgorithmPipeline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/test.py", line 27, in test_accumulate_operations
+    self.assertEqual(accumulate([], 100, lambda acc, x: acc + x), 100)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/solution.py", line 26, in accumulate
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_binary_search_standard_cases (__main__.TestGenericAlgorithmPipeline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/test.py", line 68, in test_binary_search_standard_cases
+    self.assertEqual(binary_search([], 5), -1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/solution.py", line 49, in binary_search
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_binary_search_with_key_fn (__main__.TestGenericAlgorithmPipeline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/test.py", line 93, in test_binary_search_with_key_fn
+    idx = binary_search(records, 305, key_fn=lambda r: r["id"])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/solution.py", line 49, in binary_search
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_filter_if_scenarios (__main__.TestGenericAlgorithmPipeline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/test.py", line 18, in test_filter_if_scenarios
+    self.assertEqual(filter_if([], lambda x: True), [])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/solution.py", line 17, in filter_if
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_partition_mechanics (__main__.TestGenericAlgorithmPipeline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/test.py", line 47, in test_partition_mechanics
+    self.assertEqual(partition([], lambda x: True), ([], []))
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/solution.py", line 36, in partition
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_transform_empty_and_types (__main__.TestGenericAlgorithmPipeline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/test.py", line 9, in test_transform_empty_and_types
+    self.assertEqual(transform([], lambda x: x * 2), [])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-generic-algorithm-pipeline/solution.py", line 10, in transform
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.000s
+
+FAILED (errors=6)

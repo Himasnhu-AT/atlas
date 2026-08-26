@@ -1,0 +1,158 @@
+---
+id: intro-cpp-objects.copy-move-and-ownership
+title: Copy semantics, move semantics, and ownership transfer
+summary: Deep copy vs shallow copy, the rule of three and five, rvalue references, move constructors, and zero-cost ownership transfer.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: move-ownership-buffer
+  timeboxMinutes: 30
+---
+
+In C++, objects manage heap allocations, file handles, and network sockets. How an object is copied or transferred across scopes determines both memory correctness and runtime performance. Copying a pointer without copying its underlying buffer leads to double-free corruptions, while unnecessary deep copies waste CPU cycles. Move semantics provide zero-cost transfers of resource ownership.
+
+## Shallow copies and double-free defects
+
+By default, the C++ compiler generates a default copy constructor and copy assignment operator. These perform a memberwise shallow copy: every field is copied bit-for-bit.
+
+Consider a class managing heap memory with default copy semantics:
+
+```cpp
+class BadBuffer {
+public:
+    size_t size;
+    char* data;
+
+    BadBuffer(size_t s) : size(s), data(new char[s]) {}
+    ~BadBuffer() { delete[] data; }
+};
+```
+
+When `BadBuffer a(1024)` is copied to `BadBuffer b = a`, the compiler copies the pointer value `a.data` directly into `b.data`.
+
+```
+Instance a: [ size: 1024 | data: 0x55A0 ] -----\
+                                                +---> Heap Block [ 1024 bytes ]
+Instance b: [ size: 1024 | data: 0x55A0 ] -----/
+```
+
+Both instances now share ownership of the same heap block at `0x55A0`. When `b` goes out of scope, its destructor runs `delete[] 0x55A0`, returning that memory to the operating system. When `a` subsequently leaves scope, its destructor runs `delete[] 0x55A0` a second time. This triggers an immediate crash (`SIGABRT: free(): double free detected`).
+
+## Deep copies and the Rule of Three
+
+To prevent pointer aliasing and double-free bugs, a class that manages resources must define custom copy operations that allocate independent memory (a deep copy).
+
+```cpp
+class SafeBuffer {
+private:
+    size_t size_;
+    char* data_;
+
+public:
+    SafeBuffer(size_t s) : size_(s), data_(new char[s]) {}
+
+    // Destructor
+    ~SafeBuffer() {
+        delete[] data_;
+    }
+
+    // 1. Copy Constructor (Deep Copy)
+    SafeBuffer(const SafeBuffer& other)
+        : size_(other.size_), data_(new char[other.size_]) {
+        std::memcpy(data_, other.data_, size_);
+    }
+
+    // 2. Copy Assignment Operator (Copy-and-Swap idiom)
+    SafeBuffer& operator=(const SafeBuffer& other) {
+        if (this != &other) {
+            char* new_data = new char[other.size_];
+            std::memcpy(new_data, other.data_, other.size_);
+            delete[] data_;
+            data_ = new_data;
+            size_ = other.size_;
+        }
+        return *this;
+    }
+};
+```
+
+This pattern forms the **Rule of Three**: if a class requires a user-defined destructor, copy constructor, or copy assignment operator, it almost certainly requires all three.
+
+## Move semantics and rvalue references
+
+Deep copying guarantees memory safety, but incurs severe overhead when copying temporary objects that are immediately destroyed.
+
+```cpp
+SafeBuffer create_large_buffer() {
+    SafeBuffer buf(100 * 1024 * 1024); // 100 MB buffer
+    // Populate buffer...
+    return buf; // Pre-C++11: 100 MB copied, original destroyed immediately
+}
+```
+
+C++11 introduced rvalue references (`T&&`) to distinguish temporary values (rvalues) from named variables with persistent memory addresses (lvalues):
+
+1. An lvalue has an identifiable memory location accessible via an address (`&var`).
+2. An rvalue is a temporary value, expression result, or expiring object about to leave scope.
+
+Move constructors and move assignment operators accept an rvalue reference `T&&`. Instead of allocating new heap memory and copying bytes, they transfer ownership by copying the pointer and setting the source pointer to `nullptr`.
+
+```
+Step 1: Steal pointer
+Source (expiring): [ size: 1024 | data: 0x55A0 ] ----\
+                                                      +---> Heap Block [ 1024 bytes ]
+Target (new):      [ size: 1024 | data: 0x55A0 ] ----/
+
+Step 2: Nullify source
+Source (moved-from): [ size: 0    | data: nullptr ]
+Target (owner):      [ size: 1024 | data: 0x55A0   ] ----> Heap Block [ 1024 bytes ]
+```
+
+This reduces an O(N) allocation and memory copy to an O(1) pointer swap.
+
+## The Rule of Five and valid moved-from states
+
+With move semantics, the Rule of Three expands to the **Rule of Five**:
+1. Destructor
+2. Copy constructor
+3. Copy assignment operator
+4. Move constructor
+5. Move assignment operator
+
+```cpp
+class MoveBuffer {
+private:
+    size_t size_;
+    char* data_;
+
+public:
+    MoveBuffer(size_t s) : size_(s), data_(new char[s]) {}
+
+    ~MoveBuffer() {
+        delete[] data_; // Safe if data_ is nullptr
+    }
+
+    // Move constructor
+    MoveBuffer(MoveBuffer&& other) noexcept
+        : size_(other.size_), data_(other.data_) {
+        other.size_ = 0;
+        other.data_ = nullptr; // Reset source pointer to prevent double free on destruction
+    }
+
+    // Move assignment operator
+    MoveBuffer& operator=(MoveBuffer&& other) noexcept {
+        if (this != &other) {
+            delete[] data_;        // Release currently owned resource
+            size_ = other.size_;
+            data_ = other.data_;   // Steal resource
+            other.size_ = 0;
+            other.data_ = nullptr; // Reset source
+        }
+        return *this;
+    }
+};
+```
+
+The function `std::move(x)` is a compile-time cast: it does not move any bytes itself, but casts its argument to an rvalue reference `static_cast<T&&>(x)`, enabling overload resolution to select the move constructor or move assignment operator.
+
+A moved-from object must remain in a valid, destructible state. While its payload is transferred and accessing its data is an error, its destructor must be able to run without causing undefined behavior.

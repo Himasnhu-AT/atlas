@@ -75,30 +75,32 @@ export function LessonPane({ lessonRef, done, onNavigate }: LessonPaneProps) {
           a caption of housekeeping, then a rule. The pane is narrower than a
           browser column, so the title steps down from `text-title` to a fixed
           size, but the order and the voice are the site's. */}
-      <article className="mx-auto w-full max-w-[68ch] px-8 py-9">
-        <header className="max-w-[58ch]">
-          <p className="text-eyebrow font-medium tracking-[0.16em] text-muted uppercase">
+      <article className="mx-auto w-full max-w-[68ch] px-6 py-10 sm:px-8">
+        <header className="max-w-[62ch]">
+          <p className="text-eyebrow font-mono font-medium tracking-[0.16em] text-muted uppercase">
             {module.name}
           </p>
 
-          <h1 className="mt-4 font-serif text-[1.75rem] leading-[1.15] tracking-[-0.015em] text-ink">
+          <h1 className="mt-4 font-serif text-[clamp(1.75rem,2.8vw,2.25rem)] leading-[1.12] tracking-[-0.015em] text-balance text-ink">
             {lesson.title}
           </h1>
 
-          <p className="mt-4 font-serif text-lead text-ink-soft">{lesson.summary}</p>
+          <p className="mt-4 max-w-[56ch] font-serif text-lead text-ink-soft">{lesson.summary}</p>
 
-          <p className="mt-4 text-caption text-muted">
+          <p className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-caption text-muted">
             Lesson {position} of {module.lessons.length} · {formatDuration(lesson.estimatedMinutes)}
-            {done && ' · completed'}
+            {done && (
+              <span className="font-medium text-pass">Completed</span>
+            )}
           </p>
         </header>
 
-        <hr className="mt-9 mb-10 border-rule" />
+        <hr className="mt-10 mb-11 border-rule" />
 
         {error ? (
-          <p className="rounded-lg border border-fail/30 bg-fail/5 px-4 py-3 text-sm text-fail">
-            {error}
-          </p>
+          <div role="alert" className="border-l-2 border-fail bg-fail-wash px-4 py-3 text-sm text-fail-deep">
+            <p>{error}</p>
+          </div>
         ) : html === null ? (
           <p className="text-sm text-muted">Loading…</p>
         ) : (
@@ -108,7 +110,7 @@ export function LessonPane({ lessonRef, done, onNavigate }: LessonPaneProps) {
           // The click handler only intercepts anchors the build marked with
           // `data-lesson`; everything else in the body behaves normally.
           <div
-            className="prose-learn"
+            className="prose-compact"
             onClick={handleBodyClick}
             dangerouslySetInnerHTML={{ __html: html }}
           />

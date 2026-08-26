@@ -1,0 +1,23 @@
+id: intro-programming
+slug: intro-programming
+name: Introduction to programming
+summary: "Programs translate algorithmic intent into memory operations across distinct runtime architectures. Master low-level bit representation, memory layouts, and manual allocation in C; compile-time type safety, RAII, and zero-cost polymorphic abstractions in C++; and dynamic object graphs, bytecode interpretation, and metaprogramming in Python."
+version: 1.0.0
+order: 3
+isActive: true
+
+tracks:
+  - id: systems
+    name: Systems and memory in C
+    note: Bits, memory layout, pointer arithmetic, stack frames, and manual heap allocation.
+  - id: objects
+    name: Objects and lifecycles in C++
+    note: RAII, value semantics, smart pointers, vtables, and generic containers.
+  - id: scripts
+    name: Dynamic execution in Python
+    note: The PyObject model, dynamic attribute lookup, C3 linearization, closures, and generator pipelines.
+  - id: bridges
+    name: Cross-paradigm engineering
+    note: Stack virtual machines, cycle-detecting garbage collectors, and foreign function interfaces.
+
+lib: lib

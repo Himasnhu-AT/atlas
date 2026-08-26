@@ -57,17 +57,19 @@ a web reader.
 
 ## The courses
 
-Three, and the platform assumes there will be more.
+Four, and the platform assumes there will be more.
 
 | Course | Modules | Lessons | Exercises | Hours | Needs |
 |---|---|---|---|---|---|
 | AI agent engineering | 13 | 54 | 42 | 55 | Python 3.10+ |
 | Data engineering | 5 | 17 | 13 | 13.5 | Python 3.10+ |
 | Quantitative trading | 7 | 26 | 20 | 21 | Python 3.10+ |
+| Introduction to programming | 6 | 24 | 23 | 17.5 | Python 3.10+ |
 
 None need anything installed beyond an interpreter. The AI course runs against `mockllm`;
 the data course uses standard library file and database tools; the quant course uses
-standard library math and collections with its own deterministic market data generator.
+standard library math and collections with its own deterministic market data generator; the
+intro programming course uses standard library memory simulation and zero-dependency runtime primitives.
 
 ### AI agent engineering
 
@@ -118,6 +120,29 @@ whole extract instead of one row, quarantine the failures instead of dropping th
 a table with constraints that refuse, read a query plan, count what a join threw away, make a
 load idempotent behind a watermark, backfill with the same code as the daily run, resume a job
 that died halfway, and then check row counts and freshness and write the promise down.
+
+### Introduction to programming
+
+6 modules, 24 lessons and 23 graded exercises, across four tracks.
+
+| # | Module | Track | Lessons | Exercises | Hours |
+|---|---|---|---|---|---|
+| 0 | Memory, bits, and pointers in C | systems | 4 | 4 | 2.5 |
+| 1 | Data structures and binary layouts in C | systems | 4 | 4 | 3.0 |
+| 2 | RAII, objects, and lifecycles in C++ | objects | 4 | 4 | 3.0 |
+| 3 | Polymorphism, vtables, and generic containers in C++ | objects | 4 | 4 | 3.0 |
+| 4 | Dynamic runtimes and the Python object model | scripts | 4 | 4 | 3.0 |
+| 5 | Virtual machines and cross-language architecture | bridges | 4 | 3 | 3.0 |
+| | | | **24** | **23** | **17.5** |
+
+Students build low-level bit operations, manual pointer arithmetic over byte buffers, activation
+stack frames, free-list heap allocators with coalescing, struct padding calculators, dynamic vectors,
+doubly-linked lists, binary wire protocol parsers, RAII scope guards, move-ownership buffers,
+reference-counted smart pointers (`std::shared_ptr`/`weak_ptr`), manual vtable dynamic dispatch,
+open-addressing hash maps with tombstone markers, array-backed min-heaps with Floyd's $O(n)$ heapify,
+the PyObject boxing model, C3 linearization for method resolution order, parameterized memoizing
+decorators, lazy generator pipelines, a stack bytecode virtual machine, a cycle-detecting mark-and-sweep
+garbage collector, and an FFI type-marshaling bridge.
 
 `docs/CURRICULUM.md` has the lesson-by-lesson map, which idea is introduced where and paid off
 where, and the rules for changing any of it. Read it before adding or moving a lesson.
@@ -225,23 +250,21 @@ written down in `docs/CURRICULUM.md`.
 
 ## Going to production
 
-The site runs on local file storage out of the box. To move to Postgres, set both variables
-and apply the schema:
+The site runs on local file storage out of the box. To move to Firebase Firestore, configure
+the credentials in `.env.local`:
 
 ```bash
 cp apps/web/.env.example apps/web/.env.local
-# fill in SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, then:
-psql "$DATABASE_URL" -f supabase/schema.sql
+# fill in FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY
 ```
 
 Also set `SESSION_SECRET`. Without it the server generates a key and writes it to
 `.data/session-secret`, which is per machine and will not work across multiple instances.
 
-The service role key is read only by `apps/web/lib/server/` and never reaches a browser or
-the desktop bundle. Clients never talk to the database, so the API is the security boundary:
+Firebase credentials are read only by `apps/web/lib/server/` and never reach a browser or
+the desktop bundle. Clients never talk to the database directly, so the API is the security boundary:
 every route handler derives `user_id` from the session and none of them trust a user id
-arriving in a request body. Row level security is enabled as a second layer, but nothing
-depends on it.
+arriving in a request body.
 
 ## Requirements
 

@@ -106,7 +106,8 @@ providing an automated gate for continuous integration pipelines.
 
 ## Live model evaluation considerations
 
-When running evaluation suites against live model endpoints:
+The exercise runs entirely on `mockllm`. The following is a separate deployment pattern, not part of this
+course's executable path:
 
 ```python
 # Reference configuration for live model evaluation
@@ -128,26 +129,3 @@ In this exercise, you will implement:
 - `grade` and `run_suite`: Compute persona scorecards, overall pass rates, and failure diagnostics.
 
 Ensure all predicates return `True` when the rule is not applicable to the transcript.
-
-## Connecting to live provider endpoints
-
-To run the completed triage agent against a live LLM endpoint, replace the mock client and embedding helper:
-
-```python
-from openai import OpenAI
-
-session = TriageSession(OpenAI(), ARTICLES)
-```
-
-Update `embed_text` to generate vector embeddings via your provider API:
-
-```python
-def embed_text(content: str) -> list[float]:
-    response = client.embeddings.create(model="text-embedding-3-small", input=content)
-    return response.data[0].embedding
-```
-
-With dense vector embeddings, manual stopword filtering is no longer required. The downstream prompt construction,
-citation verification, session state machine, and behavioral grading remain unchanged.
-
-PLACEHOLDER_REFERRAL_OFFER

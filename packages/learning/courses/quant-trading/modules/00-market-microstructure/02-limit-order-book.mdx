@@ -28,6 +28,8 @@ In live trading, quote updates and cancellations vastly outnumber executed trade
 
 Production matching systems track active orders in a hash map from `order_id` to order reference. Cancelling an order updates its active status or sets its quantity to zero in $O(1)$ time. When the matching engine encounters a zero-quantity order at the head of a queue during a fill pass, it discards the dead node lazily.
 
+An ID set preserves every submitted identifier, so duplicate submissions remain a permanent error. A fully filled order is terminal, while a partially filled taker remains resting until its remainder is gone.
+
 ## Exercise: build an order book
 
 In this exercise, you will implement an in-memory `OrderBook` with FIFO price-time priority.
@@ -38,3 +40,5 @@ Your implementation must support:
 2. Executing market orders against resting book liquidity and reporting any unfilled quantity.
 3. Cancelling existing orders in $O(1)$ time.
 4. Computing the best bid, best ask, midpoint price, and quoted spread.
+
+A reused order ID always raises `ValueError`. A partially filled taker still has unfilled remainder, so it remains resting and cancellable; a fully filled maker cannot be cancelled or reused.

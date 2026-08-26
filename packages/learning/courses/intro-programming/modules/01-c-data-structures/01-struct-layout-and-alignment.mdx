@@ -1,0 +1,114 @@
+---
+id: intro-c-data-structures.struct-layout-and-alignment
+title: Struct layout, alignment, and memory padding
+summary: How compilers arrange struct fields in memory, natural alignment constraints, internal and trailing padding, and field reordering optimization.
+order: 1
+estimatedMinutes: 20
+exercise:
+  id: struct-padding-calculator
+  timeboxMinutes: 25
+---
+
+In C, structured data types combine primitive variables into a single composite type. While developers write struct declarations as logical lists of named fields, hardware constraints dictate how those fields are arranged in physical memory.
+
+Compilers insert unseen padding bytes between fields and at the end of structs to satisfy CPU alignment requirements.
+
+## Natural alignment and hardware constraints
+
+Modern CPU architectures access memory through a bus interface that fetches data in discrete word-sized chunks (typically 4 bytes on 32-bit systems and 8 bytes on 64-bit systems). 
+
+When a processor reads a multi-byte integer from an unaligned memory address (for example, reading a 4-byte `uint32_t` from address `0x1001`), the value spans two adjacent bus words. The memory controller must execute two distinct memory fetches, perform bit shifting, and mask the results together before delivering the value to a CPU register. On certain architectures like older ARM or SPARC chips, unaligned accesses trigger a hardware bus fault signal (`SIGBUS`). On x86 and modern ARM processors, unaligned reads succeed but incur a performance penalty.
+
+To eliminate this friction, compilers enforce **natural alignment**: an $N$-byte primitive must reside at a memory address that is evenly divisible by $N$.
+
+| Type in C | Size (bytes) | Alignment requirement (bytes) | Valid address condition |
+|---|---|---|---|
+| `char`, `uint8_t` | 1 | 1 | `addr % 1 == 0` (any address) |
+| `short`, `int16_t` | 2 | 2 | `addr % 2 == 0` |
+| `int`, `uint32_t`, `float` | 4 | 4 | `addr % 4 == 0` |
+| `long`, `int64_t`, `double`, pointer `void*` | 8 | 8 | `addr % 8 == 0` |
+
+## Struct field placement and internal padding
+
+When allocating memory for a `struct`, the compiler processes fields sequentially in declaration order. It tracks the current byte offset from the start of the struct, starting at offset `0`.
+
+Before placing field $i$ with alignment requirement $A_i$ and size $S_i$, the compiler rounds the current offset up to the nearest multiple of $A_i$:
+
+$$\text{offset}_i = \lceil \text{current\_offset} / A_i \rceil \times A_i = (\text{current\_offset} + A_i - 1) \ \& \ \sim(A_i - 1)$$
+
+The difference between $\text{offset}_i$ and $\text{current\_offset}$ is the **internal padding**.
+
+Consider this struct declaration on a 64-bit platform:
+
+```c
+struct SensorReading {
+    char status;     // size 1, alignment 1
+    int reading;     // size 4, alignment 4
+    char flag;       // size 1, alignment 1
+    int64_t timestamp; // size 8, alignment 8
+};
+```
+
+The compiler evaluates each field in sequence:
+
+1. `status` (1 byte, alignment 1): Placed at offset `0`. Current offset advances to `1`.
+2. `reading` (4 bytes, alignment 4): Offset `1` is not divisible by 4. The compiler inserts 3 padding bytes, placing `reading` at offset `4`. Offset advances to `4 + 4 = 8`.
+3. `flag` (1 byte, alignment 1): Placed at offset `8`. Offset advances to `9`.
+4. `timestamp` (8 bytes, alignment 8): Offset `9` is not divisible by 8. The compiler inserts 7 padding bytes, placing `timestamp` at offset `16`. Offset advances to `16 + 8 = 24`.
+
+```
+Byte Offset:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+Contents:    [status][PAD 3B][reading][flag][    PAD 7B    ][     timestamp (8B)     ]
+```
+
+Out of 24 allocated bytes, only 14 bytes store actual data. 10 bytes are wasted on internal padding.
+
+## Trailing padding and array alignment
+
+A struct definition also dictates how instances behave when placed in an array. 
+
+In C, arrays must be contiguous in memory without gaps between elements. If `arr` is an array of `struct SensorReading`, the address of `arr[1]` is exactly `(char*)&arr[0] + sizeof(struct SensorReading)`.
+
+For every field in `arr[1]` to satisfy its natural alignment constraints, the base address of `arr[1]` must be a multiple of the struct's largest member alignment ($A_{\max}$). Therefore, the total size of a struct is always rounded up to a multiple of $A_{\max}$:
+
+$$\text{total\_size} = \lceil \text{final\_offset} / A_{\max} \rceil \times A_{\max}$$
+
+If `final_offset` is not a multiple of $A_{\max}$, the compiler appends **trailing padding**.
+
+In our `SensorReading` example, $A_{\max} = 8$. The final offset after `timestamp` is `24`, which is already divisible by 8. If the struct ended with an extra `char trailer` at offset `24`, `final_offset` would become `25`, and the compiler would append 7 trailing padding bytes to round `sizeof(struct SensorReading)` to `32`.
+
+## Cache lines and memory footprint
+
+Modern processors transfer data between main memory and CPU caches in 64-byte blocks known as **cache lines**.
+
+Struct padding increases the memory footprint of data structures. When unoptimized structs are loaded into cache, padding bytes occupy space in L1, L2, and L3 caches, displacing active data. An array of 1,000,000 unaligned structs consuming 32 bytes each occupies 32 MB of memory. If optimized to 16 bytes, the same array occupies 16 MB, doubling the number of struct instances that fit in each cache line and cutting memory bandwidth demands in half.
+
+## Field reordering optimization
+
+Compilers preserve struct member order exactly as written in source code to comply with the C standard. They cannot automatically reorder fields behind the programmer's back because pointer arithmetic and serialization code rely on explicit layout.
+
+Programmers eliminate padding manually by ordering struct fields in descending order of alignment requirement (8-byte fields first, followed by 4-byte, 2-byte, and 1-byte fields):
+
+```c
+struct OptimizedSensorReading {
+    int64_t timestamp; // offset 0, size 8, align 8
+    int reading;       // offset 8, size 4, align 4
+    char status;       // offset 12, size 1, align 1
+    char flag;         // offset 13, size 1, align 1
+    // 2 bytes trailing padding to reach multiple of 8
+};
+```
+
+This reordered struct consumes 16 bytes instead of 24 bytes, reducing wasted padding from 10 bytes down to 2 bytes:
+
+```
+Byte Offset:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+Contents:    [     timestamp (8B)     ][reading][st][fl][PAD]
+```
+
+## Exercise: struct padding calculator
+
+In this exercise, you will implement tools to simulate how C compilers lay out structs in memory and optimize field arrangements:
+
+1. Implement `calculate_struct_layout(fields)` to compute field offsets, total struct size, maximum alignment, and total padding bytes for any given list of `(name, size, alignment)` tuples.
+2. Implement `optimize_struct_layout(fields)` to reorder struct fields by descending alignment and size, minimizing internal padding while preserving stability for matching fields.

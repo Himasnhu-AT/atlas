@@ -1,0 +1,120 @@
+---
+id: intro-cpp-generics.templates-and-compile-time-generics
+title: Compile-time generics, templates, and algorithms
+summary: Template monomorphization, generic programming paradigms, STL algorithm iterator abstractions, and compile-time type constraints.
+order: 2
+estimatedMinutes: 20
+exercise:
+  id: generic-algorithm-pipeline
+  timeboxMinutes: 25
+---
+
+Runtime polymorphism through virtual functions enables dynamic dispatch across heterogeneous object collections, but incurs indirection and memory overhead per instance. C++ templates provide an alternative paradigm: compile-time parametric polymorphism.
+
+Instead of deferring function resolution to runtime dispatch tables, the compiler generates specialized machine code for each concrete type instantiation.
+
+## Monomorphization and code generation
+
+When a template function or class is instantiated, the compiler performs **monomorphization**. It duplicates the template definition, substitutes concrete types for the template parameters, and compiles dedicated object code for each type:
+
+```cpp
+template <typename T>
+T min_val(T a, T b) {
+    return (a < b) ? a : b;
+}
+
+int main() {
+    int i = min_val(10, 20);       // Emits min_val<int>(int, int)
+    double d = min_val(3.14, 2.71); // Emits min_val<double>(double, double)
+}
+```
+
+The resulting assembly contains two distinct functions: `min_val<int>` operating directly on 32-bit registers (such as `edi` and `esi`) and `min_val<double>` operating on floating-point registers (such as `xmm0` and `xmm1`).
+
+Monomorphization produces two primary benefits:
+1. **Zero runtime dispatch overhead**: Function calls are direct or aggressively inlined by the optimizer.
+2. **Type-specific register optimization**: The compiler optimizes data layout and register allocation directly for the concrete type sizes.
+
+The trade-off is **code bloat**. Instantiating a template across fifty types generates fifty distinct function bodies in the text segment of the executable binary.
+
+## Generic algorithm patterns
+
+The Standard Template Library (STL) separates data structures from algorithms using iterator abstractions. Algorithms operate on iterator ranges rather than concrete container types.
+
+Key fundamental algorithmic patterns include:
+
+1. **Transform (Map)**: Applies a unary callable to each element in an input range, writing the result to an output destination:
+```cpp
+template <typename InputIt, typename OutputIt, typename UnaryOp>
+OutputIt transform(InputIt first, InputIt last, OutputIt d_first, UnaryOp op) {
+    while (first != last) {
+        *d_first++ = op(*first++);
+    }
+    return d_first;
+}
+```
+
+2. **Filter**: Selectively copies elements that satisfy a boolean predicate.
+
+3. **Accumulate (Reduce)**: Combines elements sequentially with an initial accumulator value using an associative binary operator:
+```cpp
+template <typename InputIt, typename T, typename BinaryOp>
+T accumulate(InputIt first, InputIt last, T init, BinaryOp op) {
+    for (; first != last; ++first) {
+        init = op(init, *first);
+    }
+    return init;
+}
+```
+
+4. **Partition**: Rearranges elements such that all elements satisfying a predicate precede elements that do not.
+
+5. **Binary search**: Locates the position of a target element in a pre-sorted sequence in $O(\log n)$ comparisons by halving the search interval at each step.
+
+## Iterator categories and operations
+
+C++ classifies iterators into a hierarchy based on the memory access capabilities of the underlying container:
+
+```
++-------------------------------------------------------------+
+|                     Random Access Iterator                  |
+|                     (Pointer, std::vector)                  |
+|       Can jump arbitrarily: it + n, it[n], O(1) distance    |
++-------------------------------------------------------------+
+                              ^
++-------------------------------------------------------------+
+|                     Bidirectional Iterator                  |
+|                     (std::list, std::set)                   |
+|       Can move forward and backward: ++it, --it             |
++-------------------------------------------------------------+
+                              ^
++-------------------------------------------------------------+
+|                       Forward Iterator                      |
+|                     (std::forward_list)                     |
+|       Can move forward repeatedly: ++it, multi-pass read    |
++-------------------------------------------------------------+
+                              ^
++-------------------------------------------------------------+
+|                        Input Iterator                       |
+|                     (std::istream_iterator)                 |
+|       Single-pass forward read: *it, ++it                   |
++-------------------------------------------------------------+
+```
+
+An algorithm like binary search requires $O(1)$ random-access arithmetic (`mid = first + (last - first) / 2`) to achieve $O(\log n)$ time complexity. Running binary search on a container with bidirectional iterators (like a linked list) degrades traversal to $O(n)$ because stepping to the middle element requires advancing pointers one node at a time.
+
+## Compile-time constraints and duck typing
+
+In traditional C++ (prior to C++20 concepts), templates use implicit interface contracts (duck typing). If an expression such as `a < b` or `++it` fails to compile for a substituted type, the compiler issues errors deep inside the instantiated template body.
+
+Constraints enforce that a template parameter satisfies required operations at the interface boundary:
+
+```cpp
+template <typename T>
+requires std::totally_ordered<T>
+int binary_search(const std::vector<T>& list, const T& target) {
+    // Guaranteed that T supports < and ==
+}
+```
+
+By decoupling containers, iterators, and callable functions, generic algorithms achieve reusability across data structures without sacrificing execution speed or type safety.

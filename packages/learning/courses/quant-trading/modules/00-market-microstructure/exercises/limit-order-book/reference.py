@@ -34,6 +34,7 @@ class Trade:
 class OrderBook:
     """
     In-memory limit order book with price-time priority.
+    `_orders` tracks orders with open remainder; `_used_order_ids` prevents reuse.
     """
 
     def __init__(self) -> None:
@@ -42,11 +43,15 @@ class OrderBook:
         self._asks_prices: list[float] = []
         self._asks_levels: dict[float, deque[Order]] = {}
         self._orders: dict[str, Order] = {}
+        self._used_order_ids: set[str] = set()
 
     def add_limit_order(self, order: Order) -> list[Trade]:
         trades: list[Trade] = []
         if order.quantity <= 0 or order.price <= 0:
             return trades
+        if order.order_id in self._used_order_ids:
+            raise ValueError(f"order id has already been used: {order.order_id}")
+        self._used_order_ids.add(order.order_id)
 
         if order.side == Side.BUY:
             while self._asks_prices and order.quantity > 0:
@@ -124,11 +129,17 @@ class OrderBook:
                     self._asks_levels[order.price] = deque()
                 self._asks_levels[order.price].append(order)
 
+        order.quantity = max(0.0, order.quantity)
         return trades
 
     def execute_market_order(self, side: Side, quantity: float) -> tuple[list[Trade], float]:
         trades: list[Trade] = []
         remaining = quantity
+
+        if remaining <= 0.0:
+            if remaining < 0.0:
+                raise ValueError("market order quantity must be non-negative")
+            return trades, remaining
 
         if side == Side.BUY:
             while self._asks_prices and remaining > 0:

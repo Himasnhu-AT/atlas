@@ -69,7 +69,7 @@ export default async function LessonPage({ params }: { params: Params }) {
             column direction the mobile contents disclosure becomes a flex
             sibling of the article and squeezes it into a few characters. */}
         <div className="flex flex-col lg:flex-row lg:gap-14">
-          <LessonSidebar module={module} activeLessonId={lesson.id} />
+          <LessonSidebar module={module} courseSlug={course.slug} activeLessonId={lesson.id} />
 
           <main id="main" className="min-w-0 flex-1">
             <header className="max-w-[62ch]">

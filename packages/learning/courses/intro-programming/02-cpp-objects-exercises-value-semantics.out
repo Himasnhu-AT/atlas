@@ -1,0 +1,203 @@
+test_dunder_eq (__main__.TestMoneyEqualityAndFormatting) ... ERROR
+test_equals_method (__main__.TestMoneyEqualityAndFormatting) ... ERROR
+test_to_string_formatting (__main__.TestMoneyEqualityAndFormatting) ... ERROR
+test_properties_are_read_only (__main__.TestMoneyImmutability) ... ERROR
+test_addition (__main__.TestMoneyOperations) ... ERROR
+test_addition_currency_mismatch (__main__.TestMoneyOperations) ... ERROR
+test_addition_type_error (__main__.TestMoneyOperations) ... ERROR
+test_multiplication (__main__.TestMoneyOperations) ... ERROR
+test_multiplication_rounding (__main__.TestMoneyOperations) ... ERROR
+test_multiplication_type_error (__main__.TestMoneyOperations) ... ERROR
+test_subtraction (__main__.TestMoneyOperations) ... ERROR
+test_subtraction_currency_mismatch (__main__.TestMoneyOperations) ... ERROR
+test_subtraction_negative_result (__main__.TestMoneyOperations) ... ERROR
+test_subtraction_type_error (__main__.TestMoneyOperations) ... ERROR
+test_default_currency (__main__.TestMoneyValidation) ... ERROR
+test_invalid_cents_type (__main__.TestMoneyValidation) ... ERROR
+test_invalid_currency (__main__.TestMoneyValidation) ... ERROR
+test_valid_initialization (__main__.TestMoneyValidation) ... ERROR
+
+======================================================================
+ERROR: test_dunder_eq (__main__.TestMoneyEqualityAndFormatting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 131, in test_dunder_eq
+    m1 = Money(500, "JPY")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_equals_method (__main__.TestMoneyEqualityAndFormatting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 120, in test_equals_method
+    m1 = Money(1234, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_to_string_formatting (__main__.TestMoneyEqualityAndFormatting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 139, in test_to_string_formatting
+    self.assertEqual(Money(1234, "USD").to_string(), "$12.34 USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_properties_are_read_only (__main__.TestMoneyImmutability)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 46, in test_properties_are_read_only
+    m = Money(500, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_addition (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 55, in test_addition
+    m1 = Money(1050, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_addition_currency_mismatch (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 65, in test_addition_currency_mismatch
+    m1 = Money(100, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_addition_type_error (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 71, in test_addition_type_error
+    m = Money(100, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_multiplication (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 100, in test_multiplication
+    m = Money(1000, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_multiplication_rounding (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 106, in test_multiplication_rounding
+    m = Money(105, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_multiplication_type_error (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 111, in test_multiplication_type_error
+    m = Money(100, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_subtraction (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 76, in test_subtraction
+    m1 = Money(1000, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_subtraction_currency_mismatch (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 89, in test_subtraction_currency_mismatch
+    m1 = Money(500, "GBP")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_subtraction_negative_result (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 83, in test_subtraction_negative_result
+    m1 = Money(300, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_subtraction_type_error (__main__.TestMoneyOperations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 95, in test_subtraction_type_error
+    m = Money(100, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_default_currency (__main__.TestMoneyValidation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 19, in test_default_currency
+    m = Money(250)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_invalid_cents_type (__main__.TestMoneyValidation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 25, in test_invalid_cents_type
+    Money(12.34, "USD")  # type: ignore
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_invalid_currency (__main__.TestMoneyValidation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 33, in test_invalid_currency
+    Money(100, "usd")  # lowercase
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_valid_initialization (__main__.TestMoneyValidation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/test.py", line 14, in test_valid_initialization
+    m = Money(1500, "USD")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-value-semantics/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 18 tests in 0.001s
+
+FAILED (errors=18)

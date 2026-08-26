@@ -85,7 +85,7 @@ function Directory({
               type="button"
               onClick={() => onOpenFile(entry.path)}
               aria-current={entry.path === activePath ? 'true' : undefined}
-              className={`flex min-h-8 w-full items-center gap-2 px-3 py-1 text-left text-caption transition-colors duration-150 ease-paper ${
+              className={`flex min-h-9 w-full items-center gap-2 rounded-field px-3 py-1 text-left text-caption transition-colors duration-200 ease-paper ${
                 entry.path === activePath
                   ? 'bg-paper-sunken text-ink'
                   : 'text-ink-soft hover:bg-paper-sunken hover:text-ink'
@@ -122,7 +122,7 @@ function DirectoryRow({
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex min-h-8 w-full items-center gap-2 px-3 py-1 text-left text-caption text-ink-soft transition-colors duration-150 ease-paper hover:bg-paper-sunken hover:text-ink"
+        className="flex min-h-9 w-full items-center gap-2 rounded-field px-3 py-1 text-left text-caption text-ink-soft transition-colors duration-200 ease-paper hover:bg-paper-sunken hover:text-ink"
         style={{ paddingLeft: `${12 + depth * 10}px` }}
       >
         <Chevron aria-hidden className="size-3.5 shrink-0 text-muted" />

@@ -8,6 +8,8 @@ def fractional_differentiation(
 ) -> list[float]:
     if d < 0.0 or d > 1.0:
         raise ValueError("Differencing order d must be in [0.0, 1.0]")
+    if threshold <= 0.0:
+        raise ValueError("threshold must be strictly positive")
     if not series:
         return []
 

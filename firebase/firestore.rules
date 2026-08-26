@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Atlas Next.js backend operates via Firebase Admin SDK (bypassing rules server-side).
+    // Direct client access is locked down by default as all requests route through the Next.js API.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

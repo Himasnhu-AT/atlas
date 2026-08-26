@@ -36,6 +36,9 @@ def to_decimal(raw: str | None) -> tuple[Decimal | None, bool]:
         text = text[1:].strip()
     text = text.replace(",", "")
 
+    if not text or (text[0] in "+-" and len(text) == 1):
+        return None, False
+
     try:
         return Decimal(text), True
     except InvalidOperation:

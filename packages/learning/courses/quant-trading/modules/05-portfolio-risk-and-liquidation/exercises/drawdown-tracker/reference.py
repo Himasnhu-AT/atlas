@@ -6,22 +6,22 @@ def calculate_drawdown_metrics(equity_curve: list[float]) -> dict[str, float | i
         return {"max_drawdown": 0.0, "max_duration": 0, "current_drawdown": 0.0}
 
     peak = equity_curve[0]
-    peak_idx = 0
+    underwater_duration = 0
     max_dd = 0.0
     max_duration = 0
 
     for i, val in enumerate(equity_curve):
         if val >= peak:
             peak = val
-            peak_idx = i
+            underwater_duration = 0
         else:
             dd = (peak - val) / peak
             if dd > max_dd:
                 max_dd = dd
+            underwater_duration += 1
 
-        duration = i - peak_idx
-        if duration > max_duration:
-            max_duration = duration
+        if underwater_duration > max_duration:
+            max_duration = underwater_duration
 
     current_dd = (peak - equity_curve[-1]) / peak if peak > 0 else 0.0
 

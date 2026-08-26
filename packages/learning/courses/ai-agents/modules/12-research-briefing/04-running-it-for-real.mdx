@@ -16,7 +16,7 @@ system design must accommodate stage-level checkpointing, telemetry instrumentat
 The complete pipeline coordinates planning, worker extraction, brief synthesis, and verification under a shared budget:
 
 ```python
-client = MockClient(script)        # OpenAI(...) in production
+client = MockClient(script)        # use the scripted client for this course
 budget = Budget(limit=200_000)
 search = make_search(CORPUS)
 
@@ -85,29 +85,5 @@ evaluated against four core metrics:
 - **Stage cost**: Cumulative token usage recorded across `budget.by_stage`.
 
 Keeping the benchmark suite compact ensures tests can run frequently in CI pipelines, detecting regressions
-in claim accuracy or stage costs before deploying updates.
-
-## Connecting to live provider endpoints
-
-To run the complete research briefing pipeline against live provider endpoints:
-
-1. Replace the mock client with an active OpenAI or compatible client:
-
-```python
-from openai import OpenAI
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], base_url=BASE_URL)
-```
-
-2. Replace the hash-based embedding helper with vector embeddings:
-
-```python
-def embed_text(content: str) -> list[float]:
-    response = client.embeddings.create(model="text-embedding-3-small", input=content)
-    return response.data[0].embedding
-```
-
-With dense vector embeddings, document retrieval handles semantic variations and synonyms naturally.
-The planner, worker isolation boundaries, citation numbering, supervisor synthesis, and verification passes
-remain completely unchanged.
-
-PLACEHOLDER_REFERRAL_OFFER
+in claim accuracy before updates are accepted. Token usage remains deterministic because every run uses the
+scripted mock client rather than a live endpoint.

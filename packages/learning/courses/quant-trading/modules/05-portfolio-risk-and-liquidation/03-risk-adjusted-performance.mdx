@@ -15,30 +15,31 @@ Total return alone does not indicate investment quality. A portfolio generating 
 
 The **Sharpe ratio** measures excess return above the risk-free rate per unit of total return volatility:
 
+Let $X_t = R_t - R_f$ be each period's excess return. The annualized Sharpe ratio is
+
 $$
-\text{Sharpe} = \frac{\bar{R} - R_f}{\sigma_R} \sqrt{A}
+\text{Sharpe} = \frac{\bar{X}}{\sigma_X} \sqrt{A}
 $$
 
 Where:
-* $\bar{R}$ is the average periodic return.
-* $R_f$ is the periodic risk-free rate.
-* $\sigma_R$ is the sample standard deviation of periodic returns.
+* $\bar{X}$ is the average excess return.
+* $\sigma_X$ is the population standard deviation of those excess returns.
 * $A$ is the annualization factor (e.g. 252 for daily returns, 52 for weekly returns).
 
 ## The Sortino ratio and downside deviation
 
-The Sharpe ratio penalizes upside volatility and downside volatility equally. A strategy with occasional large positive windfall returns is penalized with a lower Sharpe ratio because upside surprises increase standard deviation.
+The Sharpe ratio penalizes upside volatility and downside volatility equally because it uses the dispersion of excess returns. Sortino instead measures dispersion below a minimum acceptable return, so occasional large gains do not increase its denominator.
 
 The **Sortino ratio** replaces total volatility with **downside deviation** measured relative to a Minimum Acceptable Return (MAR, often 0.0):
 
 $$
-\text{Sortino} = \frac{\bar{R} - \text{MAR}}{\sigma_{\text{downside}}} \sqrt{A}
+\text{Sortino} = \frac{\bar{X} - \text{MAR}}{\sigma_{\text{downside}}} \sqrt{A}
 $$
 
 Where downside semi-variance only accumulates negative deviations:
 
 $$
-\sigma_{\text{downside}} = \sqrt{ \frac{1}{N} \sum_{t=1}^N \min(0, \; R_t - \text{MAR})^2 }
+\sigma_{\text{downside}} = \sqrt{ \frac{1}{N} \sum_{t=1}^N \min(0, \; X_t - \text{MAR})^2 }
 $$
 
 ## Exercise: calculate Sharpe and Sortino ratios

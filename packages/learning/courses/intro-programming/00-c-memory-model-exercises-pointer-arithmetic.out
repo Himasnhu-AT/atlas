@@ -1,0 +1,195 @@
+EEEEEEEEEEEEEEEEEEE
+======================================================================
+ERROR: test_basic_copy (__main__.TestMemcpy)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 90, in test_basic_copy
+    src = Pointer(src_buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_buffer_bounds_violation (__main__.TestMemcpy)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 111, in test_buffer_bounds_violation
+    src = Pointer(src_buf, 2)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_negative_count (__main__.TestMemcpy)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 104, in test_negative_count
+    p = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_overlapping_copy_forward (__main__.TestMemcpy)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 97, in test_overlapping_copy_forward
+    src = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_deref_past_end (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 45, in test_deref_past_end
+    p = Pointer(buf, 4)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_init_and_properties (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 22, in test_init_and_properties
+    p = Pointer(buf, 2)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_init_bounds (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 29, in test_init_bounds
+    Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pointer_arithmetic (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 53, in test_pointer_arithmetic
+    p = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pointer_arithmetic_overflow (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 64, in test_pointer_arithmetic_overflow
+    p = Pointer(buf, 3)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pointer_diff (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 72, in test_pointer_diff
+    p1 = Pointer(buf, 10)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_pointer_diff_different_buffers (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 80, in test_pointer_diff_different_buffers
+    p1 = Pointer(buf1, 2)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_write_and_deref (__main__.TestPointerBasics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 38, in test_write_and_deref
+    p = Pointer(buf, 1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_strcmp_equal (__main__.TestStrlenAndStrcmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 139, in test_strcmp_equal
+    p1 = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_strcmp_less_greater (__main__.TestStrlenAndStrcmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 145, in test_strcmp_less_greater
+    p1 = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_strcmp_prefix (__main__.TestStrlenAndStrcmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 152, in test_strcmp_prefix
+    p1 = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_strcmp_unterminated_raises (__main__.TestStrlenAndStrcmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 160, in test_strcmp_unterminated_raises
+    p1 = Pointer(buf1, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_strlen_basic (__main__.TestStrlenAndStrcmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 120, in test_strlen_basic
+    p = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_strlen_empty_string (__main__.TestStrlenAndStrcmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 128, in test_strlen_empty_string
+    p = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_strlen_unterminated (__main__.TestStrlenAndStrcmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/test.py", line 133, in test_strlen_unterminated
+    p = Pointer(buf, 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/00-c-memory-model-exercises-pointer-arithmetic/solution.py", line 30, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 19 tests in 0.001s
+
+FAILED (errors=19)

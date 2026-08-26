@@ -1,0 +1,11 @@
+id: intro-c-memory
+slug: c-memory-model
+name: Memory, bits, and pointers in C
+summary: "Computers execute instructions directly against linear memory. Master binary representations, two's complement integer arithmetic, pointer dereferencing and traversal, stack frame activation records, and manual free-list heap allocators."
+version: 1.0.0
+track: systems
+order: 0
+isActive: true
+prerequisites: []
+difficulty: beginner
+estimatedHours: 2.5

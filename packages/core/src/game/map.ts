@@ -163,6 +163,46 @@ export function layoutCourse(modules: MapModule[]): CourseMap {
     }
   })
 
+  // Symmetrically center diamonds (fork-and-merge topologies)
+  const nodeById = new Map(nodes.map((n) => [n.id, n]))
+  for (const node of nodes) {
+    if (node.prerequisites.length > 1) {
+      const parents = node.prerequisites
+        .map((id) => nodeById.get(id))
+        .filter((p): p is MapNode => p !== undefined)
+      if (parents.length > 1) {
+        const avgCol = parents.reduce((sum, p) => sum + p.col, 0) / parents.length
+        const oldCol = node.col
+        const delta = avgCol - oldCol
+
+        node.col = avgCol
+
+        // Center common fork ancestor above the branches
+        const commonParentId = parents[0]?.prerequisites[0]
+        if (
+          commonParentId &&
+          parents.every((p) => p.prerequisites[0] === commonParentId)
+        ) {
+          const rootNode = nodeById.get(commonParentId)
+          if (rootNode) rootNode.col = avgCol
+        }
+
+        // Adjust downstream nodes on the same spine
+        for (const child of nodes) {
+          if (
+            child.row > node.row &&
+            child.onMainLine &&
+            Math.abs(child.col - oldCol) < 0.01
+          ) {
+            child.col = child.col + delta
+          } else if (child.row > node.row && child.sideRoad && child.col >= oldCol) {
+            child.col = child.col + delta
+          }
+        }
+      }
+    }
+  }
+
   const known = new Set(ordered.map((m) => m.id))
   const edges: MapEdge[] = ordered.flatMap((module) =>
     module.prerequisites
@@ -174,6 +214,6 @@ export function layoutCourse(modules: MapModule[]): CourseMap {
     nodes,
     edges,
     rows: nodes.reduce((max, n) => Math.max(max, n.row), 0) + 1,
-    cols: nodes.reduce((max, n) => Math.max(max, n.col), 0) + 1,
+    cols: Math.ceil(nodes.reduce((max, n) => Math.max(max, n.col), 0)) + 1,
   }
 }

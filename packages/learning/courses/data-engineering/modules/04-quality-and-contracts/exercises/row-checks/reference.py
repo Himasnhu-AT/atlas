@@ -132,7 +132,7 @@ def check_sum_in_range(
     return {
         "name": "sum_in_range",
         "passed": passed,
-        "detail": f"{total} against a median of {baseline:g}, {drift:.0%} away{note}",
+        "detail": f"total {total} against a median of {baseline:g}, {drift:.0%} away{note}",
     }
 
 

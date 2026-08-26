@@ -1,0 +1,126 @@
+---
+id: intro-cpp-objects.smart-pointers-and-reference-counting
+title: Smart pointers and reference count management
+summary: Unique ownership with unique_ptr, shared ownership with shared_ptr and control blocks, weak_ptr, and circular reference leaks.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: smart-pointers
+  timeboxMinutes: 30
+---
+
+Raw pointers in C and C++ convey no ownership semantics. When a function receives a `T*`, it cannot know whether it is responsible for deallocating the memory, whether other pointers alias the same address, or whether the pointee has already been freed. Modern C++ resolves this ambiguity through smart pointers that encode ownership semantics directly in the type system.
+
+## Exclusive ownership with unique_ptr
+
+`std::unique_ptr<T>` enforces strict exclusive ownership. Exactly one smart pointer instance owns the managed heap object at any given time.
+
+```cpp
+#include <memory>
+
+void process_node() {
+    std::unique_ptr<Node> node = std::make_unique<Node>(42);
+    node->compute();
+
+    // Compile error: copy constructor is deleted (= delete)
+    // std::unique_ptr<Node> copy = node;
+
+    // Explicit ownership transfer via move
+    std::unique_ptr<Node> owner = std::move(node);
+
+    // node is now nullptr; owner manages the Node instance
+} // owner leaves scope: Node destructor runs, heap memory freed
+```
+
+Because `std::unique_ptr` holds only a single raw pointer member (unless a stateful custom deleter is specified), it compiles to the exact same assembly as manual `new` and `delete`, achieving zero runtime memory and CPU overhead.
+
+## Shared ownership and control blocks
+
+When an object has multiple independent owners and its lifetime must extend until the final owner finishes using it, `std::shared_ptr<T>` provides reference-counted shared ownership.
+
+A `std::shared_ptr` consists of two 64-bit pointers:
+1. A pointer to the managed object `T*`.
+2. A pointer to a heap-allocated **control block**.
+
+```
+std::shared_ptr<T> instance:
+[ ptr to T: 0x1000 | ptr to ControlBlock: 0x2000 ]
+                           |
+                           v
+              Control Block at 0x2000:
+              +----------------------------+
+              | Strong use_count:  2       |
+              | Weak weak_count:   1       |
+              | Custom Deleter / Allocator |
+              +----------------------------+
+                           |
+                           v Managed Object at 0x1000
+              +----------------------------+
+              | Node data: value = 42      |
+              +----------------------------+
+```
+
+The control block tracks two separate counters:
+1. `use_count`: The number of active `std::shared_ptr` instances sharing ownership.
+2. `weak_count`: The number of active `std::weak_ptr` instances observing the resource.
+
+When a `std::shared_ptr` is copied, `use_count` is incremented. When an instance is destroyed or reset, `use_count` is decremented.
+
+When `use_count` reaches zero:
+1. The managed object `T` is immediately destroyed and its memory is released.
+2. The control block itself remains allocated as long as `weak_count > 0`.
+3. When `weak_count` also reaches zero, the control block memory is deallocated.
+
+Creating a shared pointer via `std::make_shared<T>(...)` performs a single contiguous heap allocation holding both the control block and the object `T`, reducing allocator overhead and improving CPU cache locality.
+
+## Non-owning observers with weak_ptr
+
+A `std::weak_ptr<T>` observes a resource managed by `std::shared_ptr` without participating in ownership. Creating or destroying a `std::weak_ptr` modifies `weak_count`, but leaves `use_count` unchanged.
+
+Because the underlying object can be destroyed by a `std::shared_ptr` at any time, `std::weak_ptr` cannot be dereferenced directly. To access the object, callers invoke `.lock()`:
+
+```cpp
+std::shared_ptr<Node> sp = std::make_shared<Node>(100);
+std::weak_ptr<Node> wp = sp; // weak_count = 1, use_count = 1
+
+if (std::shared_ptr<Node> locked = wp.lock()) {
+    // Successfully acquired temporary shared ownership; use_count = 2
+    locked->compute();
+} // locked leaves scope; use_count returns to 1
+
+sp.reset(); // use_count drops to 0; Node is destroyed
+
+if (std::shared_ptr<Node> locked = wp.lock()) {
+    // Will not execute: wp is expired, lock() returns nullptr
+}
+```
+
+Calling `.lock()` produces a temporary `std::shared_ptr`. If the resource is still alive, `use_count` is incremented. If `use_count == 0` (the resource has expired), `.lock()` returns `nullptr`.
+
+## Circular reference leaks
+
+The primary hazard of shared reference counting is circular references. If two objects own each other via `std::shared_ptr`, their `use_count` values can never drop to zero.
+
+```cpp
+struct NodeB;
+
+struct NodeA {
+    std::shared_ptr<NodeB> b_ptr;
+    ~NodeA() { std::cout << "NodeA destroyed\n"; }
+};
+
+struct NodeB {
+    std::shared_ptr<NodeA> a_ptr; // Cycle: A -> B and B -> A
+    ~NodeB() { std::cout << "NodeB destroyed\n"; }
+};
+
+void leak_cycle() {
+    auto a = std::make_shared<NodeA>(); // a: use_count = 1
+    auto b = std::make_shared<NodeB>(); // b: use_count = 1
+
+    a->b_ptr = b; // b: use_count = 2
+    b->a_ptr = a; // a: use_count = 2
+} // a and b go out of scope: use_count for each drops from 2 to 1. Neither destructor runs.
+```
+
+Breaking cyclic dependencies requires asymmetric ownership: the parent or container holds a `std::shared_ptr` to child nodes, while child or back-references use `std::weak_ptr`.

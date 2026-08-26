@@ -68,6 +68,9 @@ def rows_to_process(rows: list[dict], watermark: str | None, field: str = "place
         field: the timestamp column to compare on. ISO 8601 strings compare
             correctly as strings, which is the whole reason the previous module
             normalised to that format.
+            This course's fixture stores dates without offsets. If an input may
+            mix UTC-offset spellings, normalise them before calling this
+            function rather than comparing different timestamp designs as text.
 
     Returns:
         The rows at or after the watermark, in their original order. All of them
@@ -112,7 +115,10 @@ def load_increment(
         skipped would make a normal re-run look like it did nothing.
 
         The new watermark is the highest value of `field` among the rows
-        written. When there are no rows, the watermark does not move and the old
-        value is returned: an empty run is not evidence that time has passed.
+        written, never earlier than the existing mark. When there are no rows,
+        the watermark does not move and the old value is returned: an empty run
+        is not evidence that time has passed.
+
+        On any write failure, roll back both the rows and the watermark.
     """
     raise NotImplementedError

@@ -1,0 +1,104 @@
+test_clone_independence (__main__.TestOwnedBufferClone) ... ERROR
+test_allocate_empty_buffer (__main__.TestOwnedBufferInitialization) ... ERROR
+test_allocate_with_initial_data (__main__.TestOwnedBufferInitialization) ... ERROR
+test_invalid_arguments (__main__.TestOwnedBufferInitialization) ... ERROR
+test_move_transfers_ownership (__main__.TestOwnedBufferMove) ... ERROR
+test_moved_from_buffer_rejects_operations (__main__.TestOwnedBufferMove) ... ERROR
+test_out_of_bounds_read (__main__.TestOwnedBufferReadWrite) ... ERROR
+test_out_of_bounds_write (__main__.TestOwnedBufferReadWrite) ... ERROR
+test_write_and_read (__main__.TestOwnedBufferReadWrite) ... ERROR
+
+======================================================================
+ERROR: test_clone_independence (__main__.TestOwnedBufferClone)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 63, in test_clone_independence
+    original = OwnedBuffer(16, b"immutable_seed")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_allocate_empty_buffer (__main__.TestOwnedBufferInitialization)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 14, in test_allocate_empty_buffer
+    buf = OwnedBuffer(16)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_allocate_with_initial_data (__main__.TestOwnedBufferInitialization)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 20, in test_allocate_with_initial_data
+    buf = OwnedBuffer(8, b"hello")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_invalid_arguments (__main__.TestOwnedBufferInitialization)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 28, in test_invalid_arguments
+    OwnedBuffer(-1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_move_transfers_ownership (__main__.TestOwnedBufferMove)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 83, in test_move_transfers_ownership
+    source = OwnedBuffer(16, b"precious_payload")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_moved_from_buffer_rejects_operations (__main__.TestOwnedBufferMove)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 96, in test_moved_from_buffer_rejects_operations
+    source = OwnedBuffer(8, b"12345678")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_out_of_bounds_read (__main__.TestOwnedBufferReadWrite)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 52, in test_out_of_bounds_read
+    buf = OwnedBuffer(10)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_out_of_bounds_write (__main__.TestOwnedBufferReadWrite)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 45, in test_out_of_bounds_write
+    buf = OwnedBuffer(10)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_write_and_read (__main__.TestOwnedBufferReadWrite)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/test.py", line 39, in test_write_and_read
+    buf = OwnedBuffer(32)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/02-cpp-objects-exercises-move-ownership-buffer/solution.py", line 29, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.001s
+
+FAILED (errors=9)

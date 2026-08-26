@@ -1,0 +1,109 @@
+---
+id: intro-cpp-generics.associative-containers-and-hash-tables
+title: Hash tables, open addressing, and collision resolution
+summary: Designing high-performance hash tables, hash functions, separate chaining vs open addressing, linear probing, tombstone deletion, and dynamic rehashing.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: hash-map-open-addressing
+  timeboxMinutes: 30
+---
+
+Associative containers map discrete keys to corresponding values. In C++, ordered associative containers (`std::map`, `std::set`) use self-balancing red-black trees, providing $O(\log n)$ lookup, insertion, and deletion. Unordered associative containers (`std::unordered_map`, `std::unordered_set`) use hash tables, achieving average-case $O(1)$ operations by projecting keys into integer bucket indices.
+
+Container design requires choosing collision resolution strategies, managing memory layouts for CPU cache lines, and handling element deletions without breaking lookup chains.
+
+## Hash functions and collision properties
+
+A hash function $h(k)$ maps an arbitrary key $k$ (such as a string or struct) into an unsigned integer. A high-quality hash function satisfies three properties:
+
+1. **Determinism**: Identical keys always produce identical hash values: if $k_1 = k_2$, then $h(k_1) = h(k_2)$.
+2. **Uniform distribution**: Hash outputs distribute evenly across the integer domain, minimizing clustering.
+3. **Avalanche effect**: A change in a single bit of the input key changes approximately 50% of the output bits.
+
+To map the hash code into an array index within a table of capacity $C$, the table computes:
+
+```
+index = h(k) % C
+```
+
+When $C$ is chosen as a power of two ($C = 2^p$), the modulo operation simplifies to a bitwise mask: `index = h(k) & (C - 1)`.
+
+## Separate chaining versus open addressing
+
+When two distinct keys produce the same bucket index ($h(k_1) \pmod C = h(k_2) \pmod C$), a collision occurs.
+
+### Separate chaining
+
+Standard C++ library implementations (`std::unordered_map`) historically mandate **separate chaining**:
+
+```
+Bucket Array (Pointers)
+[0] -> [ ("keyA", 10) ] -> [ ("keyX", 99) ] -> nullptr
+[1] -> nullptr
+[2] -> [ ("keyB", 20) ] -> nullptr
+[3] -> nullptr
+```
+
+Each bucket stores a pointer to a singly-linked list of colliding key-value nodes.
+- **Advantage**: Simple deletion mechanics; stable element references (nodes never relocate in memory upon table resize).
+- **Disadvantage**: Poor CPU cache locality. Node traversals chase heap pointers across scattered memory locations, triggering CPU cache misses on every probe step. Each node also incurs pointer memory overhead.
+
+### Open addressing and linear probing
+
+High-performance hash tables store all key-value entries directly inside a contiguous flat array:
+
+```
+Flat Array:
+[ ("keyA", 10) | ("keyX", 99) | ("keyB", 20) | None | None ]
+  Slot 0         Slot 1         Slot 2         Slot 3 Slot 4
+```
+
+Under **linear probing**, if bucket `idx = h(k) % C` is already occupied by a different key, the algorithm checks sequential adjacent slots:
+
+```
+probe_index(i) = (h(k) + i) % C
+```
+
+Sequential slots sit contiguously in memory. Scanning adjacent slots loads entire CPU cache lines (typically 64 bytes), allowing several consecutive probe checks in a single memory fetch.
+
+## Deletion with tombstone markers
+
+In an open-addressing hash map with linear probing, searching for a key terminates upon encountering an empty (`None`) slot.
+
+If an element in the middle of a collision probe sequence is simply erased and set to `None`, subsequent lookups for elements inserted further down that collision sequence will terminate prematurely, incorrectly reporting that the key does not exist.
+
+To maintain probe continuity, deletions insert a sentinel marker called a **tombstone**:
+
+```
+Initial state:
+[ ("alpha", 1) | ("alt_alpha", 2) | ("third_alpha", 3) | None ]
+
+Delete "alt_alpha" without tombstone (BROKEN):
+[ ("alpha", 1) | None | ("third_alpha", 3) | None ]
+Lookup for "third_alpha" hashes to 0, checks 0, sees None at 1, stops -> Key not found error!
+
+Delete "alt_alpha" with tombstone (CORRECT):
+[ ("alpha", 1) | TOMBSTONE | ("third_alpha", 3) | None ]
+Lookup for "third_alpha" hashes to 0, skips TOMBSTONE at 1, finds key at 2 -> Success!
+```
+
+During subsequent insertions, the search identifies the first available tombstone or empty slot. If the key does not exist elsewhere in the probe chain, the new key recycles that tombstone slot.
+
+## Load factor and dynamic rehashing
+
+The **load factor** $\alpha$ measures table density:
+
+```
+alpha = size / capacity
+```
+
+For open addressing, as $\alpha$ approaches 1.0, probe sequences lengthen drastically due to primary clustering. Performance degrades from $O(1)$ toward $O(n)$.
+
+When the combined count of active entries and tombstones exceeds a threshold (commonly $\alpha_{\max} = 0.66$ or $0.75$), the hash map performs **rehashing**:
+1. Allocate a new contiguous array with double the capacity ($2C$).
+2. Reset tombstone counts to zero.
+3. Re-insert all active key-value pairs into the new table using their recomputed indices ($h(k) \pmod{2C}$).
+4. Free the old array.
+
+Rehashing runs in $O(n)$ time, but occurs infrequently enough that insertions maintain $O(1)$ amortized time complexity.

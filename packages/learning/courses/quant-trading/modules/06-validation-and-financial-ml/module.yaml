@@ -7,6 +7,6 @@ track: validation
 order: 6
 isActive: true
 prerequisites:
-  - quant-stat-arb
+  - quant-risk
 difficulty: advanced
 estimatedHours: 3.5

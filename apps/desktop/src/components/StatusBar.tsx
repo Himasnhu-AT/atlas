@@ -33,7 +33,7 @@ export function StatusBar({
   offline,
 }: StatusBarProps) {
   return (
-    <footer className="flex h-7 shrink-0 items-center gap-3 border-t border-rule bg-paper-raised px-3 text-[0.6875rem]">
+    <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-rule bg-paper-raised px-3 font-mono text-[11px] tracking-[0.04em]">
       <span
         aria-live="polite"
         className={cn('inline-flex min-w-0 items-center gap-1.5', TONES[message?.tone ?? 'info'])}
@@ -52,7 +52,7 @@ export function StatusBar({
             aria-hidden
             className={cn(
               'size-1.5 rounded-full',
-              desktop && sessionReady ? 'bg-pass' : 'bg-muted',
+                desktop && sessionReady ? 'bg-pass' : 'bg-rule-strong',
             )}
           />
           {desktop ? (sessionReady ? 'shell ready' : 'shell starting…') : 'browser preview'}

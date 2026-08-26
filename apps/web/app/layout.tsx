@@ -5,11 +5,11 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: {
-    default: 'Atlas',
-    template: '%s · Atlas',
+    default: 'SynthAI Labs',
+    template: '%s · SynthAI Labs',
   },
   description:
-    'A workbook for engineers. Read the lesson, write the code, run the tests. No API key required.',
+    'Code-first engineering masterclasses by SynthAI Labs. Read the lesson, write the code, run the tests in an isolated sandbox.',
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -4,7 +4,7 @@ name: Portfolio risk and optimal liquidation
 summary: "Value at Risk, Expected Shortfall (CVaR), maximum drawdown duration, Sharpe and Sortino ratios, and Almgren-Chriss liquidation trajectories."
 version: 1.0.0
 track: risk
-order: 5
+order: 4
 isActive: true
 prerequisites:
   - quant-stat-arb

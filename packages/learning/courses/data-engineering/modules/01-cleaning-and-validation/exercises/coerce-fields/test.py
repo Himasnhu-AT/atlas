@@ -78,6 +78,12 @@ class TestToDecimal(unittest.TestCase):
         self.assertEqual(to_decimal(""), (None, False))
         self.assertEqual(to_decimal(None), (None, False))
 
+    def test_a_currency_symbol_alone_is_not_zero(self):
+        self.assertEqual(to_decimal("$"), (None, False))
+
+    def test_a_sign_alone_is_not_zero(self):
+        self.assertEqual(to_decimal("-"), (None, False))
+
 
 class TestToDate(unittest.TestCase):
     def test_reads_iso(self):

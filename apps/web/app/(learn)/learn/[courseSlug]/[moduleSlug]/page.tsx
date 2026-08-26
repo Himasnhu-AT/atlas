@@ -6,7 +6,7 @@ import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
 import { Reveal } from '@/components/reveal'
-import { activeCourses, activeModules, findCourse, findModule } from '@/lib/content'
+import { activeCourses, activeModules, findCourse, findModule, prerequisiteNames } from '@/lib/content'
 
 type Params = Promise<{ courseSlug: string; moduleSlug: string }>
 
@@ -35,6 +35,7 @@ export default async function ModulePage({ params }: { params: Params }) {
 
   const lessons = [...module.lessons].sort((a, b) => a.order - b.order)
   const exercises = lessons.filter((lesson) => lesson.exercise).length
+  const trackObj = course.tracks.find((t) => t.id === module.track)
 
   return (
     <>
@@ -53,24 +54,44 @@ export default async function ModulePage({ params }: { params: Params }) {
               >
                 &larr;
               </span>
-              {course.name}
+              Back to {course.name}
             </Link>
           </Reveal>
 
           <div className="mt-4">
             <PageHeader
-              eyebrow={`Module ${String(module.order).padStart(2, '0')}`}
+              eyebrow={`Module ${String(module.order).padStart(2, '0')} · ${trackObj?.name || module.track}`}
               title={module.name}
               lead={module.summary}
             />
           </div>
 
           <Reveal delay={0.18}>
-            <p className="mt-6 text-caption text-muted">
-              {lessons.length} lessons
-              {exercises > 0 && ` · ${exercises} graded exercises`} · about{' '}
-              {module.estimatedHours} hours · {module.difficulty}
-            </p>
+            <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-caption text-muted border-b border-rule pb-4">
+              <span>
+                {lessons.length} lessons
+                {exercises > 0 && ` · ${exercises} graded exercises`}
+              </span>
+              <span>·</span>
+              <span>{module.estimatedHours} hours</span>
+              <span>·</span>
+              <span className="capitalize">{module.difficulty}</span>
+
+              {module.prerequisites.length > 0 ? (
+                <>
+                  <span>·</span>
+                  <span>
+                    <span className="font-medium text-ink-soft">Prerequisite:</span>{' '}
+                    {prerequisiteNames(course, module.prerequisites)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>·</span>
+                  <span className="text-ink-soft">No prerequisites</span>
+                </>
+              )}
+            </div>
           </Reveal>
 
           <RuledList>
