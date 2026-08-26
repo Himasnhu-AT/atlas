@@ -44,8 +44,8 @@ export function Navigator({ activeRef, isComplete, onSelectLesson, onCollapse }:
           value={browsing.id}
           onChange={(event) => setBrowsingId(event.target.value)}
           className={cn(
-            'h-8 min-w-0 flex-1 rounded-field border border-rule bg-paper-sunken px-2',
-            'text-xs font-medium text-ink outline-none',
+            'min-h-9 min-w-0 flex-1 rounded-field border border-rule bg-paper-sunken px-2',
+            'text-caption text-ink outline-none',
             'focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40',
           )}
         >
@@ -65,8 +65,8 @@ export function Navigator({ activeRef, isComplete, onSelectLesson, onCollapse }:
           title="Collapse the navigator"
           aria-label="Collapse the navigator"
           className={cn(
-            'inline-flex size-8 shrink-0 items-center justify-center rounded-field',
-            'text-muted transition-colors duration-150 hover:bg-paper-sunken hover:text-ink',
+            'inline-flex size-9 shrink-0 items-center justify-center rounded-field',
+            'text-muted transition-colors duration-200 ease-paper hover:bg-paper-sunken hover:text-ink',
           )}
         >
           <PanelLeftClose aria-hidden className="size-4" />
@@ -102,8 +102,8 @@ export function NavigatorRail({ onExpand, moduleTitle }: NavigatorRailProps) {
         title="Show the navigator"
         aria-label="Show the navigator"
         className={cn(
-          'inline-flex size-8 items-center justify-center rounded-field',
-          'text-muted transition-colors duration-150 hover:bg-paper-sunken hover:text-ink',
+          'inline-flex size-9 items-center justify-center rounded-field',
+          'text-muted transition-colors duration-200 ease-paper hover:bg-paper-sunken hover:text-ink',
         )}
       >
         <PanelLeftOpen aria-hidden className="size-4" />

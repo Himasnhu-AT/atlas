@@ -27,6 +27,19 @@ class TestDrawdownTracker(unittest.TestCase):
         self.assertEqual(res["max_duration"], 2)
         self.assertAlmostEqual(res["current_drawdown"], 0.25, places=4)
 
+    def test_flat_curve_is_not_underwater(self):
+        res = calculate_drawdown_metrics([100.0, 100.0, 100.0])
+        self.assertEqual(res["max_drawdown"], 0.0)
+        self.assertEqual(res["max_duration"], 0)
+        self.assertEqual(res["current_drawdown"], 0.0)
+
+    def test_new_peak_resets_duration(self):
+        curve = [100.0, 90.0, 110.0, 105.0]
+        res = calculate_drawdown_metrics(curve)
+        self.assertAlmostEqual(res["max_drawdown"], 0.10)
+        self.assertEqual(res["max_duration"], 1)
+        self.assertAlmostEqual(res["current_drawdown"], (110.0 - 105.0) / 110.0)
+
 
 if __name__ == "__main__":
     unittest.main()

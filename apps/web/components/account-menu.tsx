@@ -14,7 +14,15 @@ import { useEffect, useRef, useState } from 'react'
  * one. This is a disclosure with a link and a button inside, which is what it
  * actually is.
  */
-export function AccountMenu({ displayName, email }: { displayName: string; email: string }) {
+export function AccountMenu({
+  displayName,
+  email,
+  isAdmin = false,
+}: {
+  displayName: string
+  email: string
+  isAdmin?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const container = useRef<HTMLDivElement>(null)
@@ -66,11 +74,27 @@ export function AccountMenu({ displayName, email }: { displayName: string; email
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-60 overflow-hidden rounded-sheet border border-rule bg-paper-raised">
+        <div className="absolute right-0 mt-2 w-60 overflow-hidden rounded-sheet border border-rule bg-paper-raised shadow-sm">
           <div className="border-b border-rule px-4 py-3">
-            <p className="truncate text-caption font-medium text-ink">{displayName}</p>
+            <div className="flex items-center justify-between">
+              <p className="truncate text-caption font-medium text-ink">{displayName}</p>
+              {isAdmin && (
+                <span className="rounded bg-ink px-1.5 py-0.5 text-[9px] font-mono uppercase text-paper">
+                  Admin
+                </span>
+              )}
+            </div>
             <p className="truncate text-caption text-muted">{email}</p>
           </div>
+          {isAdmin && (
+            <Link
+              href="/admin"
+              onClick={() => setOpen(false)}
+              className="block border-b border-rule px-4 py-3 text-caption font-medium text-ink transition-colors duration-200 ease-paper hover:bg-paper-sunken"
+            >
+              Admin portal
+            </Link>
+          )}
           <Link
             href="/account/devices"
             onClick={() => setOpen(false)}

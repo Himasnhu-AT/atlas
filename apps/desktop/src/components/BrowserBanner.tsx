@@ -12,10 +12,10 @@ export function BrowserBanner() {
   if (dismissed) return null
 
   return (
-    <div className="flex shrink-0 items-center gap-2.5 border-b border-warn/35 bg-warn-wash px-3 py-1.5 text-xs">
+    <div role="status" className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-y border-warn/35 bg-warn-wash px-3 py-2 text-caption">
       <MonitorSmartphone aria-hidden className="size-4 shrink-0 text-warn" />
       <p className="min-w-0 text-ink-soft">
-        <span className="font-semibold text-ink">Browser preview.</span> The terminal and the Run
+        <span className="font-medium text-ink">Browser preview.</span> The terminal and the Run
         button need the desktop shell — start it with{' '}
         <code className="font-mono">pnpm dev:desktop</code>. Reading, editing and progress all work
         here.
@@ -23,7 +23,7 @@ export function BrowserBanner() {
       <button
         type="button"
         onClick={() => setDismissed(true)}
-        className="ml-auto shrink-0 rounded-field px-2 py-1 font-medium text-ink-soft transition-colors duration-150 hover:bg-warn/10 hover:text-ink"
+        className="ml-auto min-h-9 shrink-0 rounded-field px-2 py-1 text-caption font-medium text-ink-soft transition-colors duration-200 hover:bg-warn/10 hover:text-ink"
       >
         Dismiss
       </button>

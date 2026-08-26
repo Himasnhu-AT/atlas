@@ -1,0 +1,12 @@
+id: intro-virtual-machines
+slug: virtual-machines
+name: Virtual machines and cross-language architecture
+summary: "Programming paradigms converge in execution engines and runtime bridges. Compare ahead-of-time compilation with dynamic bytecode evaluation, implement a stack-based virtual machine, build a cycle-detecting mark-and-sweep garbage collector, and marshal data across foreign function interfaces."
+version: 1.0.0
+track: bridges
+order: 5
+isActive: true
+prerequisites:
+  - intro-python-runtime
+difficulty: advanced
+estimatedHours: 3.0

@@ -90,9 +90,9 @@ def double_counted(rows: list[dict], key_field: str, value_field: str) -> dict:
         strings. `naive_sum` is what summing the column gives. `true_sum` counts
         each key's value once.
 
-        Rows whose value is missing or not a number are skipped for both sums
-        rather than treated as zero. A value nobody can read is not evidence
-        that the value was nothing.
+        Rows whose key is absent/None or whose value is missing or not a number
+        are skipped for both sums rather than treated as zero. A value nobody can
+        read is not evidence that the value was nothing.
 
         Returns zeroes and an empty key list for empty input.
     """
@@ -107,8 +107,9 @@ def schema_of(rows: list[dict]) -> dict:
         rows: any list of flat dicts.
 
     Returns:
-        A dict mapping field name to the number of rows that have it, present
-        or not. Sorted is not required; equality on dicts ignores order.
+        A dict mapping field name to the number of rows whose mapping contains
+        that field, including fields whose value is None. Sorted is not required;
+        equality on dicts ignores order.
 
         This is the cheapest useful thing you can say about an unfamiliar
         extract, and it is how you notice that a field you assumed was always

@@ -3,7 +3,6 @@ import type { Metadata } from 'next'
 
 import { AuthForm } from '@/components/auth-form'
 import { currentUser } from '@/lib/server/session'
-import { storageMode } from '@/lib/server/store'
 import { safeNext } from '@/lib/safe-next'
 
 export const metadata: Metadata = { title: 'Sign in' }
@@ -18,5 +17,5 @@ export default async function LoginPage({
 
   if (await currentUser()) redirect(destination)
 
-  return <AuthForm mode="login" next={destination} localMode={storageMode() === 'local'} />
+  return <AuthForm mode="login" next={destination} />
 }

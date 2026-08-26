@@ -1,0 +1,12 @@
+id: intro-c-data-structures
+slug: c-data-structures
+name: Data structures and binary layouts in C
+summary: "Structured data requires deliberate memory layouts. Learn how compilers align struct fields and insert padding, build contiguous dynamic arrays with exponential growth, implement doubly linked lists with pointer splicing, and parse binary network protocols."
+version: 1.0.0
+track: systems
+order: 1
+isActive: true
+prerequisites:
+  - intro-c-memory
+difficulty: beginner
+estimatedHours: 3.0

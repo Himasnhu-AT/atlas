@@ -53,6 +53,6 @@ Across these modules, dependable data engineering relies on consistent practices
 
 ## Scaling beyond embedded engines
 
-While SQLite serves as an effective learning environment and embedded engine, large-scale production platforms transition to distributed query engines (such as PostgreSQL, DuckDB, or Snowflake), columnar storage formats (such as Parquet), and workflow orchestrators (such as Airflow or Dagster).
+While SQLite serves as an effective learning environment and embedded engine, large-scale production platforms transition to client/server relational engines (such as PostgreSQL), analytical engines and warehouses (such as DuckDB or Snowflake), columnar storage formats (such as Parquet), and workflow orchestrators (such as Airflow or Dagster).
 
 The underlying architectural principles remain identical: orchestrators manage the execution state log described in [the partial run](lesson:de-pipelines.the-partial-run), data warehouses optimize partitioned storage, and automated contracts protect data consumers from silent failures.

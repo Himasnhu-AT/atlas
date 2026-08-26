@@ -117,6 +117,15 @@ class TestBusinessHours(unittest.TestCase):
             business_hours_between("2026-03-06T12:00:00Z", "2026-03-06T12:30:00Z"), 0.5
         )
 
+    def test_a_weekday_start_on_saturday_is_zero(self):
+        self.assertAlmostEqual(
+            business_hours_between(
+                "2026-03-07T23:00:00Z", "2026-03-09T09:00:00Z"
+            ),
+            9.0,
+            msg="only the Monday portion belongs in business hours",
+        )
+
 
 class TestVerdict(unittest.TestCase):
     def test_everything_fine(self):

@@ -19,9 +19,11 @@ interface ModuleLike {
  */
 export function LessonSidebar({
   module,
+  courseSlug,
   activeLessonId,
 }: {
   module: ModuleLike
+  courseSlug: string
   activeLessonId: string
 }) {
   const lessons = [...module.lessons].sort((a, b) => a.order - b.order)
@@ -34,7 +36,7 @@ export function LessonSidebar({
         return (
           <li key={lesson.id}>
             <Link
-              href={`/learn/${module.slug}/${lesson.slug}`}
+              href={`/learn/${courseSlug}/${module.slug}/${lesson.slug}`}
               aria-current={active ? 'page' : undefined}
               className={`flex min-h-11 items-baseline gap-3 py-2 text-caption transition-colors duration-200 ease-paper ${
                 active ? 'text-ink' : 'text-muted hover:text-ink'

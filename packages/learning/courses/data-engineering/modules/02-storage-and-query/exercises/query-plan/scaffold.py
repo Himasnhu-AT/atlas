@@ -50,7 +50,7 @@ def reads_every_row(plan: list[str]) -> bool:
 
         Note that `SCAN` can appear as part of a longer line, and that a plan
         with several rows may scan one table while searching another. Any scan
-        counts.
+        means at least one query input is read end to end.
     """
     raise NotImplementedError
 

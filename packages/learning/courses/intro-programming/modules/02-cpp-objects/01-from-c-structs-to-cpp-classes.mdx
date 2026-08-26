@@ -1,0 +1,159 @@
+---
+id: intro-cpp-objects.from-c-structs-to-cpp-classes
+title: From C structs to C++ classes and encapsulation
+summary: Moving from procedural data records to encapsulated classes, class invariants, member initialization, and value semantics.
+order: 1
+estimatedMinutes: 20
+exercise:
+  id: value-semantics
+  timeboxMinutes: 20
+---
+
+In procedural C, a `struct` is a contiguous block of data with no access controls. Any function holding a pointer to a struct can modify any field at any offset. Correctness depends on every caller respecting conventions manually. C++ introduces user-defined types with encapsulation, member functions, initialization lists, and value semantics.
+
+## Procedural records versus encapsulated types
+
+A C struct exposes all members directly. Invariants, which are conditions that must hold true for an object to remain valid, are scattered across external functions:
+
+```c
+typedef struct {
+    int amount_cents;
+    char currency[4];
+} C_Money;
+
+void money_init(C_Money* m, int cents, const char* curr) {
+    if (cents < 0 || strlen(curr) != 3) return;
+    m->amount_cents = cents;
+    strncpy(m->currency, curr, 3);
+    m->currency[3] = '\0';
+}
+```
+
+Because `m->amount_cents` is public, any caller can bypass `money_init` and write `m->amount_cents = -5000` directly.
+
+C++ resolves this by enforcing encapsulation through access specifiers:
+
+```cpp
+class Money {
+private:
+    int amount_cents_;
+    char currency_[4];
+
+public:
+    Money(int cents, const char* curr);
+    int amount_cents() const;
+    const char* currency() const;
+};
+```
+
+The `private` specifier restricts access to member functions and friend functions of the class. Outside code cannot alter `amount_cents_` directly. Invariants established during construction cannot be corrupted by external assignment.
+
+In C++, the only difference between `struct` and `class` is the default access level: members of a `struct` are `public` by default, while members of a `class` are `private` by default.
+
+## Constructors and member initializer lists
+
+Constructors establish an object's invariants upon creation. Member variables can be initialized in two ways: inside the constructor body, or via a member initializer list.
+
+```cpp
+// Less optimal: default construction followed by assignment
+class AccountBad {
+    std::string owner_;
+    int balance_cents_;
+public:
+    AccountBad(const std::string& name, int balance) {
+        owner_ = name;          // 1. owner_ default-constructed, 2. copy-assigned
+        balance_cents_ = balance;
+    }
+};
+
+// Preferred: direct member initialization
+class AccountGood {
+    std::string owner_;
+    int balance_cents_;
+public:
+    AccountGood(const std::string& name, int balance)
+        : owner_(name), balance_cents_(balance) {} // Constructed directly in place
+};
+```
+
+The member initializer list constructs member variables directly in place using their corresponding copy or move constructors. Initializing in the body first runs each member's default constructor, and then runs its assignment operator. For non-trivial types like `std::string` or `std::vector`, this causes redundant heap allocations.
+
+Furthermore, member initializer lists are strictly required for:
+1. `const` member variables (which cannot be assigned to after creation).
+2. Reference members (`T&`, which must bind to an lvalue upon initialization).
+3. Member objects without a default constructor.
+
+Members are always initialized in the exact order they are declared in the class definition, regardless of their order in the initializer list.
+
+## The this pointer and method dispatch
+
+When a member function executes, it operates on a specific instance of the class. The compiler implements this by passing a hidden first parameter: the `this` pointer.
+
+```cpp
+class Vector2D {
+private:
+    double x_;
+    double y_;
+
+public:
+    Vector2D(double x, double y) : x_(x), y_(y) {}
+
+    void scale(double factor) {
+        this->x_ *= factor;
+        this->y_ *= factor;
+    }
+
+    double magnitude_squared() const {
+        return (this->x_ * this->x_) + (this->y_ * this->y_);
+    }
+};
+```
+
+At the machine level, calling `v.scale(2.5)` is compiled into a function call resembling:
+
+```c
+Vector2D_scale(&v, 2.5);
+```
+
+On x86-64 System V ABI, the pointer `&v` is passed in the `rdi` register as the first argument, and `2.5` is passed in `xmm0`.
+
+The `const` qualifier on a member function modifies the type of `this`. Inside `magnitude_squared() const`, the `this` pointer has type `const Vector2D* const`. The compiler rejects any attempt to mutate member fields or call non-const member functions from within a const method.
+
+## Operator overloading and value semantics
+
+Value semantics mean an object behaves like a primitive value (such as an `int`). An object's identity is defined entirely by its contents rather than its memory address. Copying a value creates an independent object; modifying the copy never affects the original.
+
+Operator overloading allows user-defined types to support standard operators such as `+`, `-`, `*`, and `==`.
+
+```cpp
+class Money {
+private:
+    int amount_cents_;
+    std::string currency_;
+
+public:
+    Money(int cents, std::string curr)
+        : amount_cents_(cents), currency_(std::move(curr)) {}
+
+    int amount_cents() const { return amount_cents_; }
+    const std::string& currency() const { return currency_; }
+
+    bool operator==(const Money& other) const {
+        return amount_cents_ == other.amount_cents_ && currency_ == other.currency_;
+    }
+
+    Money operator+(const Money& other) const {
+        if (currency_ != other.currency_) {
+            throw std::invalid_argument("Currency mismatch");
+        }
+        return Money(amount_cents_ + other.amount_cents_, currency_);
+    }
+
+    Money operator*(double factor) const {
+        int new_cents = static_cast<int>(std::round(amount_cents_ * factor));
+        return Money(new_cents, currency_);
+    }
+};
+```
+
+Binary arithmetic operators return a brand new instance representing the computed result. The operand objects remain immutable and unmodified.

@@ -1,0 +1,110 @@
+---
+id: intro-c-memory.manual-heap-allocation
+title: Manual heap allocation and free-list allocators
+summary: The heap memory region, malloc and free lifecycle, memory fragmentation, boundary tags, block splitting, and coalescing.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: heap-allocator
+  timeboxMinutes: 30
+---
+
+Programs frequently require memory buffers whose sizes cannot be predicted at compile time, or whose lifetimes must extend beyond the activation frame that created them.
+
+The operating system and runtime provide the heap: a dynamic memory region managed manually via memory allocators.
+
+## The heap memory region and dynamic lifetimes
+
+Unlike the stack, which is bound strictly to function call lifecycles, heap-allocated memory persists until explicitly deallocated by the program.
+
+The C standard library provides core heap allocation routines:
+- `malloc(size_t size)`: Allocates `size` uninitialized bytes and returns a pointer to the start of the memory block.
+- `free(void *ptr)`: Reclaims the memory block previously returned by `malloc`.
+- `calloc(size_t num, size_t size)`: Allocates zero-initialized memory for an array of elements.
+- `realloc(void *ptr, size_t new_size)`: Resizes an existing heap block, relocating data if necessary.
+
+Operating systems manage the process heap boundary using system calls:
+- `brk` / `sbrk`: Adjusts the program break point, growing or shrinking the contiguous data segment.
+- `mmap`: Maps anonymous virtual memory pages directly into the process address space for large allocation requests.
+
+## Block headers and boundary tags
+
+Because `free(ptr)` only accepts a pointer without requiring the caller to pass the block's size, memory allocators store metadata in-band within memory blocks.
+
+Every contiguous memory chunk includes an allocator header preceding the user payload:
+
+```
++----------------+--------------------------+
+| Block Header   | User Payload             |
+| (size, status) | (returned to caller)     |
++----------------+--------------------------+
+^                ^
+|                |
+Block Offset     Payload Pointer (returned by malloc)
+```
+
+Typical 8-byte or 16-byte block headers store:
+- Total block size (including header bytes)
+- Allocation status bit (free vs allocated)
+- Pointers to adjacent free chunks (when tracking free lists)
+
+Allocators enforce strict address alignment (typically 8 bytes on 32-bit systems, 16 bytes on 64-bit systems) so that any scalar or vector CPU instruction can read payload addresses without alignment penalties or hardware traps.
+
+## Memory fragmentation mechanics
+
+Over time, interleaved allocation and deallocation requests create memory fragmentation:
+
+1. Internal fragmentation:
+Occurs when an allocator grants more bytes than requested. If a caller requests 5 bytes and the allocator aligns allocations to 8-byte boundaries with an 8-byte header, 3 payload bytes remain unused inside the block.
+
+2. External fragmentation:
+Occurs when total available free memory is sufficient to satisfy a request, but the memory is divided into small, non-contiguous chunks, none of which is individually large enough.
+
+```
+[ Allocated: 64B ] [ Free: 32B ] [ Allocated: 64B ] [ Free: 32B ]
+```
+
+In this state, 64 bytes of free memory exist in total, but an allocation request for 48 contiguous bytes fails.
+
+## Free-list algorithms and block splitting
+
+Explicit free-list allocators link all available free blocks into a data structure (such as a doubly linked list).
+
+When `malloc(N)` is called, the allocator searches the free list for a block that satisfies the request:
+
+- First-fit: Searches the free list from the beginning and selects the first block with sufficient size.
+- Next-fit: Resumes searching from the location of the previous allocation.
+- Best-fit: Scans the entire free list to find the smallest block that satisfies the request, minimizing wasted remainder bytes at the cost of longer search times.
+
+When a selected free block is larger than the requested size, the allocator performs block splitting:
+
+```
+Before Split:
+[ Free Block: 128 Bytes                                      ]
+
+After Split (malloc 32 bytes payload + 8 bytes header = 40 bytes):
+[ Allocated: 40B ] [ New Free Block: 88B                     ]
+```
+
+The allocator partitions the chunk, marks the first portion as allocated, and places the remaining portion back into the free list.
+
+## Immediate coalescing and common failure modes
+
+When a block is freed via `free(ptr)`, neighboring blocks may also be free. If adjacent free chunks remain separate, the allocator suffers from false fragmentation.
+
+Immediate coalescing merges adjacent free blocks during the `free()` call:
+- If the block immediately following (`next`) is free, merge the two into a single larger block.
+- If the block immediately preceding (`prev`) is free, merge the preceding block and the current block.
+
+### Heap failure modes
+
+Manual memory management introduces critical bug categories in systems programming:
+
+1. Use-after-free:
+Reading from or writing to a pointer after calling `free(ptr)`. If the allocator reallocates that chunk to another component, reads return unexpected data and writes corrupt the new owner's state.
+
+2. Double free:
+Calling `free(ptr)` twice on the same pointer. This corrupts free-list pointers inside the block headers, frequently causing subsequent allocator calls to crash or overwrite arbitrary memory addresses.
+
+3. Memory leak:
+Losing all pointer references to an allocated heap block without calling `free()`. The memory remains reserved until the entire process terminates.

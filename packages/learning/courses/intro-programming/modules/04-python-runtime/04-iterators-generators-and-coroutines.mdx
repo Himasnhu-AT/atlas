@@ -1,0 +1,154 @@
+---
+id: intro-python-runtime.iterators-generators-and-coroutines
+title: Iterators, generator state machines, and streams
+summary: The iterator protocol, generator frame suspension and resumption, memory-bounded lazy stream processing, and pipeline composition.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: generator-pipeline
+  timeboxMinutes: 25
+---
+
+Programs frequently process sequences of data that exceed available physical memory, such as multi-gigabyte log files, real-time sensor streams, or financial order feeds.
+
+Materializing an entire collection into a Python list creates large memory allocations. Python addresses stream processing through the iterator protocol and generator state machines.
+
+## The iterator protocol
+
+In Python, iteration is governed by two dunder methods: `__iter__` and `__next__`.
+
+An **iterable** is any object that implements `__iter__()`, which returns an iterator object.
+
+An **iterator** is an object representing a position in a data stream. It implements:
+
+1. `__iter__()`: Returns `self`, allowing iterators to be used directly in loops.
+2. `__next__()`: Returns the next element in the sequence. When no elements remain, it raises the `StopIteration` exception.
+
+```python
+class CountDown:
+    def __init__(self, start: int) -> None:
+        self.current = start
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> int:
+        if self.current <= 0:
+            raise StopIteration
+        val = self.current
+        self.current -= 1
+        return val
+
+counter = CountDown(3)
+next(counter)  # 3
+next(counter)  # 2
+next(counter)  # 1
+next(counter)  # raises StopIteration
+```
+
+When Python executes a `for` loop (`for item in iterable:`), it invokes `iter(iterable)` to obtain an iterator, calls `next(iterator)` repeatedly, and catches `StopIteration` to terminate the loop cleanly.
+
+## Generator state machines and execution frames
+
+Writing custom iterator classes requires managing state variables manually. A generator function simplifies this by writing sequential code with `yield` statements:
+
+```python
+def count_down(start: int):
+    current = start
+    while current > 0:
+        yield current
+        current -= 1
+```
+
+When a function containing `yield` is invoked, Python does not execute its body immediately. Instead, it returns a generator object (`PyGenObject`).
+
+A generator wraps a CPython execution frame (`PyFrameObject`). When `next(gen)` is called:
+
+1. The interpreter restores the execution frame on the evaluation stack.
+2. Code executes until it reaches a `yield` expression.
+3. The interpreter captures the yielded value, saves the instruction pointer (`f_lasti`) and local variables in the frame, and returns control to the caller.
+4. Subsequent calls to `next(gen)` resume execution from the exact instruction following the last `yield`.
+5. When the function returns or exits its block, the frame raises `StopIteration`.
+
+## Memory efficiency: eager vs lazy evaluation
+
+The fundamental advantage of generator pipelines is memory bounding:
+
+```python
+# Eager evaluation: allocates memory for 10,000,000 integers (~80 MB)
+numbers_list = [x * x for x in range(10_000_000)]
+
+# Lazy evaluation: allocates a single generator object (< 200 bytes)
+numbers_gen = (x * x for x in range(10_000_000))
+```
+
+Eager evaluation computes and stores all items in memory simultaneously, scaling linearly with data size: $O(N)$ space complexity.
+
+Lazy streams compute items on demand as downstream consumers request them, operating in $O(1)$ constant memory space regardless of stream length.
+
+## Composing stream pipelines
+
+Generators can be chained into composable processing stages. Each stage pulls items from the previous generator, applies a transformation or filter, and yields items downstream:
+
+```python
+def parse_lines(raw_lines):
+    for line in raw_lines:
+        cleaned = line.strip()
+        if cleaned:
+            yield cleaned
+
+def filter_errors(records):
+    for record in records:
+        if "ERROR" in record:
+            yield record
+
+def extract_ip(records):
+    for record in records:
+        yield record.split()[0]
+```
+
+These stages can be composed into a unified stream pipeline:
+
+```python
+with open("system.log") as handle:
+    pipeline = extract_ip(filter_errors(parse_lines(handle)))
+    first_five = [next(pipeline) for _ in range(5)]
+```
+
+Only one record at a time flows through `parse_lines`, `filter_errors`, and `extract_ip`. If `handle` contains 100 gigabytes of log entries, execution uses constant memory and only processes lines until the required five records are extracted.
+
+## Merging sorted streams with a min-heap
+
+A common requirement in distributed systems and stream processing is merging multiple pre-sorted streams (such as timestamped event logs or market depth updates) into a single ordered stream.
+
+Merging $K$ streams of total length $N$ by concatenating and sorting eagerly requires $O(N \log N)$ time and $O(N)$ memory.
+
+By maintaining a min-heap containing the current head element of each of the $K$ active streams, the pipeline yields the global minimum in $O(\log K)$ time per item using only $O(K)$ memory space:
+
+```python
+import heapq
+
+def merge_sorted_streams(*streams):
+    heap = []
+    # Initialize heap with (first_value, stream_index, iterator)
+    for idx, stream in enumerate(streams):
+        it = iter(stream)
+        try:
+            val = next(it)
+            heap.append((val, idx, it))
+        except StopIteration:
+            pass
+
+    heapq.heapify(heap)
+
+    while heap:
+        val, idx, it = heapq.heappop(heap)
+        yield val
+        try:
+            next_val = next(it)
+            heapq.heappush(heap, (next_val, idx, it))
+        except StopIteration:
+            pass
+```
+
+The `stream_index` prevents Python from attempting to compare iterator objects when two stream values are equal.

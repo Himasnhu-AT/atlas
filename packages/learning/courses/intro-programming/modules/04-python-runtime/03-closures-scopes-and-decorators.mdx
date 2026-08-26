@@ -1,0 +1,175 @@
+---
+id: intro-python-runtime.closures-scopes-and-decorators
+title: Scopes, closures, and metaprogramming decorators
+summary: Lexical scoping rules (LEGB), closure environments, free variable capture, decorator wrapping, and parameterized function transforms.
+order: 3
+estimatedMinutes: 20
+exercise:
+  id: closure-and-memoize
+  timeboxMinutes: 25
+---
+
+Python functions are first-class runtime objects. They can be created dynamically inside other functions, bound to variables, passed as arguments, and returned from function calls.
+
+Underneath this capability lies Python's scope resolution model, cell objects for lexical closures, and the decorator pattern for metaprogramming.
+
+## The LEGB scope resolution rule
+
+When a variable name is referenced inside a Python function, the interpreter resolves it by searching four nested namespaces in strict sequence:
+
+1. Local (L): Names defined inside the currently executing function (via parameter binding or assignment).
+2. Enclosing (E): Names defined in the local scope of enclosing functions (from inner to outer).
+3. Global (G): Names defined at top-level module scope or declared with `global`.
+4. Built-in (B): Built-in functions and types loaded into `builtins` (such as `len`, `range`, `ValueError`).
+
+If the name is not found in any of these four namespaces, Python raises a `NameError`.
+
+CPython optimizes variable lookups based on where a variable is bound at compile time:
+
+Local variables use the `LOAD_FAST` bytecode instruction, which indexes an array of pointers on the execution stack frame with zero dictionary lookups.
+
+Global and built-in variables use `LOAD_GLOBAL`, which performs hash table lookups in `globals()` followed by `builtins.__dict__`.
+
+Free variables captured from an enclosing scope use `LOAD_DEREF`, which indexes into a closure tuple.
+
+```python
+x = "global"
+
+def outer():
+    x = "enclosing"
+    def inner():
+        x = "local"
+        return x
+    return inner()
+```
+
+If an assignment occurs anywhere inside a function body (`x = 1`), Python marks `x` as local to that function for the entire function body. Referencing `x` before that assignment raises an `UnboundLocalError`, even if an enclosing or global `x` exists.
+
+## Cell objects and closure mechanics
+
+When an inner function references a variable from an enclosing outer function, that variable is called a free variable.
+
+When the outer function completes execution and returns, its local stack frame is destroyed. To preserve access to free variables for the surviving inner function, Python allocates a `PyCellObject` on the heap:
+
+```python
+def make_multiplier(factor: int):
+    def multiply(x: int) -> int:
+        return x * factor
+    return multiply
+
+double = make_multiplier(2)
+double(10)  # 20
+```
+
+The `make_multiplier` stack frame creates a cell object holding a pointer to the `PyObject` for `2`. Both the outer function's `factor` symbol and the inner function's `factor` symbol point to this same cell.
+
+The inner function stores a tuple of cell objects in its `__closure__` attribute:
+
+```python
+double.__closure__
+# (<cell at 0x...: int object at 0x...>,)
+
+double.__closure__[0].cell_contents
+# 2
+```
+
+To modify a variable in an enclosing scope rather than creating a new local variable, Python provides the `nonlocal` keyword:
+
+```python
+def make_accumulator(initial: int = 0):
+    total = initial
+    def add(delta: int) -> int:
+        nonlocal total
+        total += delta
+        return total
+    return add
+```
+
+Without `nonlocal total`, the statement `total += delta` would attempt to assign to a local `total`, causing an `UnboundLocalError` when evaluating the right-hand side.
+
+## Decorators as higher-order transforms
+
+A decorator is a callable that takes a function as input and returns a modified callable. The `@decorator` syntax is syntactic sugar for re-binding a function name to the decorator's output:
+
+```python
+def timing_decorator(fn):
+    def wrapper(*args, **kwargs):
+        # transform or wrap execution
+        return fn(*args, **kwargs)
+    return wrapper
+
+@timing_decorator
+def calculate(n: int) -> int:
+    return n * n
+
+# The definition above is strictly equivalent to:
+# def calculate(n: int) -> int:
+#     return n * n
+# calculate = timing_decorator(calculate)
+```
+
+## Preserving function metadata with functools.wraps
+
+A naive decorator replaces the original function object with its internal `wrapper` function. This overwrites critical introspection metadata: `__name__`, `__doc__`, `__annotations__`, and `__module__`.
+
+To preserve metadata, standard Python decorators use `functools.wraps`:
+
+```python
+import functools
+import time
+
+def timed(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = fn(*args, **kwargs)
+        duration = time.perf_counter() - start
+        return result
+    return wrapper
+```
+
+`functools.wraps` copies the original attributes from `fn` onto `wrapper` and sets `wrapper.__wrapped__ = fn`. This allows inspection tools, documentation generators, and unit tests to see the original function identity.
+
+## Parameterized decorators and memoization
+
+When a decorator requires configuration parameters (such as `max_size` or `timeout`), you construct a three-level function hierarchy: a decorator factory returning the decorator, which returns the wrapper:
+
+```python
+def memoize(max_size: int = 128):
+    def decorator(fn):
+        cache = {}
+        hits = 0
+        misses = 0
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            nonlocal hits, misses
+            key = (args, tuple(sorted(kwargs.items())))
+            if key in cache:
+                hits += 1
+                return cache[key]
+
+            misses += 1
+            result = fn(*args, **kwargs)
+            if len(cache) >= max_size:
+                first_key = next(iter(cache))
+                del cache[first_key]
+            cache[key] = result
+            return result
+
+        def cache_info():
+            return {"hits": hits, "misses": misses, "size": len(cache), "max_size": max_size}
+
+        def cache_clear():
+            nonlocal hits, misses
+            cache.clear()
+            hits = 0
+            misses = 0
+
+        wrapper.cache_info = cache_info
+        wrapper.cache_clear = cache_clear
+        return wrapper
+    return decorator
+```
+
+Here, `cache`, `hits`, and `misses` live inside the closure environment shared across `wrapper`, `cache_info`, and `cache_clear`. Functions attached as attributes to `wrapper` access and mutate this state across invocations.

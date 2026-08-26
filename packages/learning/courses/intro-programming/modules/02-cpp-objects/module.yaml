@@ -1,0 +1,11 @@
+id: intro-cpp-objects
+slug: cpp-objects
+name: RAII, objects, and lifecycles in C++
+summary: "C++ binds resource management to object scope. Understand how constructors establish invariants, destructors guarantee cleanup through RAII, copy and move semantics transfer ownership without overhead, and smart pointers manage reference counts."
+version: 1.0.0
+track: objects
+order: 2
+isActive: true
+prerequisites: [intro-c-data-structures]
+difficulty: intermediate
+estimatedHours: 3.0

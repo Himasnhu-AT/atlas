@@ -1,0 +1,104 @@
+---
+id: intro-c-data-structures.binary-serialization-and-parsing
+title: Binary serialization and network packet parsing
+summary: Endianness, fixed and variable-length headers, binary protocol framing, checksum validation, and robust byte unpacking.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: binary-packet-parser
+  timeboxMinutes: 30
+---
+
+In distributed systems and networking, data structures cannot be transmitted across networks or written to disk as raw memory pointers. Data structures must be converted into standardized sequences of bytes through serialization, and reconstructed on receiving systems via deserialization.
+
+Binary protocols define exact byte-level wire formats that eliminate ambiguity across differing CPU architectures and operating systems.
+
+## Byte order and endianness
+
+Endianness specifies the order in which multi-byte numbers are stored in sequential memory addresses:
+
+* **Little-endian**: The least significant byte (LSB) is stored at the lowest memory address. Used natively by x86-64 and most ARM processors.
+* **Big-endian**: The most significant byte (MSB) is stored at the lowest memory address. Also known as **network byte order**, used as the standard convention for Internet protocols (such as IP, TCP, and UDP).
+
+Consider storing the 32-bit integer `0x12345678` across 4 bytes starting at address `0x1000`:
+
+```
+Value: 0x12 34 56 78 (Hexadecimal)
+
+Big-endian (Network byte order):
+Address:   0x1000  0x1001  0x1002  0x1003
+Byte:      [ 0x12 ][ 0x34 ][ 0x56 ][ 0x78 ]
+           (MSB)                   (LSB)
+
+Little-endian (x86 host order):
+Address:   0x1000  0x1001  0x1002  0x1003
+Byte:      [ 0x78 ][ 0x56 ][ 0x34 ][ 0x12 ]
+           (LSB)                   (MSB)
+```
+
+In C, functions like `htons`, `htonl`, `ntohs`, and `ntohl` translate integers between host byte order and network byte order. When writing cross-platform serializers, all multi-byte fields must explicitly declare and enforce their endianness.
+
+## Binary protocol framing and headers
+
+Network streams over TCP deliver a continuous byte stream without built-in message boundaries. A protocol parser cannot assume that a single `read()` call corresponds to exactly one application message.
+
+Binary protocols establish message boundaries using **framing**. A frame combines a fixed-size header with a variable-length payload:
+
+```
++---------------+------------+------------+--------------------+----------------------+---------------+-----------------+
+| Magic (2B)    | Type (1B)  | Flags (1B) | Sequence ID (4B)   | Payload Length (2B)  | Payload (NB)  | Checksum (2B)   |
+| 0xAA55        | uint8      | uint8      | uint32 big-endian  | uint16 big-endian    | raw bytes     | uint16 checksum |
++---------------+------------+------------+--------------------+----------------------+---------------+-----------------+
+<-------------------------------- Fixed Header (10 Bytes) ---------------------------->
+```
+
+### Magic bytes
+A 2-byte or 4-byte constant sequence (such as `0xAA55`) at the start of every frame. Magic bytes allow parsers to resynchronize stream boundaries if corrupted bytes appear on the wire.
+
+### Message type and flags
+Single-byte fields indicating packet intent (such as handshake, data, acknowledgment, or heartbeat) and bitwise modifier flags (such as compression or encryption enabled).
+
+### Sequence ID
+A 32-bit monotonically increasing identifier for tracking message order and detecting dropped packets.
+
+### Payload length
+A 16-bit integer defining the exact size $N$ of the variable payload immediately following the header.
+
+## Integrity validation with checksums
+
+Physical networks and storage media introduce bit flips due to electrical noise and hardware faults. Binary protocols append error detection codes to every frame.
+
+A simple additive checksum sums all preceding bytes in the packet and applies a modulo reduction:
+
+$$\text{Checksum} = \left( \sum_{i=0}^{M-1} \text{byte}_i \right) \bmod 65536$$
+
+Before processing any parsed fields or dispatching payloads to application handlers, the receiver computes the checksum over the header and payload bytes, comparing the result against the trailing checksum field in the packet. If the values differ, the frame is discarded.
+
+## Defensive parsing and boundary validation
+
+Parsers operate on untrusted input from external networks. Naive parsers that cast raw byte buffers directly to struct pointers suffer from memory safety vulnerabilities:
+
+```c
+// Vulnerable naive cast:
+struct PacketHeader* hdr = (struct PacketHeader*)raw_buffer;
+```
+
+This cast is vulnerable for three reasons:
+
+1. **Unaligned memory faults**: If `raw_buffer` is not aligned to the struct's maximum member alignment, reading fields causes unaligned read penalties or CPU faults.
+2. **Buffer overruns**: If the incoming buffer is shorter than `sizeof(struct PacketHeader)`, accessing members reads past allocated memory bounds.
+3. **Integer overflows and mismatched lengths**: If the parsed `payload_length` field claims 50,000 bytes but the buffer only contains 100 bytes, reading the payload triggers an out-of-bounds read.
+
+Safe deserialization requires strict step-by-step validation:
+
+1. Verify that `len(data) >= MIN_PACKET_SIZE` (12 bytes for 10-byte header + 2-byte checksum).
+2. Validate magic bytes equal `0xAA55`.
+3. Read `payload_length` and verify that `len(data) == 10 + payload_length + 2`.
+4. Validate that the computed checksum over `data[:-2]` matches the packed checksum at `data[-2:]`.
+
+## Exercise: binary packet parser
+
+In this exercise, you will implement a binary packet serializer and validator:
+
+1. Implement `serialize_packet(packet_type, flags, seq_id, payload)` to pack headers and payloads into big-endian wire format with a trailing 16-bit checksum.
+2. Implement `deserialize_packet(data)` to validate magic bytes, buffer bounds, payload lengths, and checksums, returning the extracted fields or raising `ValueError` on corrupted or truncated inputs.

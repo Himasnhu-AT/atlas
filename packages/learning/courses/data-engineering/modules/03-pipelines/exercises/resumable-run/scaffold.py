@@ -52,8 +52,9 @@ def claim_partition(connection: sqlite3.Connection, partition: str, now: str) ->
         now: ISO timestamp for `started_at`.
 
     Returns:
-        True when this caller claimed it. False when it was already claimed,
-        whatever its status.
+        True when this call inserted a new row. False when a row already exists,
+        whatever its status. `run_range` treats an existing interrupted row as
+        recoverable and resets it before retrying.
     """
     raise NotImplementedError
 
@@ -127,6 +128,9 @@ def run_range(
     from "everything is bad" is genuinely hard, so the usual compromise is a
     consecutive-failure limit, on the reasonable guess that three in a row is no
     longer about the data.
+
+    A success resets that limit. Partitions already marked done are skipped and
+    reported separately, without changing the input order.
 
     Args:
         connection: an open connection.

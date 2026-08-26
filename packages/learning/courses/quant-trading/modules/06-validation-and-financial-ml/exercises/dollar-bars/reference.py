@@ -27,6 +27,8 @@ def generate_dollar_bars(
 ) -> list[Bar]:
     if dollar_threshold <= 0:
         raise ValueError("dollar_threshold must be strictly positive")
+    if any(tick.price <= 0.0 or tick.volume < 0.0 for tick in ticks):
+        raise ValueError("tick prices must be positive and volumes must be non-negative")
 
     bars: list[Bar] = []
     if not ticks:

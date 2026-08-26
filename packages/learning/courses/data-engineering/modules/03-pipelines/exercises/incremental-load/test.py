@@ -154,6 +154,34 @@ class TestLoadIncrement(Base):
         load_increment(self.connection, [order(9, "2026-03-01")])
         self.assertEqual(read_watermark(self.connection, "orders"), "2026-03-07")
 
+    def test_a_full_timestamp_watermark_keeps_its_precision(self):
+        load_increment(
+            self.connection,
+            [order(1, "2026-03-07T01:00:00Z"), order(2, "2026-03-07T02:00:00Z")],
+        )
+
+        self.assertEqual(
+            read_watermark(self.connection, "orders"),
+            "2026-03-07T02:00:00",
+            "a timestamp mark must not be rounded to a date; that would make a "
+            "same-day correction look older than it is",
+        )
+
+    def test_mixed_timezones_are_compared_instant_by_instant(self):
+        rows = [
+            order(1, "2026-03-06T01:00:00Z"),
+            order(2, "2026-03-06T02:00:00+05:30"),
+        ]
+
+        selected = rows_to_process(rows, "2026-03-06T00:30:00Z")
+
+        self.assertEqual(
+            [row["order_id"] for row in selected],
+            [1],
+            "comparing mixed-offset timestamps as strings can include a row "
+            "that actually precedes the watermark; normalising must reject it",
+        )
+
     def test_a_failed_write_leaves_the_mark_where_it_was(self):
         load_increment(self.connection, DAY_ONE)
         mark_before = read_watermark(self.connection, "orders")

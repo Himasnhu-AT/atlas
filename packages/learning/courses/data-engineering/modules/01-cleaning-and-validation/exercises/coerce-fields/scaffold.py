@@ -57,6 +57,8 @@ def to_decimal(raw: str | None) -> tuple[Decimal | None, bool]:
         (value, ok). Strip a leading currency symbol from "$€£" and any commas
         used as thousands separators, then parse.
 
+        Parse with Decimal directly; do not pass through float.
+
         Do NOT strip a comma used as a decimal separator, because you cannot
         tell which it is from one value. This function treats every comma as a
         thousands separator, which is the right call for this source and the

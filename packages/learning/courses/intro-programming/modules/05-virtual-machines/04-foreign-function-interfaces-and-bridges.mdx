@@ -1,0 +1,96 @@
+---
+id: intro-virtual-machines.foreign-function-interfaces-and-bridges
+title: Foreign function interfaces and cross-language bridges
+summary: Bridging compiled C libraries with dynamic runtimes, Application Binary Interface (ABI) conventions, type marshaling, and memory pinning.
+order: 4
+estimatedMinutes: 25
+exercise:
+  id: ffi-marshaling-bridge
+  timeboxMinutes: 30
+---
+
+A Foreign Function Interface (FFI) allows a high-level runtime (such as Python, Java, or Node.js) to call compiled native subroutines written in C, C++, or Rust. FFI bridges eliminate the runtime overhead of interpreters for compute-intensive workloads while preserving high-level developer ergonomics.
+
+Connecting two distinct language runtimes requires reconciling differences in data representations, calling conventions, and memory management lifecycles.
+
+## The Application Binary Interface (ABI)
+
+While an Application Programming Interface (API) defines source-level contracts (function names, types, and header files), an Application Binary Interface (ABI) defines the low-level machine contract:
+
+* Calling conventions establish which CPU registers or stack locations hold function arguments and return values.
+* Data layouts define bit-widths, byte-ordering (endianness), and alignment padding for primitive types and composite structs.
+* Name mangling schemes determine how symbol names are encoded in object files and shared libraries (`.so`, `.dylib`, `.dll`).
+
+```
+High-Level Runtime (Python)                      Native C Library (libm.so)
++----------------------------+                  +-------------------------+
+| PyObject: Float            |                  | raw 64-bit IEEE double  |
+|  - ob_refcnt = 1           |   FFI Bridge     | in register %xmm0       |
+|  - ob_type   = &PyFloat_Type| ---------------> |                         |
+|  - ob_fval   = 3.14159     |  Type Marshaling | double sin(double rad); |
++----------------------------+                  +-------------------------+
+```
+
+### Common calling conventions
+
+On x86_64 architectures, calling conventions dictate register assignments:
+
+Under the System V AMD64 ABI (used on Linux and macOS), the first six integer or pointer arguments pass in registers `%rdi`, `%rsi`, `%rdx`, `%rcx`, `%r8`, `%r9`. Floating-point arguments pass in `%xmm0` through `%xmm7`. Additional arguments spill onto the stack in reverse order. Return values sit in `%rax` (integer) or `%xmm0` (floating-point).
+
+Under the Microsoft x64 calling convention, the first four arguments pass in `%rcx`, `%rdx`, `%r8`, `%r9` (or `%xmm0` through `%xmm3`).
+
+## Data marshaling and binary serialization
+
+Dynamic runtimes wrap primitive values in heap-allocated object headers (`PyObject` in CPython, `JSValue` in V8). A C function cannot directly interpret a `PyObject` pointer without understanding Python internal headers.
+
+The FFI bridge performs data marshaling: extracting the raw value from the runtime object and packing it into a contiguous byte buffer matching native ABI expectations.
+
+```
+Type               Native Format            Packed Size   Format String (struct)
+int32_t            Signed 32-bit int        4 bytes       "<i" (little-endian)
+double (float64)   IEEE 754 double          8 bytes       "<d" (little-endian)
+const char*        Null-terminated UTF-8    N+1 bytes     bytes + b"\x00"
+```
+
+### Marshaling primitive types in Python
+
+```python
+import struct
+
+# Marshal signed 32-bit integer: 42 -> b'\x2a\x00\x00\x00'
+raw_int = struct.pack("<i", 42)
+
+# Marshal 64-bit double: 3.14 -> b'\x1f\x85\xeb\x51\xb8\x1e\x09\x40'
+raw_float = struct.pack("<d", 3.14)
+
+# Marshal C-string: "Atlas" -> b'Atlas\x00'
+raw_cstring = "Atlas".encode("utf-8") + b"\x00"
+```
+
+When the native function returns raw binary output, the bridge unmarshals the bytes back into high-level runtime objects using the inverse transformations.
+
+## Struct layout, alignment, and padding
+
+Compilers insert alignment padding between struct fields so memory accesses align with CPU word boundaries (typically 4 bytes for 32-bit integers and 8 bytes for 64-bit integers and pointers).
+
+Consider the following C struct:
+
+```c
+struct Entry {
+    int32_t  id;      // 4 bytes at offset 0
+    // 4 bytes of compiler padding inserted here
+    double   score;   // 8 bytes at offset 8 (aligned to 8-byte boundary)
+    char     status;  // 1 byte at offset 16
+    // 7 bytes of tail padding inserted here
+}; // Total struct size: 24 bytes (multiple of largest member alignment: 8)
+```
+
+If an FFI bridge constructs an unpadded 13-byte array (`4 + 8 + 1`), the native C subroutine reading `entry->score` will access invalid memory offsets. The FFI layer must mirror exact compiler padding rules.
+
+## Memory lifecycle and ownership across FFI boundaries
+
+Crossing runtime boundaries introduces memory safety considerations:
+
+* Allocator mismatches: Memory allocated by C's `malloc` must be freed by C's `free`. Passing a C-allocated pointer to a garbage collector or attempting to deallocate Python runtime memory with `free()` causes heap corruption.
+* Garbage collection and pointer invalidation: If a managed runtime uses a moving or compacting garbage collector, heap memory addresses change during collection. Passing an object address to C requires memory pinning to prevent the garbage collector from moving or reclaiming the memory during native execution.
+* Null-termination in strings: Dynamic language strings track an explicit length field and can contain embedded null bytes (`\x00`). C strings rely solely on the terminating null byte. Passing a binary string containing internal nulls to C truncates the string silently.

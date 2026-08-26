@@ -76,14 +76,13 @@ ahead in the practice app costs the learner their own footing and nobody else an
 
 ## The security boundary
 
-Clients never touch the database. The Supabase service key lives only in
-`apps/web/lib/server/` and never reaches a browser or the Tauri bundle. That makes the API the
-boundary, not row level security:
+Clients never touch the database. Firebase service credentials live only in
+`apps/web/lib/server/` and never reach a browser or the Tauri bundle. That makes the API the
+boundary:
 
 **Every route handler derives `user_id` from the session. No handler ever reads a user id from
 a request body.** Zod schemas in `packages/core` deliberately omit `userId` so a smuggled one
-is dropped at parse time. RLS is enabled in `supabase/schema.sql` as a second layer; nothing
-depends on it.
+is dropped at parse time.
 
 Two more, in the Rust backend:
 

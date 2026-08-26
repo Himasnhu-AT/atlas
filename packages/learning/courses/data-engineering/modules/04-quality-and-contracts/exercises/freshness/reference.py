@@ -9,7 +9,9 @@ SATURDAY = 5
 
 
 def _parse(value: str) -> datetime:
-    text = value.strip().replace("Z", "+00:00")
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
     parsed = datetime.fromisoformat(text)
     # Compare naive to naive. Mixing the two raises, and every timestamp in this
     # course is UTC.

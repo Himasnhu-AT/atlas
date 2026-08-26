@@ -1,0 +1,135 @@
+---
+id: intro-c-data-structures.dynamic-arrays-and-buffers
+title: Dynamic arrays and amortized growth
+summary: Contiguous heap-allocated buffers, exponential capacity growth, amortized constant-time insertions, and memory reallocation costs.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: dynamic-array
+  timeboxMinutes: 25
+---
+
+In systems programming, arrays provide contiguous memory storage where element access by index requires a single pointer addition: `address = base_address + (index * element_size)`.
+
+Fixed-size arrays allocated on the stack require their size to be known at compile time. Dynamic arrays overcome this limitation by managing a resizable buffer allocated on the heap, balancing contiguous memory locality with flexible runtime growth.
+
+## Contiguous buffers and fixed-size limitations
+
+A stack-allocated array in C has a static capacity fixed at compile time:
+
+```c
+int fixed_buffer[1024]; // 4096 bytes reserved on the stack frame
+```
+
+Stack allocation is fast because acquiring space requires only adjusting the stack pointer register. However, fixed arrays have two drawbacks:
+
+1. Stack frames have bounded sizes (often 8 MB on Linux). Large buffers risk triggering a stack overflow.
+2. If runtime data exceeds 1,024 elements, the program cannot expand the buffer without reallocating and moving elements.
+
+Heap allocation via `malloc` allows programs to request arbitrary memory blocks at runtime. A dynamic array encapsulates a heap buffer alongside metadata that tracks how much of that buffer is currently utilized.
+
+## Capacity versus length
+
+A dynamic array maintains two distinct size metrics:
+
+* **Size (or length)**: The number of active, initialized elements currently stored in the array.
+* **Capacity**: The total number of element slots allocated in the underlying heap buffer.
+
+```c
+struct DynamicArray {
+    int* data;       // pointer to contiguous heap memory
+    size_t size;     // number of active elements
+    size_t capacity; // total allocated element slots
+};
+```
+
+The invariant `size <= capacity` must hold at all times. When `size < capacity`, appending an element to the end of the array executes in $O(1)$ time by writing directly to `data[size]` and incrementing `size`.
+
+When `size == capacity`, the buffer is full. The dynamic array must allocate a larger memory block before appending new data.
+
+## Geometric growth factors and amortized analysis
+
+When resizing a full buffer, the choice of growth policy dictates performance.
+
+### Additive growth failure
+
+If the buffer expands by a fixed additive constant $k$ on each resize (such as adding 10 slots whenever full), appending $N$ items requires $N / k$ reallocations. 
+
+The total number of element copies across $N$ insertions is:
+
+$$\text{Copies} = k + 2k + 3k + \dots + N = k \sum_{i=1}^{N/k} i = k \frac{(N/k)(N/k + 1)}{2} = \frac{N^2}{2k} + \frac{N}{2} = O(N^2)$$
+
+Dividing by $N$, the average time per append is $O(N)$, which degrades throughput as the array grows.
+
+### Geometric doubling
+
+If the buffer capacity doubles (growth factor 2) whenever full, an array of size $N$ experiences approximately $\log_2(N)$ resizing operations.
+
+For an array growing from 1 to $N = 2^k$ elements:
+
+$$\text{Total copies} = 1 + 2 + 4 + 8 + \dots + \frac{N}{2} = \sum_{j=0}^{k-1} 2^j = 2^k - 1 = N - 1$$
+
+Across $N$ append operations, the total work is $N$ direct writes plus $N - 1$ copies during reallocations, totaling $2N - 1$ operations.
+
+The **amortized time complexity** per append is:
+
+$$\text{Amortized Cost} = \frac{\text{Total Operations}}{N} = \frac{2N - 1}{N} < 2 = O(1)$$
+
+While individual append operations that trigger reallocation take $O(N)$ time, the infrequent nature of resizes ensures that the average time per append remains constant.
+
+### Choosing a growth multiplier
+
+* **2.0 multiplier**: Standard in many runtimes. Simple bitwise shifts for capacity doubling, but cannot reuse previously deallocated memory blocks immediately because the sum of all previous sizes ($\sum_{i=0}^{k-1} 2^i = 2^k - 1$) is strictly less than the new required size $2^k$.
+* **1.5 multiplier**: Used in C++ standard libraries (such as MSVC `std::vector`) and Python `list`. Allows memory allocators to recycle previously freed memory chunks after several growth steps.
+
+## Memory reallocation mechanics
+
+In C, buffer resizing is handled by `realloc`:
+
+```c
+void* new_ptr = realloc(arr->data, new_capacity * sizeof(int));
+if (new_ptr == NULL) {
+    // Allocation failed; handle out-of-memory error.
+    // arr->data remains valid and untouched.
+    return ERROR_NOMEM;
+}
+arr->data = new_ptr;
+arr->capacity = new_capacity;
+```
+
+`realloc` attempts two strategies:
+
+1. **In-place expansion**: If unused virtual address space exists immediately following the current buffer, the operating system kernel and allocator extend the allocation in place without copying bytes. The pointer address does not change.
+2. **Move and copy**: If adjacent memory is occupied, `realloc` allocates a new block at a different address, copies the existing bytes using `memcpy`, frees the old memory block, and returns the new pointer.
+
+Any pointer or reference targeting elements within `arr->data` before reallocation becomes invalid if the memory is moved. Code referencing elements by memory address must re-evaluate pointers after resizing.
+
+## Element shifting and insertion costs
+
+Inserting or removing elements at arbitrary indices inside a contiguous buffer requires shifting subsequent elements:
+
+* **Insertion at index $i$**: Elements from index $i$ through $\text{size} - 1$ must be shifted one position to the right (starting from the back to avoid overwriting data). This requires moving $(\text{size} - i)$ elements.
+* **Removal at index $i$**: Elements from index $i + 1$ through $\text{size} - 1$ must be shifted one position to the left, overwriting index $i$.
+
+```
+Inserting value 99 at index 2 into [10, 20, 30, 40]:
+Step 1 (Shift 40 right): [10, 20, 30,  _, 40]
+Step 2 (Shift 30 right): [10, 20,  _, 30, 40]
+Step 3 (Write 99 at 2):  [10, 20, 99, 30, 40]
+```
+
+Both operations take $O(N)$ time in the worst case (inserting or deleting at index 0). However, because memory is contiguous, `memmove` executes these block copies using CPU vector instructions (such as AVX2 or NEON), making array shifts faster in practice than traversing non-contiguous node chains for small to medium collections.
+
+When memory conservation is necessary after large batches of deletions, calling `shrink_to_fit` downsizes the allocated capacity to match the exact active element count, freeing excess heap memory.
+
+## Exercise: dynamic array
+
+In this exercise, you will implement a `DynamicArray` container managing a simulated contiguous buffer:
+
+1. Implement `__init__(initial_capacity=4)` to configure initial buffer capacity.
+2. Implement `push_back(val)` to append elements, doubling capacity when the buffer is full.
+3. Implement `pop_back()` to remove and return the last element, raising `IndexError` when empty.
+4. Implement `get(index)` and `set(index, val)` with bounds checking against active size.
+5. Implement `insert(index, val)` to shift elements right and insert, resizing if full.
+6. Implement `remove_at(index)` to shift elements left and return the removed value.
+7. Implement `size()`, `capacity()`, and `shrink_to_fit()` to inspect and trim buffer bounds.

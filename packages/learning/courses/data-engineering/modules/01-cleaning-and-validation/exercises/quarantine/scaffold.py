@@ -101,7 +101,8 @@ def rate_moved(
             }
 
         `moved` is True when today's rate is at least `threshold` times
-        yesterday's.
+        yesterday's and today has at least one failure. Rates are
+        `broken / total`, and a day with no total has a zero rate.
 
         Two edge cases decide whether this is useful or annoying. When
         yesterday's rate was zero and today's is not, `ratio` is infinity and

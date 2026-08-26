@@ -4,9 +4,9 @@ What the courses teach, in what order, and why each module exists. `docs/PLAN.md
 build decisions. This file records the content decisions, and it is the thing to read before
 adding or moving a lesson.
 
-There are three courses. Everything below the "The destination" heading describes the AI agent
+There are four courses. Everything below the "The destination" heading describes the AI agent
 engineering course, which was the first and is the longest. The data engineering course follows it,
-and the quantitative trading course is at the bottom.
+the quantitative trading course is after that, and the introduction to programming course is at the bottom.
 
 ## Rules that apply to every course
 
@@ -592,4 +592,100 @@ Tracks: modules 0 and 1 are `foundations`, 2 and 3 are `strategies`, 4 and 5 are
 | 2 | The triple-barrier labeling method | `triple-barrier` |
 | 3 | Fractional differentiation and memory | `fractional-diff` |
 | 4 | Multiple testing and the Deflated Sharpe Ratio | `deflated-sharpe` |
+
+---
+
+# The introduction to programming course
+
+`courses/intro-programming`, six modules, twenty-four lessons, twenty-three graded exercises,
+covering systems programming in C, object and lifecycle mechanics in C++, and dynamic runtime
+execution in Python.
+
+## The spine
+
+**Programs translate algorithmic intent into memory operations across distinct runtime
+architectures: mastering software engineering requires understanding how C manages physical
+bytes, C++ builds zero-cost abstractions with deterministic lifecycles, and Python coordinates
+dynamic runtime object graphs.**
+
+| Step | Module | The idea it adds |
+|---|---|---|
+| 0 | Memory, bits, and pointers in C | The machine operates on physical bytes, linear addresses, stack frames, and manual heaps. |
+| 1 | Data structures and binary layouts in C | Struct padding, dynamic arrays with geometric growth, linked lists, and binary wire formats. |
+| 2 | RAII, objects, and lifecycles in C++ | Class invariants, deterministic scope destruction (RAII), copy vs move semantics, and smart pointers. |
+| 3 | Polymorphism, vtables, and generics in C++ | Dynamic dispatch via vtables, template monomorphization, open-addressing hash maps, and binary heaps. |
+| 4 | Dynamic runtimes and Python object model | The PyObject heap graph, dynamic attribute lookup, C3 linearization MRO, closures, and generators. |
+| 5 | Virtual machines and cross-language architecture | Bytecode stack virtual machines, mark-and-sweep cycle garbage collection, and FFI type marshaling. |
+
+Tracks: modules 0 and 1 are `systems`, 2 and 3 are `objects`, 4 is `scripts`, and 5 is `bridges`.
+
+## Where each idea is introduced, and where it is paid off
+
+| Thread | Introduced | Paid off |
+|---|---|---|
+| Direct memory offsets and pointers | 0.2 memory addresses and pointers | 1.1 struct layout, 2.3 move ownership buffer, 5.4 FFI marshaling |
+| Manual heap allocation and free lists | 0.4 manual heap allocation | 2.2 RAII guards, 2.4 smart pointers, 5.3 mark-and-sweep GC |
+| Contiguous memory vs node pointer chasing | 1.2 dynamic arrays, 1.3 linked nodes | 3.3 open-addressing hash map, 3.4 binary min-heap |
+| Invariants and deterministic resource destruction | 2.1 class invariants | 2.2 RAII scope guards, 2.4 shared_ptr control blocks |
+| Ownership transfer without copying | 2.3 move semantics | 4.1 PyObject reference counts, 5.2 VM operand stack transfers |
+| Dynamic dispatch vs static binding | 3.1 virtual functions and vtables | 4.2 C3 linearization MRO, 5.2 VM opcode dispatch |
+| Dynamic attribute lookup and object headers | 4.1 PyObject structure | 4.2 C3 MRO attribute chain, 5.4 FFI Python-to-C marshaling |
+| Automatic memory management and cycles | 2.4 weak_ptr cycle avoidance | 4.1 reference count decref, 5.3 mark-and-sweep cycle collector |
+
+## Full module map
+
+### 0. Memory, bits, and pointers in C (`intro-c-memory`, systems)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Bits, bytes, and two's complement integers | `bit-manipulation` |
+| 2 | Memory addresses and pointer arithmetic | `pointer-arithmetic` |
+| 3 | Stack frames and local variable lifetimes | `call-stack-simulator` |
+| 4 | Manual heap allocation and free-list allocators | `heap-allocator` |
+
+### 1. Data structures and binary layouts in C (`intro-c-data-structures`, systems)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Struct layout, alignment, and memory padding | `struct-padding-calculator` |
+| 2 | Dynamic arrays and amortized growth | `dynamic-array` |
+| 3 | Linked nodes and pointer manipulation | `doubly-linked-list` |
+| 4 | Binary serialization and network packet parsing | `binary-packet-parser` |
+
+### 2. RAII, objects, and lifecycles in C++ (`intro-cpp-objects`, objects)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | From C structs to C++ classes and encapsulation | `value-semantics` |
+| 2 | Resource acquisition is initialization (RAII) | `raii-resource-guard` |
+| 3 | Copy semantics, move semantics, and ownership transfer | `move-ownership-buffer` |
+| 4 | Smart pointers and reference count management | `smart-pointers` |
+
+### 3. Polymorphism, vtables, and generic containers in C++ (`intro-cpp-generics`, objects)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Virtual functions, dynamic dispatch, and vtables | `vtable-dispatch-engine` |
+| 2 | Compile-time generics, templates, and algorithms | `generic-algorithm-pipeline` |
+| 3 | Hash tables, open addressing, and collision resolution | `hash-map-open-addressing` |
+| 4 | Binary heaps and priority queues | `binary-heap-priority-queue` |
+
+### 4. Dynamic runtimes and the Python object model (`intro-python-runtime`, scripts)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | The PyObject structure and dynamic typing | `boxed-object-model` |
+| 2 | Dynamic attribute lookup and C3 linearization | `c3-linearization-mro` |
+| 3 | Scopes, closures, and metaprogramming decorators | `closure-and-memoize` |
+| 4 | Iterators, generator state machines, and streams | `generator-pipeline` |
+
+### 5. Virtual machines and cross-language architecture (`intro-virtual-machines`, bridges)
+
+| # | Lesson | Exercise |
+|---|---|---|
+| 1 | Compilation, bytecode interpretation, and virtual machines | |
+| 2 | Building a stack-based bytecode virtual machine | `stack-virtual-machine` |
+| 3 | Garbage collection, cycle detection, and mark-and-sweep | `mark-and-sweep-gc` |
+| 4 | Foreign function interfaces and cross-language bridges | `ffi-marshaling-bridge` |
+
 

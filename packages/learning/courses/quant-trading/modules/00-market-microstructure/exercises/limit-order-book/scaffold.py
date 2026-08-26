@@ -32,6 +32,10 @@ class Trade:
 class OrderBook:
     """
     In-memory limit order book with price-time priority.
+
+    Invalid limit orders and market quantities must not mutate the book.
+    An order ID can be submitted only once. A partially filled taker with remaining
+    quantity is still resting and remains cancellable.
     """
 
     def __init__(self) -> None:
@@ -41,6 +45,7 @@ class OrderBook:
         """
         Insert a limit order. If it crosses existing orders, execute immediately.
         Remaining quantity is posted to the book.
+        Reject a non-positive price or quantity by returning no trades.
         """
         raise NotImplementedError
 
@@ -48,13 +53,14 @@ class OrderBook:
         """
         Execute a market order against the book.
         Returns a tuple of (executed_trades, unfilled_quantity).
+        Reject a non-positive quantity by returning (no trades, original quantity).
         """
         raise NotImplementedError
 
     def cancel_order(self, order_id: str) -> bool:
         """
         Cancel an open order by id in O(1) time.
-        Returns True if cancelled, False if order was not found.
+        Returns True if open remainder was removed; False otherwise.
         """
         raise NotImplementedError
 

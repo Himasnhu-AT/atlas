@@ -1,0 +1,65 @@
+EEEEEE
+======================================================================
+ERROR: test_empty_list (__main__.TestDoublyLinkedList)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/test.py", line 10, in test_empty_list
+    self.assertEqual(dll.size(), 0)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/solution.py", line 62, in size
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_move_to_front (__main__.TestDoublyLinkedList)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/test.py", line 125, in test_move_to_front
+    n1 = dll.push_back("X")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/solution.py", line 38, in push_back
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_push_and_pop_back (__main__.TestDoublyLinkedList)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/test.py", line 55, in test_push_and_pop_back
+    n1 = dll.push_back(100)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/solution.py", line 38, in push_back
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_push_and_pop_front (__main__.TestDoublyLinkedList)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/test.py", line 22, in test_push_and_pop_front
+    n1 = dll.push_front(10)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/solution.py", line 34, in push_front
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_remove_head_and_tail (__main__.TestDoublyLinkedList)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/test.py", line 96, in test_remove_head_and_tail
+    n1 = dll.push_back(1)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/solution.py", line 38, in push_back
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_remove_middle_node (__main__.TestDoublyLinkedList)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/test.py", line 82, in test_remove_middle_node
+    n1 = dll.push_back("A")
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-doubly-linked-list/solution.py", line 38, in push_back
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.000s
+
+FAILED (errors=6)

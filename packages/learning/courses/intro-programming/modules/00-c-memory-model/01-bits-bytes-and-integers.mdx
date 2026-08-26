@@ -1,0 +1,154 @@
+---
+id: intro-c-memory.bits-bytes-and-integers
+title: Bits, bytes, and two's complement integers
+summary: How numbers and flags are represented at the hardware bit level, two's complement arithmetic, bit masking, and sign extension.
+order: 1
+estimatedMinutes: 20
+exercise:
+  id: bit-manipulation
+  timeboxMinutes: 20
+---
+
+Digital computers represent data and instructions as sequences of binary digits. Each bit stores a single binary state, 0 or 1, physically implemented as voltage levels in semiconductor transistors.
+
+Understanding binary encoding, two's complement arithmetic, and bitwise operations is required to understand memory layout, register manipulation, and low-level protocol parsing.
+
+## Binary representation and positional notation
+
+A bit is the fundamental unit of storage. Groups of 8 bits form a byte (also called an octet), which is the smallest addressable unit of memory on modern architectures.
+
+In unsigned positional notation, an $N$-bit integer represents a sum of powers of two:
+
+$$V = \sum_{i=0}^{N-1} b_i \cdot 2^i$$
+
+Where $b_i \in \{0, 1\}$ is the bit at position $i$. The bit at index 0 ($b_0$) is the least significant bit (LSB), and the bit at index $N-1$ ($b_{N-1}$) is the most significant bit (MSB).
+
+An 8-bit unsigned integer (`uint8_t` in C) represents values from $0$ (`00000000_2`) to $255$ (`11111111_2`).
+
+Hexadecimal (base 16) notation groups 4 bits (a nibble) into a single digit from `0` to `F`:
+
+| Binary | Hex | Decimal |
+| --- | --- | --- |
+| `0000` | `0x0` | 0 |
+| `0101` | `0x5` | 5 |
+| `1010` | `0xA` | 10 |
+| `1111` | `0xF` | 15 |
+
+One byte maps to exactly two hexadecimal digits, such as `0xA5` (`10100101_2`, decimal 165).
+
+## Two's complement integer encoding
+
+Signed integers on modern architectures use two's complement representation. In an $N$-bit two's complement system, the most significant bit carries a negative weight:
+
+$$V = -b_{N-1} \cdot 2^{N-1} + \sum_{i=0}^{N-2} b_i \cdot 2^i$$
+
+For an 8-bit signed integer (`int8_t` in C):
+- Maximum positive value: `01111111_2` = $+127$
+- Zero: `00000000_2` = $0$
+- Minus one: `11111111_2` = $-128 + 127 = -1$
+- Minimum negative value: `10000000_2` = $-128$
+
+The representation has one zero, avoiding the separate positive and negative zero ambiguities of sign-magnitude or one's complement formats.
+
+To compute the two's complement negation of an integer $x$, invert all bits and add 1:
+
+$$-x = \sim x + 1$$
+
+In C:
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    int8_t val = 5;         // Binary: 00000101
+    int8_t neg = ~val + 1;  // Binary: 11111010 + 1 = 11111011 (-5)
+    printf("val = %d, neg = %d\n", val, neg);
+    return 0;
+}
+```
+
+Two's complement ranges are asymmetric. An 8-bit signed integer spans $[-128, 127]$. Negating $-128$ results in $(-(-128)) = \sim(10000000_2) + 1 = 01111111_2 + 1 = 10000000_2 = -128$, which overflows the positive signed range.
+
+## Bitwise operators and mask manipulation
+
+Processors expose single-cycle instructions for bitwise boolean logic:
+
+- AND (`&`): Sets bit to 1 if both operands have 1.
+- OR (`|`): Sets bit to 1 if either operand has 1.
+- XOR (`^`): Sets bit to 1 if operands have differing bits.
+- NOT (`~`): Inverts all bits.
+- Left shift (`<<`): Shifts bits left by $k$ positions, filling with 0s on the right (multiplies by $2^k$).
+- Right shift (`>>`): Shifts bits right by $k$ positions.
+
+Bit masks isolate, set, or clear specific bit fields:
+
+```c
+#include <stdint.h>
+
+// Set bit k
+uint32_t set_bit(uint32_t val, int k) {
+    return val | (1U << k);
+}
+
+// Clear bit k
+uint32_t clear_bit(uint32_t val, int k) {
+    return val & ~(1U << k);
+}
+
+// Toggle bit k
+uint32_t toggle_bit(uint32_t val, int k) {
+    return val ^ (1U << k);
+}
+
+// Extract field of length bits starting at start_bit
+uint32_t extract_field(uint32_t val, int start_bit, int length) {
+    uint32_t mask = (1U << length) - 1U;
+    return (val >> start_bit) & mask;
+}
+```
+
+In Python, integers have arbitrary precision rather than fixed width. To perform fixed-width bitwise arithmetic in Python, apply explicit bitmasks:
+
+```python
+def extract_bitfield(val: int, start_bit: int, length: int) -> int:
+    mask = (1 << length) - 1
+    return (val >> start_bit) & mask
+```
+
+## Sign extension across type widening
+
+When converting a smaller signed integer to a larger integer type (for example, `int8_t` to `int32_t`), the processor must preserve the numeric value.
+
+For positive numbers, the MSB is 0, so zero-filling the upper bits preserves the value. For negative numbers, the MSB is 1. If upper bits are zeroed, a negative value becomes a large positive value.
+
+Sign extension copies the sign bit (MSB) into all new high-order bit positions:
+
+```
+8-bit -5:               11111011
+16-bit sign-extended:   11111111 11111011  (-5)
+16-bit zero-extended:   00000000 11111011  (251)
+```
+
+In C, the compiler generates sign extension instructions (such as `movsbl` or `movsx` on x86) when casting signed types:
+
+```c
+int8_t small = -5;
+int32_t wide = (int32_t)small;  // wide is -5 (0xFFFFFFFB)
+
+uint8_t u_small = 251;
+uint32_t u_wide = (uint32_t)u_small;  // u_wide is 251 (0x000000FB)
+```
+
+## Numerical overflow and shift failure modes
+
+Low-level integer operations have specific hardware and compiler failure modes:
+
+1. Signed integer overflow:
+In C (ISO C99/C11), signed integer overflow is undefined behavior (UB). The compiler assumes signed overflow never occurs and may optimize away bounds checks. Unsigned integer arithmetic wraps around modulo $2^N$ according to the C standard.
+
+2. Invalid shift counts:
+Shifting by a negative count or by an amount greater than or equal to the bit width of the operand is undefined behavior in C. On x86, the shift count is masked to 5 bits for 32-bit operands (`count & 31`), meaning `val << 32` evaluates as `val << 0` on hardware, rather than producing 0.
+
+3. Logical versus arithmetic right shift:
+In C, right-shifting an unsigned integer performs a logical shift (shifting in 0s). Right-shifting a signed negative integer performs an arithmetic shift (shifting in copies of the sign bit) on common architectures, but the C standard specifies this as implementation-defined.

@@ -1,0 +1,120 @@
+---
+id: intro-c-memory.stack-frames-and-variables
+title: Stack frames and local variable lifetimes
+summary: The call stack architecture, frame pointers, activation records, local variable scope, return addresses, and stack overflow.
+order: 3
+estimatedMinutes: 20
+exercise:
+  id: call-stack-simulator
+  timeboxMinutes: 25
+---
+
+Function invocation and local variable lifecycle management in compiled systems rely on the execution call stack.
+
+The call stack operates as a last-in, first-out (LIFO) data structure managed directly by CPU control flow instructions and calling conventions.
+
+## Call stack architecture and memory layout
+
+In standard operating system process memory layouts (such as x86-64 Linux and macOS), memory is partitioned into distinct functional regions:
+
+```
+High Memory (0x7FFFFFFFFFFF)
++---------------------------+
+| Stack (grows downward)    |
+|   |                       |
+|   v                       |
+|                           |
+|   ^                       |
+|   |                       |
+| Heap (grows upward)       |
++---------------------------+
+| Uninitialized Data (.bss) |
++---------------------------+
+| Initialized Data (.data)  |
++---------------------------+
+| Program Code (.text)      |
++---------------------------+
+Low Memory (0x000000000000)
+```
+
+The stack starts at high virtual memory addresses and grows downward toward lower memory addresses. Calling a function pushes new data onto the stack, decreasing the stack pointer value. Returning from a function pops data, increasing the stack pointer value.
+
+## Activation records and stack frames
+
+Every active function invocation allocates an activation record (stack frame) on top of the stack. A stack frame contains:
+
+- Function arguments passed on the stack
+- The return address (the memory location of the instruction immediately following the call)
+- Saved registers from the calling function (such as the previous frame pointer)
+- Local variables declared within the function body
+- Temporary compiler evaluation slots
+
+When function `A` calls function `B`, `B`'s frame is pushed on top of `A`'s frame. Function `B` cannot read or modify `A`'s local variables unless `A` explicitly passes a pointer to that memory location.
+
+## Frame pointer and stack pointer registers
+
+Hardware architectures dedicate specific registers to track the active stack frame. On x86-64:
+
+- `RSP` (Stack Pointer): Holds the address of the topmost byte on the stack. Moves with `push`, `pop`, and `sub rsp, N`.
+- `RBP` (Base / Frame Pointer): Holds a fixed reference address for the active frame.
+
+In standard function prologues, the compiler sets up the frame pointer to establish a stable base for referencing parameters and local variables:
+
+```assembly
+push rbp          ; Save caller's base pointer
+mov  rbp, rsp     ; Set current stack pointer as new base pointer
+sub  rsp, 32      ; Allocate 32 bytes for local variables
+```
+
+Inside the function:
+- Local variables are accessed at negative offsets relative to `RBP` (such as `[rbp - 8]`).
+- Function arguments passed on the stack reside at positive offsets relative to `RBP` (such as `[rbp + 16]`).
+
+During the function epilogue, the frame is dismantled:
+
+```assembly
+mov rsp, rbp      ; Deallocate local variables
+pop rbp           ; Restore caller's base pointer
+ret               ; Pop return address from stack into instruction pointer (RIP)
+```
+
+## Variable lifetime and dangling stack pointers
+
+Variables allocated inside a function have automatic storage duration. Their storage is reclaimed automatically when the function returns and its stack frame is popped.
+
+Retaining or returning a pointer to a stack-allocated local variable is a critical systems bug creating a dangling pointer:
+
+```c
+int* compute_result(void) {
+    int value = 42;
+    return &value; // BUG: returning pointer to local stack variable
+}
+
+void process(void) {
+    int *p = compute_result();
+    // At this point, compute_result's frame is deallocated.
+    // Subsequent calls (such as printf) will overwrite this stack memory.
+    printf("Result: %d\n", *p); // Undefined behavior: memory corrupted
+}
+```
+
+The memory address remains valid in terms of virtual paging, but the contents are overwritten by the next function call whose stack frame occupies that same memory region.
+
+## Return address corruption and stack overflow
+
+Because return addresses and local variable buffers share the same contiguous stack memory, improper memory operations threaten program control flow:
+
+1. Stack buffer overflow:
+Writing past the boundary of a local array can overwrite the saved frame pointer and the saved return address. When the function attempts to return via `ret`, the CPU jumps to the corrupted address, triggering a crash or malicious code execution.
+
+2. Stack exhaustion (Stack Overflow):
+The operating system allocates a fixed memory quota for a thread's stack (typically 1MB to 8MB). Unbounded recursion or excessively large local allocations (`int large_array[10000000];`) exhaust this region:
+
+```c
+void infinite_recursion(int depth) {
+    int local_data[1024];
+    infinite_recursion(depth + 1); // Continues pushing frames until stack boundary hit
+}
+```
+
+When `RSP` exceeds the stack limit and touches the unmapped guard page at the bottom of the stack region, the CPU raises a page fault, immediately terminating the process with a segmentation fault.

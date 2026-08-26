@@ -26,7 +26,7 @@ export function Diagnostics({
 
   if (report.runnerError) {
     return (
-      <div role="alert" className="px-4 py-3 text-caption text-fail">
+      <div role="alert" className="border-b border-fail/25 bg-fail-wash px-4 py-3 text-caption text-fail-deep">
         {report.runnerError}
       </div>
     )
@@ -49,7 +49,7 @@ export function Diagnostics({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <p className="border-b border-rule px-4 py-2 text-caption text-muted">
+      <p className="border-b border-rule bg-paper-sunken/60 px-4 py-2 text-caption text-muted">
         {errors > 0
           ? `${errors} ${errors === 1 ? 'error' : 'errors'} to fix before this runs`
           : 'No errors'}
@@ -87,7 +87,7 @@ function Row({
       <button
         type="button"
         onClick={() => onSelect(diagnostic.file, diagnostic.line)}
-        className="flex w-full gap-3 border-b border-rule px-4 py-2.5 text-left transition-colors duration-150 ease-paper hover:bg-paper-sunken"
+        className="flex w-full gap-3 border-b border-rule px-4 py-2.5 text-left transition-colors duration-200 ease-paper hover:bg-paper-sunken focus-visible:bg-paper-sunken"
       >
         <span
           aria-hidden

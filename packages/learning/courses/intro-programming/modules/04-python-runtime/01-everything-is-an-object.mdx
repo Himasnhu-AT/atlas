@@ -1,0 +1,140 @@
+---
+id: intro-python-runtime.everything-is-an-object
+title: The PyObject structure and dynamic typing
+summary: How CPython represents all data as heap-allocated PyObject structs, reference counts, type pointers, value boxing, and mutability.
+order: 1
+estimatedMinutes: 20
+exercise:
+  id: boxed-object-model
+  timeboxMinutes: 25
+---
+
+In C and C++, variables map directly to memory addresses containing raw byte representations of types like `int32_t` or `double`. In CPython, every variable is a pointer to a heap-allocated C structure called `PyObject`.
+
+This indirection gives Python its dynamic behavior, but introduces memory overhead and cache misses that do not exist in compiled languages.
+
+## The PyObject header
+
+Every Python object in CPython shares a common prefix defined in the C header `object.h`. For fixed-size objects, the base structure is `PyObject`:
+
+```c
+typedef struct _object {
+    _PyObject_HEAD_EXTRA // doubly-linked list pointers in debug builds
+    Py_ssize_t ob_refcnt;
+    struct _typeobject *ob_type;
+} PyObject;
+```
+
+The header contains two essential fields:
+
+`ob_refcnt` is a 64-bit signed integer tracking how many active references point to this object. When this count drops to zero, CPython immediately deallocates the object or returns its memory to an internal free list.
+
+`ob_type` is a pointer to a `PyTypeObject` struct. The type object defines the object's methods, memory allocator, size, and operator implementations via function pointer tables such as `tp_as_number` and `tp_as_sequence`.
+
+For variable-length containers such as strings, tuples, and lists, CPython extends `PyObject` with a length field, creating `PyVarObject`:
+
+```c
+typedef struct {
+    PyObject ob_base;
+    Py_ssize_t ob_size; // number of items in container
+} PyVarObject;
+```
+
+When you execute `x = 42`, Python does not store the bits `0x0000002A` inside `x`. Python allocates a `PyLongObject` on the heap, initializes its `ob_refcnt` to 1, sets `ob_type` to `&PyLong_Type`, and stores the digit value in an internal array. The variable `x` merely holds the 64-bit pointer pointing to that struct.
+
+## The cost of boxed primitives
+
+Boxing a primitive value inside a heap-allocated `PyObject` carries three distinct costs:
+
+```
+CPython 64-bit integer (PyLongObject):
++-----------------------------------+
+| ob_refcnt (8 bytes)               | -> 8 bytes
++-----------------------------------+
+| ob_type   (8 bytes pointer)       | -> 8 bytes
++-----------------------------------+
+| ob_size   (8 bytes)               | -> 8 bytes
++-----------------------------------+
+| ob_digit  (uint32_t digits array) | -> 4 bytes (+ 4 bytes padding)
++-----------------------------------+
+Total memory: 28 bytes
+
+C primitive int64_t:
++-----------------------------------+
+| raw 64-bit integer                | -> 8 bytes
++-----------------------------------+
+Total memory: 8 bytes
+```
+
+First, memory footprint increases significantly. A 64-bit integer in C requires 8 bytes. A Python integer requires 28 bytes in Python 3.10+ (8 bytes reference count, 8 bytes type pointer, 8 bytes size, 4 bytes digit data, padded to 28 bytes).
+
+Second, pointer indirection destroys CPU cache locality. A C array `int arr[1000]` places 1,000 integers in contiguous memory across roughly 125 cache lines. A Python list `[0, 1, ..., 999]` is an array of 1,000 pointers pointing to 1,000 scattered `PyObject` structs across the heap. Iterating through the list requires dereferencing each pointer, triggering CPU data cache misses.
+
+Third, dynamic type checking adds branch penalties. In compiled C, adding two integers emits a single CPU `ADD` instruction. In Python, evaluating `a + b` causes the interpreter loop to:
+
+1. Read the `ob_type` pointer from `a`.
+2. Inspect `a->ob_type->tp_as_number->nb_add`.
+3. Check if the function pointer is non-null.
+4. Call the function pointer, which validates if `b` is also a compatible number type.
+5. Extract the raw digit buffers, compute the arithmetic sum, and allocate a new `PyLongObject` on the heap to return the result.
+
+## Object identity versus value equality
+
+Because variables hold pointers, Python differentiates between pointer identity and value equality:
+
+```python
+a = [1, 2, 3]
+b = [1, 2, 3]
+c = a
+
+# Identity check (pointer equality)
+a is b  # False: different memory addresses
+a is c  # True: identical memory address
+
+# Value check (contents equality)
+a == b  # True: elements compare equal
+```
+
+The `is` operator evaluates pointer equality by checking whether `id(a) == id(b)`. In CPython, `id(obj)` returns the virtual memory address of the `PyObject` struct in memory.
+
+The `==` operator calls `ob_type->tp_richcompare` with the `Py_EQ` opcode. This delegates to the type's `__eq__` method, which recursively compares internal values.
+
+## Small integer caching and string interning
+
+Heap allocation for every primitive arithmetic operation would degrade interpreter throughput. CPython mitigates this overhead through small object caches.
+
+During interpreter startup, CPython pre-allocates an array of `PyLongObject` structs for all integers in the range `[-5, 256]`:
+
+```python
+x = 250
+y = 250
+x is y  # True: both point to the global pre-allocated PyLongObject
+
+x = 1000
+y = 1000
+x is y  # False (in interactive REPL): two distinct PyObject allocations
+```
+
+Any operation yielding an integer within `[-5, 256]` returns a reference to the existing singleton and increments its `ob_refcnt`. Outside this range, a fresh heap allocation occurs.
+
+CPython also interns string literals and identifiers matching the regex `^[a-zA-Z0-9_]*$`. Interned strings reside in a global dictionary within the interpreter state. Comparing interned strings reduces to a single $O(1)$ pointer comparison (`s1 is s2`) rather than an $O(N)$ byte-by-byte comparison (`memcmp`).
+
+## Mutability and object graphs
+
+Python objects are classified into two structural categories:
+
+Immutable objects (such as `int`, `float`, `str`, `tuple`, `frozenset`, `bytes`) cannot modify their internal payload once initialized. Any transformation produces a new `PyObject`.
+
+Mutable objects (such as `list`, `dict`, `set`, `bytearray`) allow modifying their internal pointers and buffers without altering the object's memory address (`id`).
+
+Aliasing occurs when multiple variable names or containers hold pointers to the same mutable object:
+
+```python
+row = [0, 0, 0]
+matrix = [row] * 3
+
+matrix[0][0] = 99
+# matrix is now [[99, 0, 0], [99, 0, 0], [99, 0, 0]]
+```
+
+The multiplication operator `[row] * 3` does not copy the list contents; it copies the 64-bit pointer three times. All three elements in `matrix` point to the identical `PyObject` header in memory.

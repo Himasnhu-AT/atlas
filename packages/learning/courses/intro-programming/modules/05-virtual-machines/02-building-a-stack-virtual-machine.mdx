@@ -1,0 +1,129 @@
+---
+id: intro-virtual-machines.building-a-stack-virtual-machine
+title: Building a stack-based bytecode virtual machine
+summary: Implementing an instruction decoding loop, evaluation stack, instruction pointer dispatch, local variable storage, and control flow jumps.
+order: 2
+estimatedMinutes: 30
+exercise:
+  id: stack-virtual-machine
+  timeboxMinutes: 35
+---
+
+A stack-based virtual machine implements an evaluation model where intermediate values sit on a Last-In, First-Out (LIFO) operand stack. Rather than assigning hardware registers to each sub-expression, instructions operate on the top elements of the stack.
+
+Building an in-memory virtual machine requires four state components:
+* Instruction pointer (`pc`): An integer indexing the next instruction to decode and execute.
+* Evaluation stack (`stack`): A dynamic array storing operands and intermediate results.
+* Variable environment (`variables`): A key-value map storing named local variables.
+* Instruction stream: A linear array of opcode tuples.
+
+```
+       +---------------------------------------------+
+       |             Instruction Stream              |
+       |  0: LOAD_CONST 10                           |
+ pc -> |  1: STORE_VAR "x"                           |
+       |  2: LOAD_VAR "x"                            |
+       |  3: LOAD_CONST 2                            |
+       |  4: ADD                                     |
+       |  5: RETURN                                  |
+       +---------------------------------------------+
+               |                       |
+               v                       v
+     +-------------------+   +--------------------+
+     |   Operand Stack   |   | Variable Map (Env) |
+     |      [ 12 ]       |   |   "x" => 10        |
+     +-------------------+   +--------------------+
+```
+
+## Instruction set design and encoding
+
+The instruction set architecture defines the operations supported by the runtime engine. Each instruction is represented as a tuple: either `(OPCODE, ARGUMENT)` or `(OPCODE,)`.
+
+### Data movement
+* `LOAD_CONST` (val): Pushes the literal value `val` onto the operand stack.
+* `LOAD_VAR` (name): Retrieves the value of variable `name` from the variable map and pushes it onto the stack.
+* `STORE_VAR` (name): Pops the top value from the stack and stores it under key `name` in the variable map.
+* `POP`: Pops and discards the top value from the stack.
+
+### Arithmetic and comparison
+Binary operations pop their second operand (`b`) first, followed by their first operand (`a`), execute the operation, and push the result back onto the stack:
+* `ADD`: Computes `a + b` and pushes the sum.
+* `SUB`: Computes `a - b` and pushes the difference.
+* `MUL`: Computes `a * b` and pushes the product.
+* `DIV`: Computes `a / b` (or integer division if both operands are integers) and pushes the quotient.
+* `CMP_EQ`: Computes `a == b` and pushes a boolean result.
+* `CMP_LT`: Computes `a < b` and pushes a boolean result.
+
+### Control flow
+* `JUMP` (target_pc): Updates `pc` directly to `target_pc`, bypassing sequential instruction execution.
+* `JUMP_IF_FALSE` (target_pc): Pops the top boolean condition from the stack. If false, sets `pc` to `target_pc`. If true, execution continues to the next sequential instruction.
+* `RETURN`: Pops the top value from the stack and terminates execution, returning the value to the caller.
+
+## Tracing arithmetic execution
+
+Evaluating the arithmetic expression `(100 - 30) * 4 / 8` in postfix notation (Reverse Polish Notation) translates to:
+
+```python
+program = [
+    ("LOAD_CONST", 100),  # stack: [100]
+    ("LOAD_CONST", 30),   # stack: [100, 30]
+    ("SUB",),             # pop 30, pop 100 -> push 70.       stack: [70]
+    ("LOAD_CONST", 4),    # stack: [70, 4]
+    ("MUL",),             # pop 4, pop 70   -> push 280.      stack: [280]
+    ("LOAD_CONST", 8),    # stack: [280, 8]
+    ("DIV",),             # pop 8, pop 280  -> push 35.       stack: [35]
+    ("RETURN",),          # pop 35 and exit loop.
+]
+```
+
+At every step, the instruction pointer advances monotonically unless modified by a jump instruction.
+
+## Control flow and conditional jumps
+
+High-level constructs like `if-else` blocks and `while` loops decompose into conditional and unconditional jumps.
+
+### Implementing a while loop
+
+Accumulating numbers from 1 to 4 (`total = 0; i = 1; while i < 5: total += i; i += 1`) compiles into bytecode offsets:
+
+```python
+loop_program = [
+    # 0: total = 0
+    ("LOAD_CONST", 0),
+    ("STORE_VAR", "total"),
+    # 2: i = 1
+    ("LOAD_CONST", 1),
+    ("STORE_VAR", "i"),
+    # 4: Loop Header (PC = 4) - Test condition i < 5
+    ("LOAD_VAR", "i"),
+    ("LOAD_CONST", 5),
+    ("CMP_LT",),
+    # 7: If condition is false, jump to exit at PC = 17
+    ("JUMP_IF_FALSE", 17),
+    # 8: total = total + i
+    ("LOAD_VAR", "total"),
+    ("LOAD_VAR", "i"),
+    ("ADD",),
+    ("STORE_VAR", "total"),
+    # 12: i = i + 1
+    ("LOAD_VAR", "i"),
+    ("LOAD_CONST", 1),
+    ("ADD",),
+    ("STORE_VAR", "i"),
+    # 16: Unconditional jump back to loop header
+    ("JUMP", 4),
+    # 17: Loop Exit - Return total
+    ("LOAD_VAR", "total"),
+    ("RETURN",),
+]
+```
+
+When `i` reaches `5`, `CMP_LT` evaluates to `False`. `JUMP_IF_FALSE` pops `False` and jumps directly to instruction `17`, exiting the loop and returning `10`.
+
+## Failure modes in virtual machine execution
+
+A virtual machine runtime must enforce boundaries and handle errors deterministically:
+* Stack underflow occurs when bytecode contains unmatched binary operations or excessive pops on an empty stack.
+* Undefined variable lookups occur when reading a variable name before a corresponding `STORE_VAR` has populated the environment map, raising a `KeyError`.
+* Division by zero during a `DIV` operation with a zero divisor halts execution with a `ZeroDivisionError`.
+* Invalid jump targets targeting indices outside instruction array bounds produce runtime faults.

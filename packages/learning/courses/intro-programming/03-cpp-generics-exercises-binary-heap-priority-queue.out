@@ -1,0 +1,85 @@
+EEEEEEEE
+======================================================================
+ERROR: test_empty_heap_state (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 9, in test_empty_heap_state
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_heapify_empty (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 102, in test_heapify_empty
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_heapify_linear_build (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 89, in test_heapify_linear_build
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_interleaved_push_and_pop (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 108, in test_interleaved_push_and_pop
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_negative_and_duplicate_priorities (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 46, in test_negative_and_duplicate_priorities
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_priority_ordering_multiple_pushes (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 32, in test_priority_ordering_multiple_pushes
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_single_element (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 20, in test_single_element
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_uncomparable_payload_objects (__main__.TestMinHeapPriorityQueue)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/test.py", line 64, in test_uncomparable_payload_objects
+    pq = MinHeapPriorityQueue()
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/03-cpp-generics-exercises-binary-heap-priority-queue/solution.py", line 15, in __init__
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.000s
+
+FAILED (errors=8)

@@ -1,0 +1,147 @@
+---
+id: intro-cpp-generics.virtual-functions-and-vtables
+title: Virtual functions, dynamic dispatch, and vtables
+summary: How virtual method tables (vtables) and vptr pointers implement runtime polymorphism in C++, memory layout of polymorphic objects, and virtual destructors.
+order: 1
+estimatedMinutes: 25
+exercise:
+  id: vtable-dispatch-engine
+  timeboxMinutes: 30
+---
+
+In C++, function calls default to static binding: the compiler determines the exact function target at compile time based on the static type of the variable or pointer. When classes form an inheritance hierarchy and a base pointer references a derived instance, runtime polymorphism requires dynamic binding. The program must resolve the target method implementation at runtime according to the actual runtime type of the instance.
+
+C++ compilers implement dynamic binding through virtual method tables (vtables) and virtual table pointers (vptrs). Understanding this mechanism reveals how runtime polymorphism operates in memory and where runtime overhead originates.
+
+## Static binding versus dynamic binding
+
+When a member function is non-virtual, the compiler generates a direct function call in assembly. The linker resolves the symbol to a fixed instruction address:
+
+```cpp
+class Shape {
+public:
+    void render() { /* Base render */ }
+};
+
+class Circle : public Shape {
+public:
+    void render() { /* Circle render */ }
+};
+
+Shape* s = new Circle();
+s->render(); // Calls Shape::render() due to static binding
+```
+
+The pointer `s` has static type `Shape*`. Because `render()` is non-virtual, the compiler emits `call Shape::render` directly. The actual object type (`Circle`) is ignored at runtime.
+
+Declaring `virtual void render()` instructs the compiler to emit an indirect call through the object's virtual table pointer:
+
+```cpp
+class Shape {
+public:
+    virtual void render() { /* Base render */ }
+    virtual ~Shape() = default;
+};
+
+class Circle : public Shape {
+public:
+    void render() override { /* Circle render */ }
+};
+
+Shape* s = new Circle();
+s->render(); // Calls Circle::render() via vtable lookup
+```
+
+## Memory layout and the vptr pointer
+
+When a class declares or inherits at least one virtual function, the compiler inserts a hidden pointer member, commonly named `vptr`, into the class layout.
+
+On a 64-bit architecture, `vptr` occupies 8 bytes and is placed at offset 0 of the object instance:
+
+```
+Non-polymorphic instance layout:
++-------------------+-------------------+
+| int id (4 bytes)  | padding (4 bytes) |
++-------------------+-------------------+
+| double area       | (8 bytes)         |
++-------------------+-------------------+
+
+Polymorphic instance layout:
++-------------------+-------------------+
+| vptr              | (8 bytes)         | -> Points to Class VTable
++-------------------+-------------------+
+| int id (4 bytes)  | padding (4 bytes) |
++-------------------+-------------------+
+| double area       | (8 bytes)         |
++-------------------+-------------------+
+```
+
+Each polymorphic class has exactly one shared vtable stored in the read-only data segment (`.rodata`). The vtable is an array of function pointers. When the constructor executes, it initializes the object's `vptr` with the address of that class's static vtable.
+
+## Method resolution through the vtable
+
+A virtual function call translates into a two-step dereference sequence:
+
+1. Follow the object's `vptr` to locate the class vtable.
+2. Index into the vtable at a compile-time fixed offset corresponding to the virtual method slot.
+3. Dereference the function pointer and jump to the target address, passing the object's `this` pointer as the first argument.
+
+In pseudo-assembly, `s->render()` where `render` is slot 0 translates to:
+
+```
+mov rax, [rdi]        ; Load vptr from object at rdi into rax
+mov rax, [rax + 0]    ; Load function pointer from vtable slot 0
+call rax              ; Indirect call with rdi (this pointer)
+```
+
+If a derived class does not override a base virtual method, its vtable retains the function pointer to the base class implementation. If the derived class overrides the method, the compiler writes the address of the derived function into that slot.
+
+```
+VTable for Shape:
+[0] -> &Shape::render
+[1] -> &Shape::~Shape
+
+VTable for Circle:
+[0] -> &Circle::render (overridden)
+[1] -> &Circle::~Circle (overridden)
+```
+
+## Object slicing and virtual destructors
+
+Object slicing occurs when a derived class instance is assigned to a base class variable by value rather than through a pointer or reference:
+
+```cpp
+Circle circle;
+Shape shape = circle; // Slicing occurs!
+```
+
+The copy constructor of `Shape` copies only the base `Shape` fields from `circle`. The `vptr` of the newly created `shape` object is set to `Shape`'s vtable, not `Circle`'s. The derived fields and polymorphic behaviors are discarded.
+
+Polymorphic base classes must always declare a virtual destructor:
+
+```cpp
+class Base {
+public:
+    virtual ~Base() = default;
+};
+
+class Derived : public Base {
+    int* buffer;
+public:
+    Derived() : buffer(new int[100]) {}
+    ~Derived() override { delete[] buffer; }
+};
+
+Base* b = new Derived();
+delete b; // Correctly invokes Derived::~Derived then Base::~Base
+```
+
+If `~Base()` is non-virtual, executing `delete b` statically binds to `Base::~Base()`. The destructor `Derived::~Derived()` never executes, leaking `buffer`.
+
+## Execution costs of dynamic dispatch
+
+Virtual functions introduce three runtime performance costs:
+
+1. **Memory overhead**: Every instance grows by the size of `vptr` (8 bytes on 64-bit systems). Classes with small data payloads experience high relative memory inflation.
+2. **Double pointer indirection**: Method calls require dereferencing the `vptr` and indexing the function pointer array before jumping to the code address.
+3. **Compiler inlining inhibition and branch mispredictions**: Compilers cannot inline indirect function calls whose targets vary at runtime. Modern CPU pipelines rely on branch target buffers (BTB) to speculate indirect jump targets; polymorphic call sites with alternating target types trigger branch mispredictions and pipeline flushes.

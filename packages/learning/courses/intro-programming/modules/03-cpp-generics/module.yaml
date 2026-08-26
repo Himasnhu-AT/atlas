@@ -1,0 +1,12 @@
+id: intro-cpp-generics
+slug: cpp-generics
+name: Polymorphism, vtables, and generic containers in C++
+summary: "Zero-cost abstractions combine runtime dynamic dispatch with compile-time monomorphization. Construct manual vtable dispatch engines, implement generic algorithm pipelines, build open-addressing hash maps with tombstone deletion, and code array-backed min-heaps."
+version: 1.0.0
+track: objects
+order: 3
+isActive: true
+prerequisites:
+  - intro-cpp-objects
+difficulty: intermediate
+estimatedHours: 3.0

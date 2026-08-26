@@ -4,9 +4,9 @@ name: Derivatives pricing and the Greeks
 summary: "European and American option pricing, closed-form Black-Scholes-Merton equations, analytical Greeks, and binomial trees."
 version: 1.0.0
 track: risk
-order: 4
+order: 5
 isActive: true
 prerequisites:
-  - quant-time-series
+  - quant-stat-arb
 difficulty: intermediate
 estimatedHours: 3

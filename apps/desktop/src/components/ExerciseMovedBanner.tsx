@@ -22,10 +22,10 @@ export function ExerciseMovedBanner({
   onDismiss: () => void
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-2.5 border-b border-warn/35 bg-warn-wash px-3 py-1.5 text-xs">
+    <div role="status" className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-y border-warn/35 bg-warn-wash px-3 py-2 text-caption">
       <FileClock aria-hidden className="size-4 shrink-0 text-warn" />
       <p className="min-w-0 text-ink-soft">
-        <span className="font-semibold text-ink">This exercise was updated.</span> Its tests and
+        <span className="font-medium text-ink">This exercise was updated.</span> Its tests and
         scaffold have changed since you last opened it, so your saved code may not match what the
         tests now import. Your work has not been touched.
       </p>
@@ -33,14 +33,14 @@ export function ExerciseMovedBanner({
         <button
           type="button"
           onClick={onUseScaffold}
-          className="rounded-field px-2 py-1 font-medium text-ink-soft transition-colors duration-150 hover:bg-warn/10 hover:text-ink"
+          className="min-h-9 rounded-field px-2 py-1 text-caption font-medium text-ink-soft transition-colors duration-200 hover:bg-warn/10 hover:text-ink"
         >
           Start from the new scaffold
         </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-field px-2 py-1 font-medium text-ink-soft transition-colors duration-150 hover:bg-warn/10 hover:text-ink"
+          className="min-h-9 rounded-field px-2 py-1 text-caption font-medium text-ink-soft transition-colors duration-200 hover:bg-warn/10 hover:text-ink"
         >
           Keep my code
         </button>

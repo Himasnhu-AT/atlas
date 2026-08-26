@@ -1,0 +1,142 @@
+---
+id: intro-cpp-objects.resource-acquisition-is-initialization
+title: Resource acquisition is initialization (RAII)
+summary: Binding resource lifetimes to object scope, deterministic destructors, exception safety, and transactional rollbacks.
+order: 2
+estimatedMinutes: 25
+exercise:
+  id: raii-resource-guard
+  timeboxMinutes: 25
+---
+
+In procedural languages, managing operating system resources requires manual pairing of acquisition and release calls: `malloc` with `free`, `open` with `close`, `pthread_mutex_lock` with `pthread_mutex_unlock`. When functions have multiple early returns or throw exceptions, manual cleanup paths frequently fail. Resource acquisition is initialization (RAII) eliminates this class of bug by tying resource lifetime directly to object lifetime on the stack.
+
+## The failure modes of manual resource management
+
+Consider a procedural function acquiring multiple resources:
+
+```c
+int process_transaction(const char* filename, pthread_mutex_t* mutex) {
+    pthread_mutex_lock(mutex);
+    int fd = open(filename, O_RDONLY);
+    if (fd < 0) {
+        pthread_mutex_unlock(mutex); // Manual unlock required on early exit
+        return -1;
+    }
+
+    char* buffer = (char*)malloc(4096);
+    if (!buffer) {
+        close(fd);                   // Must remember to close fd
+        pthread_mutex_unlock(mutex); // Must remember to unlock mutex
+        return -2;
+    }
+
+    if (read(fd, buffer, 4096) < 0) {
+        free(buffer);                // 3 cleanup calls required
+        close(fd);
+        pthread_mutex_unlock(mutex);
+        return -3;
+    }
+
+    // Normal path
+    free(buffer);
+    close(fd);
+    pthread_mutex_unlock(mutex);
+    return 0;
+}
+```
+
+Every additional resource multiplies the number of exit paths. If a programmer forgets one cleanup call on any branch, resources leak or mutexes remain locked, causing system deadlocks.
+
+## Deterministic destruction and stack unwinding
+
+C++ guarantees that when an object allocated with automatic storage duration (on the stack) leaves its enclosing scope, its destructor is executed automatically.
+
+```cpp
+class FileDescriptor {
+private:
+    int fd_;
+
+public:
+    explicit FileDescriptor(const char* path, int flags)
+        : fd_(open(path, flags)) {
+        if (fd_ < 0) {
+            throw std::system_error(errno, std::generic_category(), "open failed");
+        }
+    }
+
+    ~FileDescriptor() {
+        if (fd_ >= 0) {
+            close(fd_);
+        }
+    }
+
+    int get() const { return fd_; }
+
+    // Disallow copying to prevent multiple close() calls on the same descriptor
+    FileDescriptor(const FileDescriptor&) = delete;
+    FileDescriptor& operator=(const FileDescriptor&) = delete;
+};
+```
+
+When `FileDescriptor` is instantiated on the stack, resource acquisition happens in the constructor. If construction succeeds, the destructor is guaranteed to run when the variable goes out of scope.
+
+This guarantee holds even during stack unwinding. When an exception is thrown, the C++ runtime walks up the call stack frame by frame looking for a matching `catch` handler. As each stack frame is popped, the destructors of all fully constructed local objects in that frame are invoked in reverse order of their creation.
+
+## Exception safety guarantees
+
+Modern systems code categorizes operations into three distinct levels of exception safety:
+
+1. Basic guarantee: If an exception is thrown, no resources are leaked, class invariants remain intact, and all objects remain in a valid, destructible state.
+2. Strong guarantee: The operation is atomic with commit-or-rollback semantics. If an exception occurs, the program state is restored to exactly what it was before the operation began.
+3. No-throw guarantee (`noexcept`): The operation will never throw an exception. Destructors and move constructors must satisfy the no-throw guarantee. If a destructor throws an exception during stack unwinding, `std::terminate` is called immediately.
+
+## Scope guards and transactional rollbacks
+
+When an operation consists of multiple sequential steps that alter system state, RAII guards manage transactional rollbacks.
+
+```cpp
+class ScopeExit {
+private:
+    std::function<void()> action_;
+    bool active_;
+
+public:
+    template <typename F>
+    explicit ScopeExit(F&& action)
+        : action_(std::forward<F>(action)), active_(true) {}
+
+    ~ScopeExit() {
+        if (active_) {
+            action_();
+        }
+    }
+
+    void dismiss() noexcept {
+        active_ = false;
+    }
+
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+};
+```
+
+Using a scope guard allows writing multi-step operations with the strong exception safety guarantee:
+
+```cpp
+void create_user_account(Database& db, const User& user) {
+    db.insert_user_record(user);
+    ScopeExit rollback_user([&]() { db.delete_user_record(user.id); });
+
+    db.allocate_user_quota(user.id);
+    ScopeExit rollback_quota([&]() { db.free_user_quota(user.id); });
+
+    db.send_activation_email(user.email); // If this throws, quota and record are rolled back in LIFO order
+
+    // All steps succeeded: dismiss guards
+    rollback_quota.dismiss();
+    rollback_user.dismiss();
+}
+```
+
+If `send_activation_email` throws, `rollback_quota` executes first, followed by `rollback_user`. If all operations succeed, calling `.dismiss()` prevents the rollbacks from firing, committing the transaction.

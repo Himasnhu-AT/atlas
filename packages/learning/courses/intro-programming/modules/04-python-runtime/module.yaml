@@ -1,0 +1,12 @@
+id: intro-python-runtime
+slug: python-runtime
+name: Dynamic runtimes and the Python object model
+summary: "Python executes through dynamic object graphs and an interpreted evaluation loop. Explore the PyObject layout, implement the C3 linearization algorithm for method resolution order, construct parameterized closures and decorators, and build lazy generator pipelines."
+version: 1.0.0
+track: scripts
+order: 4
+isActive: true
+prerequisites:
+  - intro-cpp-generics
+difficulty: intermediate
+estimatedHours: 3.0

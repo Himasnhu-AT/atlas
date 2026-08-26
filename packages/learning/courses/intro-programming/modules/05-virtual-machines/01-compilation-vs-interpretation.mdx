@@ -1,0 +1,137 @@
+---
+id: intro-virtual-machines.compilation-vs-interpretation
+title: Compilation, bytecode interpretation, and virtual machines
+summary: The spectrum of execution models from native machine code compilation (C/C++) to bytecode interpreters (Python, JVM) and just-in-time (JIT) runtimes.
+order: 1
+estimatedMinutes: 20
+---
+
+Programs express logic in human-readable source text, but hardware execution units only decode binary machine instructions for a specific instruction set architecture (ISA) like x86_64 or ARM64. The mechanism translating source text to silicon execution forms the execution model.
+
+Programming languages sit on a continuous spectrum between static ahead-of-time (AOT) compilation and dynamic interpretation.
+
+## The execution model spectrum
+
+Execution strategies balance translation overhead against execution throughput:
+
+```
+Ahead-of-Time (AOT)        Bytecode Virtual Machine       AST Interpreter
+  [ C / C++ / Rust ]       [ CPython / JVM / WASM ]         [ Bash / Early Ruby ]
+          |                           |                             |
+Native Machine Code        Intermediate Bytecode            Abstract Syntax Tree
+  Direct Hardware            Software Dispatch Loop           Direct Tree Walk
+```
+
+Ahead-of-time compilation parses source code into intermediate representations (such as LLVM IR), executes multi-pass optimization pipelines (inlining, loop vectorization, dead code elimination), and emits native machine code targeting a specific CPU architecture. The target binary runs directly on the operating system without an intermediary runtime engine.
+
+Abstract syntax tree (AST) interpretation parses source code into an abstract syntax tree and recursively evaluates nodes at runtime. Each operation traverses child nodes via pointer indirection and evaluates sub-expressions in place. This eliminates compilation delays but incurs overhead from cache misses and recursive function call frames.
+
+Bytecode virtual machines compile source code once into a linear sequence of compact bytecodes (such as `.pyc` files in Python or `.class` files in Java). An execution loop iterates over the bytecode array, fetching and dispatching instructions in software.
+
+Just-in-time (JIT) compilation starts execution in an interpreter while collecting runtime type feedback and execution counters. When a function or loop crosses an execution threshold, the JIT engine compiles hot bytecode segments directly into native machine code at runtime.
+
+## Bytecode architectures: Stack versus register machines
+
+Software virtual machines organize their execution engines into two primary structural designs:
+
+### Stack-based virtual machines
+
+Stack machines evaluate all operations against an evaluation stack (an operand stack). Instructions implicitly pop their arguments from the stack top and push back their results.
+
+For example, computing `(a + b) * c` in a stack machine:
+
+```
+LOAD_VAR   a      ; stack: [a]
+LOAD_VAR   b      ; stack: [a, b]
+ADD               ; stack: [a + b]
+LOAD_VAR   c      ; stack: [a + b, c]
+MUL               ; stack: [(a + b) * c]
+```
+
+Stack bytecodes are compact. Because opcodes do not encode explicit register operands, individual instructions require only 1 to 2 bytes. CPython, the Java Virtual Machine (JVM), and WebAssembly (WASM) use stack machine models.
+
+### Register-based virtual machines
+
+Register machines allocate a set of virtual registers for each execution frame. Instructions explicitly declare the source and destination registers for every operation.
+
+Computing `(a + b) * c` in a register machine:
+
+```
+ADD  r2, r0, r1   ; r2 = r0 (a) + r1 (b)
+MUL  r3, r2, r4   ; r3 = r2 * r4 (c)
+```
+
+Register instructions are larger in byte size because they encode register indices (`r0`, `r1`, `r2`). However, register machines execute fewer total instructions than stack machines for the same program, reducing the total number of instruction dispatch cycles. LuaJIT and Android's Dalvik/ART runtimes use register-based architectures.
+
+## Dispatch mechanics in software runtimes
+
+The core of every bytecode interpreter is the fetch-decode-execute loop. How the interpreter transitions between instructions dictates its baseline latency:
+
+### Switch dispatch
+
+A centralized loop reads the current opcode, advances the instruction pointer, and matches the opcode using a `switch` statement:
+
+```c
+while (running) {
+    uint8_t opcode = *ip++;
+    switch (opcode) {
+        case OP_ADD: {
+            int64_t b = pop();
+            int64_t a = pop();
+            push(a + b);
+            break;
+        }
+        case OP_JUMP: {
+            uint16_t target = *(uint16_t*)ip;
+            ip = code + target;
+            break;
+        }
+        case OP_RETURN:
+            return pop();
+    }
+}
+```
+
+Switch dispatch causes branch mispredictions on modern CPUs. The single central `switch` jump table is shared across all opcodes, making it difficult for the CPU branch target buffer (BTB) to predict where the end of each opcode will branch next.
+
+### Direct threaded code
+
+Direct threading replaces opcode identifiers with direct pointers to the code addresses that implement them. At the end of each instruction implementation, the interpreter jumps directly to the start address of the next instruction:
+
+```c
+void* dispatch_table[] = { &&do_add, &&do_jump, &&do_return };
+
+do_add:
+    b = pop();
+    a = pop();
+    push(a + b);
+    goto **(ip++);
+
+do_jump:
+    target = *(uint16_t*)ip;
+    ip = code + target;
+    goto **(ip++);
+```
+
+This distributes branch points across each handler, enabling CPU hardware branch predictors to track transitions between specific pairs of instructions.
+
+## Just-in-time compilation and tiering
+
+Dynamic languages cannot easily emit optimal machine code ahead of time because variable types and object layouts are mutable. JIT compilers bridge this gap using multi-tier compilation:
+
+1. Interpreter baseline: Rapid startup without compilation stalls. Runtime counters monitor invocation counts for functions and backward loops.
+2. Profiling tier: Instruments code to record observed data types (such as integers versus strings) at specific call sites.
+3. Optimizing tier: Compiles hot paths assuming observed types will persist. It inlines function calls, replaces dynamic lookups with direct pointer offsets, and unrolls loops.
+4. Deoptimization guards: If dynamic execution passes an unexpected type (for example, passing a float to a loop compiled for integers), the runtime trips a deoptimization bailout, invalidates the compiled frame, and reconstructs interpreter state on the stack (on-stack replacement).
+
+## Trade-off matrix across execution models
+
+| Dimension | AOT Compilation (C, Rust) | Bytecode VM (CPython) | JIT Runtime (V8, PyPy) |
+| :--- | :--- | :--- | :--- |
+| **Startup latency** | Instant (native load) | Fast (parse to bytecode) | Moderate (warm-up required) |
+| **Peak throughput** | Maximum (hardware native) | Low (interpreter overhead) | High (nears native after warm-up) |
+| **Memory footprint** | Minimal (no runtime engine) | Small to Moderate | Large (JIT code cache + metadata) |
+| **Portability** | Requires per-target rebuild | High (run bytecode anywhere) | High (runtime handles targets) |
+| **Dynamic reflection** | Limited / zero | Full introspection | Full introspection |
+
+These trade-offs explain why systems combine approaches: compiled systems languages for data processing and virtual machine runtimes for application orchestration.

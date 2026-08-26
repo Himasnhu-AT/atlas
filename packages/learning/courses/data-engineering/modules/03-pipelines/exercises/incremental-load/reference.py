@@ -16,6 +16,17 @@ CREATE TABLE IF NOT EXISTS watermarks (
 COLUMNS = ["order_id", "customer", "placed_at", "quantity", "total", "status"]
 
 
+def _normalise_watermark(value: str) -> str:
+    # Date-only marks are the exercise's stable storage form. Timestamps,
+    # including offsets, are normalised before they take part in comparisons.
+    if "T" not in value:
+        return value
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.isoformat()
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+
+
 def create_schema(connection: sqlite3.Connection) -> None:
     connection.execute(CREATE_WATERMARKS)
     connection.commit()
@@ -28,15 +39,21 @@ def read_watermark(connection: sqlite3.Connection, name: str) -> str | None:
     return row[0] if row else None
 
 
+def _watermark_for_comparison(value: str) -> str:
+    return _normalise_watermark(value)
+
+
 def rows_to_process(rows: list[dict], watermark: str | None, field: str = "placed_at") -> list[dict]:
     if watermark is None:
         return [row for row in rows if row.get(field) is not None]
 
     # `>=`, not `>`. Overlap is cheap and gaps are permanent.
+    boundary = _watermark_for_comparison(watermark)
     return [
         row
         for row in rows
-        if row.get(field) is not None and row[field] >= watermark
+        if row.get(field) is not None
+        and _watermark_for_comparison(row[field]) >= boundary
     ]
 
 
@@ -59,8 +76,10 @@ def load_increment(
         f"ON CONFLICT(order_id) DO UPDATE SET {updates}"
     )
 
-    highest = max(row[field] for row in rows)
-    new_watermark = max(highest, current) if current else highest
+    highest = max(_normalise_watermark(row[field]) for row in rows)
+    new_watermark = (
+        max(highest, _normalise_watermark(current)) if current else highest
+    )
     now = datetime.now(timezone.utc).isoformat()
 
     try:

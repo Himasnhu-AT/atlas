@@ -123,6 +123,21 @@ class TestDoubleCounted(unittest.TestCase):
             msg="a value nobody can read is not evidence that the value was nothing",
         )
 
+    def test_skips_a_row_with_no_key(self):
+        rows = [
+            {"id": "1", "total": 5.0},
+            {"total": 99.0},
+            {"id": None, "total": 99.0},
+        ]
+
+        report = double_counted(rows, "id", "total")
+
+        self.assertEqual(report["keys"], [])
+        self.assertAlmostEqual(
+            report["naive_sum"], 5.0, msg="an unkeyed row cannot be deduplicated"
+        )
+        self.assertAlmostEqual(report["true_sum"], 5.0)
+
     def test_sorts_the_repeated_keys(self):
         rows = [
             {"id": "b", "total": 1.0},
@@ -152,6 +167,9 @@ class TestSchemaOf(unittest.TestCase):
             "present and null is not the same as absent, and this is the "
             "cheapest place to keep the difference",
         )
+
+    def test_ignores_an_absent_field(self):
+        self.assertEqual(schema_of([{"a": None}, {}]), {"a": 1})
 
     def test_empty_rows_give_an_empty_schema(self):
         self.assertEqual(schema_of([]), {})

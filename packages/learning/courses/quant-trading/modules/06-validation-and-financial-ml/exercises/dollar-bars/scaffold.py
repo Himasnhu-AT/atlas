@@ -30,7 +30,8 @@ def generate_dollar_bars(
 
     ticks: list of Tick(timestamp, price, volume)
     dollar_threshold: cumulative dollar value (price * volume) required to emit a bar (> 0)
+    Tick prices must be positive; tick volumes must be non-negative.
 
-    Returns list of Bar objects.
+    Returns list of completed Bar objects. A partial final bar is retained.
     """
     raise NotImplementedError

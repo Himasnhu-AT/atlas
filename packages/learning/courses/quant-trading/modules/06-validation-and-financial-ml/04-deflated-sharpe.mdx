@@ -15,15 +15,15 @@ Presenting the best Sharpe ratio without adjusting for the number of discarded t
 
 ## The distribution of the maximum Sharpe ratio
 
-Under the null hypothesis of zero true predictive skill, the expected maximum false-positive Sharpe ratio observed across $N$ independent trials is:
+Under the null hypothesis of zero true predictive skill and independent standard-normal trial statistics, Bailey and López de Prado's variance-adjusted benchmark is:
 
 $$
-\text{SR}^* \approx \sqrt{2 \ln(N)} + \frac{\gamma}{\sqrt{2 \ln(N)}}
+\text{SR}^* =
+\left(1 - \gamma\right)\Phi^{-1}\!\left(1 - \frac{1}{N}\right)
++ \gamma\Phi^{-1}\!\left(1 - \frac{1}{N e}\right)
 $$
 
-Where $\gamma \approx 0.5772$ is the Euler-Mascheroni constant (for $N=1$, $\text{SR}^* = 0$).
-
-Testing 1,000 variations yields an expected false-positive maximum Sharpe of $\approx 2.4$ solely from noise.
+Where $\gamma \approx 0.5772$ is the Euler–Mascheroni constant. For a single trial, set $\text{SR}^* = 0$. For 1,000 independent trials, the benchmark is about $3.26$ Sharpe units.
 
 ## The Deflated Sharpe Ratio (DSR)
 
@@ -41,7 +41,7 @@ $$
 \text{DSR} = \Phi(Z)
 $$
 
-A DSR value exceeding 0.95 (95% statistical confidence) indicates that the strategy's performance cannot be explained by multiple testing.
+A DSR value exceeding 0.95 indicates that, subject to these assumptions, the result exceeds the multiple-testing benchmark at conventional confidence.
 
 ## Exercise: compute the Deflated Sharpe Ratio
 

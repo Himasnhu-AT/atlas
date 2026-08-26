@@ -12,8 +12,8 @@ import { currentUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
 
 export const metadata: Metadata = {
-  title: 'Atlas',
-  description: 'Every course as a chart: what leads where, and what is optional.',
+  title: 'Curriculum Roadmap',
+  description: 'Every course as an interactive roadmap: what leads where, prerequisites, and elective side roads.',
 }
 
 /** Geometry, in the SVG's own units. */
@@ -70,7 +70,7 @@ export default async function AtlasPage() {
       <main id="main" className="pt-20 pb-28 sm:pt-24">
         <Wrap>
           <PageHeader
-            eyebrow="The atlas"
+            eyebrow="The roadmap"
             title={
               <>
                 What leads <em className="italic text-accent">where</em>

@@ -126,7 +126,10 @@ def check_sum_in_range(
 
         Values that will not parse are skipped rather than counted as zero, and
         said so in `detail`. A value nobody can read is not evidence the value
-        was nothing.
+        was nothing. Nulls are also skipped: `check_no_nulls` owns that alarm.
+
+        Validate the column against the table's real columns before interpolating
+        it into SQL.
     """
     raise NotImplementedError
 

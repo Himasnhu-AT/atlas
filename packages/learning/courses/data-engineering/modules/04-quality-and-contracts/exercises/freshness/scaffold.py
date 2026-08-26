@@ -47,6 +47,9 @@ def age_in_hours(timestamp: str | None, now: str) -> float | None:
             "probably fine".
         now: ISO 8601 timestamp to measure against.
 
+        Parse `Z` as UTC and then compare naive values, because every timestamp
+        in this course represents UTC.
+
     Returns:
         Hours, as a float. None when `timestamp` is None.
 

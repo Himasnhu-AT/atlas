@@ -22,21 +22,23 @@ export function AppHeader({
   onResetLayout,
 }: AppHeaderProps) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-rule bg-paper-raised px-3">
-      <span className="inline-flex shrink-0 items-center gap-2 text-sm font-semibold tracking-tight text-ink">
+    <header className="flex h-12 min-w-0 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-rule bg-paper-raised px-3">
+      <span className="inline-flex shrink-0 items-center gap-2 text-caption font-medium tracking-[0.08em] text-muted uppercase">
         <Terminal aria-hidden className="size-4 text-accent" />
         Practice
       </span>
 
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-xs">
-        <span aria-hidden className="text-muted">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-baseline gap-2 text-caption">
+        <span aria-hidden className="text-rule-strong">
           /
         </span>
         <span className="truncate text-ink-soft">{moduleTitle}</span>
-        <span aria-hidden className="text-muted">
+        <span aria-hidden className="text-rule-strong">
           /
         </span>
-        <span className="truncate font-medium text-ink">{lessonTitle}</span>
+        <span className="truncate font-serif text-[15px] leading-none tracking-[-0.005em] text-ink">
+          {lessonTitle}
+        </span>
       </nav>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -72,7 +74,7 @@ function IconAction({
       aria-label={label}
       className={cn(
         'inline-flex size-9 items-center justify-center rounded-field border border-rule',
-        'bg-paper-raised text-ink-soft shadow-none transition-colors duration-150 ease-paper',
+        'bg-paper-raised text-ink-soft shadow-none transition-colors duration-200 ease-paper',
         'hover:border-rule-strong hover:bg-paper-sunken hover:text-ink',
       )}
     >
@@ -80,4 +82,3 @@ function IconAction({
     </button>
   )
 }
-

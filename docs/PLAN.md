@@ -53,9 +53,9 @@ not the positioning that shipped.
 | D4 | English only. No locale tree. |
 | D5 | Preflight checks the Python toolchain and degrades gracefully. It never hard fails. |
 | D6 | Content ships bundled in both apps. An API tracks versions and pushes updates. |
-| D7 | The client never sees Supabase. Everything goes through the Next.js backend. |
+| D7 | The client never sees the database. Everything goes through the Next.js backend. |
 | D8 | Students only. No teacher, classroom, cohort, or organization concepts. |
-| D9 | Supabase stores users, progress, and a module registry. No content bodies. |
+| D9 | Firebase stores users, progress, and game state. No content bodies. |
 | D10 | The platform contains no AI features. No tutor, no generated hints, no chat. |
 | D11 | Exercises need no model. Students write agent code against a mock client we ship. |
 
@@ -139,7 +139,7 @@ fails the build with the exact assertion diff.
 | Next.js web | Imports `manifest.json` at build time and statically generates every lesson page. Rendering content costs zero database reads. |
 | Tauri desktop | Manifest, lessons, and exercises are bundled as Tauri resources, so the app works offline on first launch. On startup it calls `/api/content/manifest` and pulls only the modules whose version moved. |
 
-## Supabase
+## Firebase
 
 Content bodies never reach the database. `modules` is a registry, not content: it tells the
 backend what is live, at what version, and what unlocks what.
@@ -180,15 +180,13 @@ on a server.
 
 ### What D7 changes
 
-Because the client never sees Supabase, RLS stops being the security boundary. The Next.js API
-is.
+Because the client never sees Firebase directly, the Next.js API is the security boundary.
 
-Supabase is used as Postgres only, reached server side with the service role key. That key
-lives in the Next.js server environment and never reaches a browser or the Tauri bundle. Auth
-is issued by Next.js: httpOnly cookie sessions on web, and a paired refresh token on desktop.
-Every route handler resolves the session and derives `user_id` server side, and none of them
-trust a `user_id` from a request body. That rule is what replaces RLS. RLS is switched on
-anyway as a second layer, but nothing depends on it.
+Firebase is reached server-side with admin credentials. Those credentials live in the Next.js
+server environment and never reach a browser or the Tauri bundle. Auth is issued by Next.js:
+httpOnly cookie sessions on web, and a paired refresh token on desktop. Every route handler
+resolves the session and derives `user_id` server side, and none of them trust a `user_id` from
+a request body.
 
 ## Repo layout
 
@@ -201,7 +199,7 @@ learn/
 │  │  │  ├─ (auth)/             login, signup, callback
 │  │  │  ├─ (learn)/            dashboard, tracks, learn/[module]/[lesson]
 │  │  │  └─ api/                content, progress, attempts, auth/device
-│  │  ├─ lib/server/            the only place holding the Supabase service key
+│  │  ├─ lib/server/            the only place holding the Firebase service credentials
 │  │  └─ middleware.ts          session refresh and route guards
 │  └─ desktop/                  Tauri v2, Vite and React, talks to /api
 │     ├─ src/                   three panes: lesson, editor, terminal

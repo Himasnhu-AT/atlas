@@ -1,0 +1,129 @@
+---
+id: intro-virtual-machines.garbage-collection-and-cycle-detection
+title: Garbage collection, cycle detection, and mark-and-sweep
+summary: Automatic memory management algorithms, reference counting failure on cyclic graphs, root set tracing, and mark-and-sweep collection.
+order: 3
+estimatedMinutes: 25
+exercise:
+  id: mark-and-sweep-gc
+  timeboxMinutes: 30
+---
+
+Automatic memory management ensures programs reclaim heap-allocated memory when objects are no longer accessible by running code. Dynamic runtimes employ two primary paradigms for memory reclamation: reference counting and tracing garbage collection.
+
+## Memory reclamation strategies
+
+Manual memory management (in C and C++) requires explicit calls to `malloc` and `free` or relies on RAII destructors. This avoids runtime overhead but exposes systems to use-after-free vulnerabilities, double-free faults, and memory leaks.
+
+Reference counting (in CPython and Swift) maintains an integer counter on each object tracking active references. When an assignment occurs (`a = b`), the target object's reference counter increments. When a variable goes out of scope or is overwritten, the counter decrements. If the counter reaches zero, the memory is immediately reclaimed.
+
+Tracing garbage collection (in Go, the JVM, and V8) periodically traverses the graph of heap allocations starting from known active roots, identifying all reachable objects and reclaiming everything else.
+
+## The reference counting failure mode: Cyclic graphs
+
+Reference counting provides deterministic, immediate deallocation when an object's reference count drops to zero. However, it fails when object references form a cycle.
+
+Consider two objects referencing each other:
+
+```
+[ Root / Stack Var ] 
+        |
+        v
+    +-------+  ref_count = 2   +-------+
+    | NodeA | ---------------> | NodeB | ref_count = 1
+    +-------+ <--------------- +-------+
+```
+
+When the root pointer is cleared (`root = None`), the reference count of `NodeA` decrements from 2 to 1:
+
+```
+    +-------+  ref_count = 1   +-------+
+    | NodeA | ---------------> | NodeB | ref_count = 1
+    +-------+ <--------------- +-------+
+```
+
+Neither `NodeA` nor `NodeB` can ever be reached by running application code. However, because each node holds a reference to the other, both reference counts remain at 1. Under reference counting alone, neither object is ever freed, creating a permanent memory leak.
+
+## Tracing garbage collection and root set reachability
+
+Tracing garbage collectors solve the cyclic reference problem by defining liveness in terms of reachability from root references, rather than reference counts.
+
+An object is defined as live if and only if there is a directed path of references from the root set to that object.
+
+The root set consists of:
+* Active local variables across all execution stack frames.
+* Global and static variables.
+* Active CPU and virtual machine registers.
+
+If an object cannot be reached by traversing outgoing references from the root set, it is dead and eligible for reclamation, regardless of whether internal cyclic references exist.
+
+```
+[ Root Set ]
+     |
+     v
+ [ Node A ] ---> [ Node B ]          [ Node X ] <---> [ Node Y ]
+ (Reachable: LIVE)                   (Disconnected Cycle: DEAD -> COLLECT)
+```
+
+## The mark-and-sweep algorithm
+
+The mark-and-sweep algorithm operates in two distinct phases:
+
+### Phase 1: The mark phase
+
+The collector traverses the directed object graph starting from all references in the root set using depth-first or breadth-first search.
+
+1. Reset the `is_marked` flag to `False` on all allocated objects in the heap.
+2. Push all valid roots onto a worklist and set their `is_marked` flag to `True`.
+3. While the worklist is not empty:
+   * Pop an object `curr`.
+   * For each object `target` in `curr.references`:
+     * If `target` is not yet marked, set `target.is_marked = True` and push `target` to the worklist.
+
+### Phase 2: The sweep phase
+
+The collector iterates through all objects recorded in the heap allocation registry:
+
+1. If an object has `is_marked == False`, it is unreachable. The collector unlinks the object from the allocation registry, frees its memory, and increments the freed count.
+2. If an object has `is_marked == True`, it survived collection. The collector clears `is_marked = False` in preparation for the next collection cycle.
+
+```python
+# Mark phase traversal
+worklist = [root for root in roots if root in allocated]
+for r in worklist:
+    r.is_marked = True
+
+while worklist:
+    node = worklist.pop()
+    for child in node.references:
+        if not child.is_marked and child in allocated:
+            child.is_marked = True
+            worklist.append(child)
+
+# Sweep phase reclamation
+freed = []
+for node_id, node in list(allocated.items()):
+    if not node.is_marked:
+        freed.append(node_id)
+        del allocated[node_id]
+    else:
+        node.is_marked = False
+```
+
+## The tri-color abstraction
+
+Modern tracing collectors formalize reachability traversal using the tri-color marking model:
+
+* White objects represent unvisited candidates. At the start of collection, all objects are white. At the end of marking, white objects are dead and swept.
+* Grey objects represent visited nodes whose outgoing references have not yet been traversed. The worklist consists of grey objects.
+* Black objects represent visited nodes whose outgoing references have all been traversed. Black objects are live and contain no pointers to white objects.
+
+Tri-color marking allows collectors to implement incremental garbage collection without stopping the entire program for the full duration of the sweep (stop-the-world pauses). When application threads (mutators) modify object pointers during collection, a write barrier intercepts the modification to prevent a black object from pointing to a white object without turning it grey.
+
+## Memory fragmentation and compaction
+
+Sweeping dead objects from a heap leaves non-contiguous gaps of unallocated memory (fragmentation). Over time, a heap may have sufficient total free memory to satisfy an allocation, but lack any single contiguous block large enough for the requested size.
+
+Runtimes resolve fragmentation using two strategies:
+* Free list allocators categorize free memory chunks into size-segregated linked lists (such as jemalloc or TCMalloc).
+* Compacting collectors relocate surviving live objects to a contiguous memory region at the base of the heap, updating all pointers to point to their new addresses.

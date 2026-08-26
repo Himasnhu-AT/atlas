@@ -1,0 +1,85 @@
+EEEEEEEE
+======================================================================
+ERROR: test_already_aligned_struct (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 73, in test_already_aligned_struct
+    result = calculate_struct_layout(fields)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 22, in calculate_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_empty_fields (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 9, in test_empty_fields
+    result = calculate_struct_layout([])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 22, in calculate_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_optimize_stability (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 115, in test_optimize_stability
+    optimized = optimize_struct_layout(fields)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 31, in optimize_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_optimize_struct_layout (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 89, in test_optimize_struct_layout
+    optimized = optimize_struct_layout(unoptimized)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 31, in optimize_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_sensor_reading_unaligned (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 45, in test_sensor_reading_unaligned
+    result = calculate_struct_layout(fields)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 22, in calculate_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_single_byte_field (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 26, in test_single_byte_field
+    result = calculate_struct_layout([("b", 1, 1)])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 22, in calculate_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_single_field (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 19, in test_single_field
+    result = calculate_struct_layout([("val", 4, 4)])
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 22, in calculate_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+======================================================================
+ERROR: test_trailing_padding (__main__.TestStructPaddingCalculator)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/test.py", line 59, in test_trailing_padding
+    result = calculate_struct_layout(fields)
+  File "/private/var/folders/h1/9l1f8xpd64v7w8gtg02q003h0000gn/T/tmp.ArFIb3XaMO/01-c-data-structures-exercises-struct-padding-calculator/solution.py", line 22, in calculate_struct_layout
+    raise NotImplementedError
+NotImplementedError
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.000s
+
+FAILED (errors=8)

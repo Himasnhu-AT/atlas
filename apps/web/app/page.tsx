@@ -3,14 +3,17 @@ import Link from 'next/link'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { Reveal } from '@/components/reveal'
-import { PullQuote, Rule, RuledList, RuledRow, Wrap } from '@/components/layout'
-import { everyModule } from '@/lib/content'
+import { Eyebrow, PullQuote, Rule, RuledList, RuledRow, Wrap } from '@/components/layout'
+import { activeCourses, activeModules } from '@/lib/content'
 
-const modules = everyModule()
-const exerciseCount = modules.reduce(
+const courses = activeCourses()
+const allModules = courses.flatMap(activeModules)
+const totalLessons = allModules.reduce((n, m) => n + m.lessons.length, 0)
+const totalExercises = allModules.reduce(
   (n, m) => n + m.lessons.filter((l) => l.exercise).length,
   0,
 )
+const totalHours = Math.round(allModules.reduce((n, m) => n + m.estimatedHours, 0))
 
 export default function LandingPage() {
   return (
@@ -18,23 +21,23 @@ export default function LandingPage() {
       <SiteHeader />
 
       <main id="main">
-        {/* The hero is a page opening, not a marketing block: a label, a
-            sentence someone would actually say, and two ways in. */}
+        {/* The hero: clear, direct, and highlighting the full breadth of disciplines */}
         <Wrap className="pt-20 pb-4 sm:pt-28">
           <Reveal variant="settle">
-            <h1 className="max-w-[15ch] text-display text-ink">
-              Learn to build agents by{' '}
+            <h1 className="max-w-[17ch] text-display text-ink">
+              Master software systems by{' '}
               <em className="italic text-accent">building them</em>.
             </h1>
           </Reveal>
 
           <Reveal delay={0.14}>
-            <div className="mt-8 max-w-[54ch]">
+            <div className="mt-8 max-w-[56ch]">
               <div data-rule className="h-px w-16 origin-left bg-accent" aria-hidden />
               <p className="mt-6 font-serif text-lead text-ink-soft">
-                Eleven modules that end in code you run. You write the tool-calling loop, the
-                retrieval pipeline, the state graph a framework would have handed you. Tests
-                tell you whether it works, in about a second, without an API key.
+                Four rigorous technical tracks: systems programming in C, C++, and Python; data
+                engineering; quantitative trading; and AI agent architectures. {totalLessons} lessons
+                and {totalExercises} interactive exercises graded on your own machine in sub-second
+                timeboxes, with zero external dependencies.
               </p>
             </div>
           </Reveal>
@@ -45,13 +48,13 @@ export default function LandingPage() {
                 href="/signup"
                 className="inline-flex min-h-11 items-center rounded-field bg-ink px-6 text-caption font-medium text-paper transition-colors duration-200 ease-paper hover:bg-accent-deep"
               >
-                Start module 0
+                Choose a track & start
               </Link>
               <Link
                 href="/learn"
                 className="group inline-flex min-h-11 items-center gap-2 text-caption text-ink-soft transition-colors duration-200 ease-paper hover:text-ink"
               >
-                Read the curriculum
+                Explore all courses
                 <span
                   aria-hidden
                   className="transition-transform duration-200 ease-paper group-hover:translate-x-1.5"
@@ -63,12 +66,11 @@ export default function LandingPage() {
           </Reveal>
         </Wrap>
 
-        {/* The premise. Prose rather than a grid of four equal claims, because
-            the argument has an order and a card grid destroys order. */}
+        {/* The core design invariants */}
         <Wrap className="pt-24 sm:pt-32">
           <Reveal>
-            <h2 className="max-w-[22ch] text-title text-ink">
-              Nothing here calls a real model
+            <h2 className="max-w-[24ch] text-title text-ink">
+              Pure standard library. Zero API keys. Instant local grading.
             </h2>
           </Reveal>
 
@@ -76,84 +78,105 @@ export default function LandingPage() {
             <div className="mt-7 grid gap-x-16 gap-y-6 lg:grid-cols-2">
               <div className="max-w-[58ch] space-y-5 text-ink-soft">
                 <p>
-                  Every exercise runs against a scripted client with the same shape as a
-                  provider SDK. The same response objects, the same{' '}
-                  <code className="rounded-[3px] bg-paper-sunken px-1.5 py-0.5 text-[0.88em] text-ink">
-                    finish_reason
-                  </code>
-                  , the same tool-call structure. What is missing is the network request.
+                  Every exercise runs in your terminal or browser worker against the pure Python standard
+                  library or simulated machine memory. You write the byte allocator, the limit order book,
+                  the idempotent pipeline, or the ReAct tool loop.
                 </p>
                 <p>
-                  So tests finish in about a second and give the same answer every run. A red
-                  test is your bug, never a model having an off day. There is no key to get, no
-                  bill, and no rate limit between you and lesson one. It works on a plane.
+                  Tests finish in about a second and give deterministic answers on every run. A failing test
+                  is always your own logic to investigate, never a flaky network call, API rate limit, or
+                  an external service having an outage. It works offline and on a plane.
                 </p>
               </div>
 
               <div className="max-w-[58ch] space-y-5 text-ink-soft">
                 <p>
-                  The tradeoff is real and worth saying plainly: you will not watch a live model
-                  surprise you, and that is a genuine part of the craft.
+                  No fluff, no promotional distractions, and no hand-waving abstractions. You implement
+                  the underlying mechanisms, data structures, and failure recoveries before relying on
+                  frameworks that hide them.
                 </p>
                 <p>
-                  It is also what the provider modules exist for later. Because the mock mirrors
-                  the SDK shape, the loop you write here is the loop you would write against a
-                  real provider. Swapping the client is one line.
+                  Each exercise opens on a typed scaffold with docstrings. Complete worked reference
+                  solutions exist for every challenge and unlock with a confirmed click after your attempt.
                 </p>
               </div>
             </div>
           </Reveal>
         </Wrap>
 
-        {/* The curriculum. Numerals earn their place: they are the order you
-            take the modules in, not decoration. */}
+        {/* The 4 Learning Tracks */}
         <Wrap className="pt-24 sm:pt-32">
           <Reveal>
-            <h2 className="text-title text-ink">The curriculum</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-4">
+              <div>
+                <Eyebrow>The Catalogue</Eyebrow>
+                <h2 className="mt-2 text-title text-ink">Four distinct learning paths</h2>
+              </div>
+              <span className="text-caption text-muted">
+                {courses.length} courses · {allModules.length} modules · ~{totalHours} hours
+              </span>
+            </div>
           </Reveal>
           <Reveal delay={0.06}>
-            <p className="mt-4 max-w-[54ch] font-serif text-lead text-ink-soft">
-              From what a model actually does, to routing work across specialists.{' '}
-              {exerciseCount} exercises, each graded on your own machine.
+            <p className="mt-4 max-w-[58ch] font-serif text-lead text-ink-soft">
+              Each course is self-contained. Start with low-level systems in C/C++, move into data
+              pipelines, model quantitative markets, or orchestrate autonomous AI agent systems.
             </p>
           </Reveal>
 
           <RuledList>
-            {modules.map((module, index) => (
-              <RuledRow
-                key={module.id}
-                index={index}
-                aside={String(module.order).padStart(2, '0')}
-                title={module.name}
-                meta={`${module.lessons.length} lessons · ${module.estimatedHours}h`}
-                href={`/learn/${module.slug}`}
-              >
-                {module.summary}
-              </RuledRow>
-            ))}
+            {courses.map((course, index) => {
+              const modules = activeModules(course)
+              const lessonsCount = modules.reduce((n, m) => n + m.lessons.length, 0)
+              const exCount = modules.reduce(
+                (n, m) => n + m.lessons.filter((l) => l.exercise).length,
+                0,
+              )
+              const hours = Math.round(modules.reduce((n, m) => n + m.estimatedHours, 0))
+
+              return (
+                <RuledRow
+                  key={course.id}
+                  index={index}
+                  aside={String(course.order + 1).padStart(2, '0')}
+                  title={course.name}
+                  meta={`${modules.length} modules · ${lessonsCount} lessons · ${exCount} exercises · ${hours}h`}
+                  href={`/learn/${course.slug}`}
+                >
+                  <p>{course.summary}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {course.tracks.map((t) => (
+                      <span
+                        key={t.id}
+                        className="font-mono text-[11px] uppercase tracking-wider text-muted"
+                      >
+                        [{t.name}]
+                      </span>
+                    ))}
+                  </div>
+                </RuledRow>
+              )
+            })}
           </RuledList>
         </Wrap>
 
-        {/* Practice. */}
+        {/* Desktop App Integration */}
         <Wrap className="pt-24 sm:pt-32">
           <Reveal>
             <h2 className="max-w-[20ch] text-title text-ink">
-              Read here. <em className="italic text-accent">Practice</em> in the desktop app.
+              Read online. <em className="italic text-accent">Practice</em> in the desktop IDE.
             </h2>
           </Reveal>
 
           <Reveal delay={0.06}>
             <div className="mt-7 max-w-[58ch] space-y-5 text-ink-soft">
               <p>
-                The desktop app puts the lesson, a real editor, and a real terminal side by
-                side. You write, you run, you watch the tests go green. Progress follows you
-                between the two.
+                The SynthAI desktop app places the lesson, a native code editor, and a sandboxed test terminal
+                side by side. You write code, run local test suites, and watch results stream in real time.
               </p>
               <p>
-                Each exercise opens on a scaffold: signatures and docstrings with empty bodies.
-                A complete reference solution exists and it takes a deliberate click to see.
-                Reading a working solution after a real attempt teaches you something. Reading
-                one instead of attempting does not.
+                Your progress and awards sync seamlessly between the web reader and the desktop practice
+                environment.
               </p>
             </div>
           </Reveal>
@@ -163,7 +186,7 @@ export default function LandingPage() {
               href="/download"
               className="group mt-8 inline-flex min-h-11 items-center gap-2 text-caption text-accent-deep transition-colors duration-200 ease-paper hover:text-ink"
             >
-              Get the desktop app
+              Download the desktop app
               <span
                 aria-hidden
                 className="transition-transform duration-200 ease-paper group-hover:translate-x-1.5"
@@ -176,7 +199,7 @@ export default function LandingPage() {
 
         <Wrap className="pb-28">
           <PullQuote>
-            &ldquo;Writing the loop once is what makes every framework readable
+            &ldquo;Writing the runtime once is what makes every framework readable
             afterwards.&rdquo;
           </PullQuote>
           <Rule className="mt-20" />

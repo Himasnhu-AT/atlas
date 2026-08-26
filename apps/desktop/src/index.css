@@ -36,6 +36,7 @@
 
   .selectable,
   .prose-learn,
+  .prose-compact,
   .xterm,
   .cm-editor {
     -webkit-user-select: text;
