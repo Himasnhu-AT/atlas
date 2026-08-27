@@ -133,12 +133,15 @@ thing rather than announcing it. State tradeoffs plainly instead of selling.
 ## Checks
 
 ```bash
-pnpm content        # validate the courses
-pnpm typecheck      # TypeScript, every package
-pnpm test:core      # the game engine, which is pure and worth over-testing
-pnpm test:content   # the content package's own units
-pnpm test:rust      # Rust suite
-pnpm lint:rust      # clippy, warnings as errors
+pnpm content            # validate and build the courses
+pnpm validate           # validate course structure, schemas, and testcases
+pnpm validate:course    # validate module/lesson schemas, prerequisites, references & scaffolds
+pnpm validate:testcases # validate all exercise testcases against crux solutions
+pnpm typecheck          # TypeScript, every package
+pnpm test:core          # the game engine, which is pure and worth over-testing
+pnpm test:content       # the content package's own units
+pnpm test:rust          # Rust suite
+pnpm lint:rust          # clippy, warnings as errors
 ```
 
 ## Reference material

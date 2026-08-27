@@ -1,3 +1,5 @@
+'use client'
+
 import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import { Menu, X } from 'lucide-react'
 import { cn } from '../lib/cn'

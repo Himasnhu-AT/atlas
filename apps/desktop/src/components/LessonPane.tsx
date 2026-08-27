@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { InteractiveRenderer, LessonStageController, WidgetRegistry } from '@atlas/ui'
 
 import { findLessonRefById, formatDuration, type LessonRef } from '../lib/content'
-import { loadLesson } from '../lib/lessons'
+import { type CompiledLesson, loadLesson } from '../lib/lessons'
 
 export interface LessonPaneProps {
   lessonRef: LessonRef
@@ -15,28 +16,28 @@ export function LessonPane({ lessonRef, done, onNavigate }: LessonPaneProps) {
   const { module, lesson } = lessonRef
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
-  const [html, setHtml] = useState<string | null>(null)
+  const [compiled, setCompiled] = useState<CompiledLesson | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    setHtml(null)
+    setCompiled(null)
     setError(null)
     scrollRef.current?.scrollTo({ top: 0 })
 
     void (async () => {
       try {
-        const compiled = await loadLesson(lesson.id)
+        const loaded = await loadLesson(lesson.id)
         if (cancelled) return
 
-        if (!compiled) {
+        if (!loaded) {
           setError(
             'This lesson is not in the current build. Run ' +
               '`pnpm content` and start the app again.',
           )
           return
         }
-        setHtml(compiled.html)
+        setCompiled(loaded)
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
       }
@@ -95,25 +96,42 @@ export function LessonPane({ lessonRef, done, onNavigate }: LessonPaneProps) {
           </p>
         </header>
 
-        <hr className="mt-10 mb-11 border-rule" />
+        <hr className="mt-10 mb-8 border-rule" />
 
         {error ? (
           <div role="alert" className="border-l-2 border-fail bg-fail-wash px-4 py-3 text-sm text-fail-deep">
             <p>{error}</p>
           </div>
-        ) : html === null ? (
+        ) : compiled === null ? (
           <p className="text-sm text-muted">Loading…</p>
         ) : (
-          // The content build produced this HTML from markdown in this repo,
-          // with highlighting already applied. It is our own build output, not
-          // anything a user supplied.
-          // The click handler only intercepts anchors the build marked with
-          // `data-lesson`; everything else in the body behaves normally.
-          <div
-            className="prose-compact"
-            onClick={handleBodyClick}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          (() => {
+            const InteractiveComponent = compiled.interactive
+              ? WidgetRegistry[compiled.interactive.type]
+              : null
+
+            return (
+              <LessonStageController
+                hasInteractive={Boolean(InteractiveComponent)}
+                hasExercise={Boolean(lesson.exercise)}
+                interactiveNode={
+                  InteractiveComponent ? (
+                    <InteractiveComponent {...(compiled.interactive?.props || {})} />
+                  ) : null
+                }
+                proseNode={
+                  <div onClick={handleBodyClick}>
+                    <InteractiveRenderer html={compiled.html} className="prose-compact" />
+                  </div>
+                }
+                exerciseNode={
+                  <div className="text-caption font-mono text-muted py-4">
+                    Switch to the Practice tab in the bottom pane to edit <code className="text-ink">solution.py</code> and run tests.
+                  </div>
+                }
+              />
+            )
+          })()
         )}
       </article>
     </div>

@@ -26,6 +26,31 @@ requires re-indexing the entire document corpus.
 
 ## Cosine similarity and dot product
 
+```widget:vector-space
+initialSimilarityThreshold: 0.65
+queryPoint:
+  label: "User Query"
+  x: 0.75
+  y: 0.55
+points:
+  - id: "refund-doc"
+    label: "billing_refunds.md"
+    x: 0.82
+    y: 0.60
+  - id: "pricing-doc"
+    label: "pricing_tiers.md"
+    x: 0.68
+    y: 0.45
+  - id: "api-doc"
+    label: "api_auth_keys.md"
+    x: -0.45
+    y: 0.70
+  - id: "troubleshoot-doc"
+    label: "error_codes.md"
+    x: -0.60
+    y: -0.30
+```
+
 Cosine similarity measures the angle between two vectors, normalizing for vector magnitude:
 
 ```python

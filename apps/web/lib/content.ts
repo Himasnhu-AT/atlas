@@ -48,6 +48,10 @@ export interface CompiledLesson {
   courseId: string
   html: string
   exerciseFiles?: Record<string, string>
+  interactive?: {
+    type: string
+    props: Record<string, any>
+  }
 }
 
 const LESSON_DIR = path.join(process.cwd(), '..', '..', 'packages', 'learning', 'dist', 'lessons')
@@ -55,8 +59,10 @@ const LESSON_DIR = path.join(process.cwd(), '..', '..', 'packages', 'learning', 
 const cache = new Map<string, CompiledLesson>()
 
 export async function loadLesson(lessonId: string): Promise<CompiledLesson | null> {
-  const cached = cache.get(lessonId)
-  if (cached) return cached
+  if (process.env.NODE_ENV === 'production') {
+    const cached = cache.get(lessonId)
+    if (cached) return cached
+  }
 
   // The id comes from a URL segment. Reject anything that is not a plain
   // lesson id before it reaches the filesystem.

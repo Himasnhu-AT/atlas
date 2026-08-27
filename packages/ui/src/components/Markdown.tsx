@@ -1,3 +1,5 @@
+'use client'
+
 import { useEffect, useMemo, useRef, type ComponentPropsWithRef } from 'react'
 import { cn } from '../lib/cn'
 import { copyCodeFrom, renderMarkdown } from '../lib/markdown'

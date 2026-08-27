@@ -7,6 +7,11 @@ estimatedMinutes: 35
 exercise:
   id: context-budget
   timeboxMinutes: 30
+interactive:
+  type: token-budget
+  props:
+    maxTokens: 4096
+    systemTokens: 350
 ---
 
 A language model does not ingest raw string characters. A tokenizer segments the text into integer IDs from a fixed vocabulary before execution. This preprocessing step explains several common edge cases in model behavior.
@@ -31,6 +36,16 @@ Character-level tasks (such as counting specific letters in a word or reversing 
 Similarly, multi-digit arithmetic requires coordinating across token chunks. When precision is required, delegate string operations and arithmetic to deterministic tools (`len(s)`, Python evaluators) rather than relying on language model generation.
 
 ## The shared context window budget
+
+```widget:token-budget
+maxTokens: 4096
+systemTokens: 350
+toolSchemaTokens: 400
+initialTurns: 8
+reserveOutputTokens: 512
+showAttentionHeatmap: true
+puzzleTarget: "Tune turns and tool schemas to see how fast multi-turn agents exhaust context limits."
+```
 
 The context window defines the maximum sequence length a model can process in a single request. This limit encompasses all prompt content: system instructions, conversation history, tool definitions, tool results, and the tokens generated in the response:
 

@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * The game's marks, exported on their own subpath.
  *

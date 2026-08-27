@@ -3,7 +3,7 @@ import { getAuth } from 'firebase-admin/auth'
 
 import { fail, json, parseBody, route } from '@/lib/server/respond'
 import { createToken, setSessionCookie, deriveUserId } from '@/lib/server/session'
-import { store, type StoredUser } from '@/lib/server/store'
+import { ensureFirebaseAdmin, store, type StoredUser } from '@/lib/server/store'
 
 const GoogleAuthPayload = z.object({
   idToken: z.string().min(1),
@@ -17,6 +17,7 @@ export const POST = route(async (request) => {
   let name: string | undefined
 
   try {
+    ensureFirebaseAdmin()
     const decoded = await getAuth().verifyIdToken(body.idToken)
     email = decoded.email?.trim().toLowerCase()
     name = decoded.name || body.displayName || email?.split('@')[0] || 'Learner'

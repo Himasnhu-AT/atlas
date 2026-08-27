@@ -16,6 +16,7 @@ import type { CourseEntry, LessonEntry, Manifest, ModuleEntry, TrackMeta } from 
 
 export * from './browser'
 export * from './schema'
+export * from './widgets/schema'
 
 /** Courses a student can see, in display order. */
 export function activeCourses(manifest: Manifest): CourseEntry[] {
