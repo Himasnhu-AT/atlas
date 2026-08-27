@@ -44,6 +44,7 @@ import { parse as parseYaml } from 'yaml'
 
 import { browserSupportFor } from '../src/browser'
 import { CONTENT_TOKENS } from '../src/links'
+import { validateWidgetProps } from '../src/widgets/schema'
 import {
   type CourseEntry,
   CourseMeta,
@@ -137,6 +138,42 @@ function slugify(text: string): string {
     .replace(/[^\w\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
+}
+
+/**
+ * Transforms fenced code blocks shaped like ```widget:<type> ... ``` into
+ * statically compiled interactive widget placeholders <div data-widget="...">.
+ * Validates props against the widget's Zod schema at compile time.
+ */
+function remarkWidgets(where: string) {
+  return () => (tree: any) => {
+    const walk = (node: any) => {
+      if (node.type === 'code' && node.lang && node.lang.startsWith('widget:')) {
+        const widgetType = node.lang.slice('widget:'.length).trim()
+        let parsed: unknown = {}
+        if (node.value && node.value.trim()) {
+          try {
+            parsed = parseYaml(node.value)
+          } catch (error) {
+            fail(where, `Invalid YAML in widget "${widgetType}": ${(error as Error).message}`)
+            return
+          }
+        }
+        const validation = validateWidgetProps(widgetType, parsed)
+        if (!validation.success) {
+          for (const err of validation.errors) {
+            fail(where, `Widget "${widgetType}" prop error: ${err}`)
+          }
+          return
+        }
+        node.type = 'html'
+        const propsJson = JSON.stringify(validation.data).replace(/"/g, '&quot;')
+        node.value = `<div data-widget="${widgetType}" data-widget-props="${propsJson}" class="atlas-widget-mount my-6"></div>`
+      }
+      for (const child of node.children ?? []) walk(child)
+    }
+    walk(tree)
+  }
 }
 
 async function readDirs(parent: string): Promise<string[]> {
@@ -403,6 +440,10 @@ async function buildModule(
     html: string
     exerciseFiles?: Record<string, string>
     exerciseHash?: string
+    interactive?: {
+      type: string
+      props: Record<string, any>
+    }
   }[] = []
 
   for (const file of files) {
@@ -436,8 +477,9 @@ async function buildModule(
       const file = await unified()
         .use(remarkParse)
         .use(remarkGfm)
+        .use(remarkWidgets(where))
         .use(collectHeadings(headings))
-        .use(remarkRehype)
+        .use(remarkRehype, { allowDangerousHtml: true })
         .use(rehypeSlug)
         .use(rehypeAutolinkHeadings, { behavior: 'wrap' })
         // A single theme, because the product has a single theme. Passing a
@@ -445,7 +487,7 @@ async function buildModule(
         // a prefers-color-scheme block on every token, which would be dead
         // weight in all twenty lessons.
         .use(rehypeShiki, { theme: 'github-light' })
-        .use(rehypeStringify)
+        .use(rehypeStringify, { allowDangerousHtml: true })
         .process(content)
       html = substituteTokens(String(file), where)
     } catch (error) {
@@ -478,7 +520,16 @@ async function buildModule(
 
           exerciseFiles = { ...lib }
           for (const name of await readdir(exerciseDir)) {
-            if (name === '__pycache__') continue
+            if (
+              name === '__pycache__' ||
+              name.startsWith('.') ||
+              name.startsWith('solutions-') ||
+              name.startsWith('solution-') ||
+              name.startsWith('solutions_') ||
+              name.endsWith('.out')
+            ) {
+              continue
+            }
             exerciseFiles[name] = await readFile(path.join(exerciseDir, name), 'utf8')
           }
 
@@ -487,6 +538,17 @@ async function buildModule(
           // to load a WebAssembly runtime at all.
           spec.browser = browserSupportFor(exerciseFiles)
         }
+      }
+    }
+
+    if (front.interactive) {
+      const validation = validateWidgetProps(front.interactive.type, front.interactive.props)
+      if (!validation.success) {
+        for (const err of validation.errors) {
+          fail(where, `Interactive spec error: ${err}`)
+        }
+      } else {
+        front.interactive.props = validation.data
       }
     }
 
@@ -499,7 +561,13 @@ async function buildModule(
       headings,
       wordCount: content.split(/\s+/).filter(Boolean).length,
     })
-    compiled.push({ id: front.id, html, exerciseFiles, exerciseHash: hashFiles(exerciseFiles) })
+    compiled.push({
+      id: front.id,
+      html,
+      exerciseFiles,
+      exerciseHash: hashFiles(exerciseFiles),
+      interactive: front.interactive,
+    })
   }
 
   lessons.sort((a, b) => a.order - b.order)

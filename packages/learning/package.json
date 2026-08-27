@@ -13,6 +13,9 @@
     "build": "tsx scripts/build.ts",
     "watch": "tsx scripts/build.ts --watch",
     "check": "tsx scripts/build.ts --check",
+    "validate:course": "tsx scripts/build.ts --check",
+    "validate:testcases": "python3 scripts/validate_crux_solutions.py",
+    "validate": "tsx scripts/build.ts --check && python3 scripts/validate_crux_solutions.py",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test src/*.test.ts"
   },

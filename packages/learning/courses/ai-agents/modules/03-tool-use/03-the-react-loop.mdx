@@ -7,6 +7,42 @@ estimatedMinutes: 60
 exercise:
   id: react-loop
   timeboxMinutes: 30
+interactive:
+  type: state-machine
+  props:
+    initialState: "THINK"
+    goal: "Simulate a tool failure and observe how the state machine transitions to recovery."
+    states:
+      THINK:
+        label: "1. Model Reasoning (Thought)"
+        description: "Model analyzes conversation history and generates the next tool invocation."
+        transitions:
+          "Emit Tool Call": "ACT"
+          "Emit Final Answer": "DONE"
+      ACT:
+        label: "2. Tool Execution (Action)"
+        description: "Application runtime executes the requested tool with validated arguments."
+        transitions:
+          "Tool Result Returned": "OBSERVE"
+          "Tool Execution Error": "RECOVER"
+      OBSERVE:
+        label: "3. Context Update (Observation)"
+        description: "Tool result appended to transcript as a tool message."
+        transitions:
+          "Next Iteration": "THINK"
+      RECOVER:
+        label: "4. Error Recovery"
+        description: "Catch exception and append error output for self-correction."
+        transitions:
+          "Feed Error to Model": "THINK"
+          "Max Iterations Exceeded": "FAIL"
+      DONE:
+        label: "Loop Terminated"
+        isTerminal: true
+      FAIL:
+        label: "Execution Limit Exceeded"
+        isTerminal: true
+        isError: true
 ---
 
 The execution loop follows four steps. The model determines what action is required. It emits a tool call request.
@@ -19,6 +55,51 @@ Modern model providers support this loop directly through dedicated tool calling
 while structured schemas replace brittle text parsing.
 
 ## The loop in full
+
+```widget:state-machine
+initialState: "THINK"
+goal: "Trigger a tool failure and observe how the state machine transitions to recovery."
+states:
+  THINK:
+    label: "1. Model Reasoning"
+    description: "The model receives context and decides whether to emit a tool call or answer."
+    transitions:
+      "Emit Tool Call": "ACT"
+      "Emit Final Answer": "DONE"
+  ACT:
+    label: "2. Tool Execution"
+    description: "The runtime dispatches the tool call to the local tool handler."
+    transitions:
+      "Tool Success": "OBSERVE"
+      "Tool Exception": "RECOVER"
+  OBSERVE:
+    label: "3. Append Observation"
+    description: "Tool output is serialized into a 'tool' role message and appended to history."
+    transitions:
+      "Next Model Call": "THINK"
+  RECOVER:
+    label: "4. Error Recovery"
+    description: "Format the error into tool payload so model can self-correct on next turn."
+    transitions:
+      "Send Error to Model": "THINK"
+      "Abort Run": "ERROR"
+  DONE:
+    label: "Completed"
+    isTerminal: true
+  ERROR:
+    label: "Failed (Max Retries)"
+    isTerminal: true
+    isError: true
+faultInjections:
+  - id: "timeout"
+    label: "API Timeout"
+    targetState: "RECOVER"
+    action: "Network Timeout Exception"
+  - id: "rate-limit"
+    label: "Rate Limit 429"
+    targetState: "RECOVER"
+    action: "HTTP 429 Error"
+```
 
 ```python
 messages = [{"role": "user", "content": question}]

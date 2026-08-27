@@ -410,6 +410,12 @@ def main() -> int:
     for name in sorted(os.listdir(args.dir)):
         if not name.endswith(".py"):
             continue
+        if (
+            name.startswith("solutions-")
+            or name.startswith("solution-")
+            or name.startswith("solutions_")
+        ):
+            continue
         path = os.path.join(args.dir, name)
         if not os.path.isfile(path):
             continue

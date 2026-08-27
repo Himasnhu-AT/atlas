@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "A hands-on course in AI agent engineering: a Next.js site to learn on and a Tauri desktop app to practice in.",
-  "packageManager": "pnpm@11.13.0",
+  "packageManager": "pnpm@11.24.0",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -18,6 +18,10 @@
     "build": "pnpm content && pnpm --filter @atlas/web build",
     "build:desktop": "pnpm content && pnpm --filter @atlas/desktop tauri:build",
     "start": "pnpm --filter @atlas/web start",
+    "validate:course": "pnpm --filter @atlas/learning validate:course",
+    "validate:testcases": "pnpm --filter @atlas/learning validate:testcases",
+    "validate": "pnpm validate:course && pnpm validate:testcases",
+    "validate:all": "pnpm validate && pnpm typecheck && pnpm test:core && pnpm test:content",
     "typecheck": "pnpm -r --no-bail typecheck",
     "test:core": "pnpm --filter @atlas/core test",
     "test:content": "pnpm --filter @atlas/learning test",

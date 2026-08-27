@@ -19,6 +19,10 @@ export interface CompiledLesson {
    * later open can tell whether the exercise moved underneath their work.
    */
   exerciseHash?: string
+  interactive?: {
+    type: string
+    props: Record<string, any>
+  }
 }
 
 /**

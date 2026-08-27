@@ -30,6 +30,29 @@ To eliminate this friction, compilers enforce **natural alignment**: an $N$-byte
 
 ## Struct field placement and internal padding
 
+```widget:memory-layout
+alignmentBytes: 8
+cacheLineBytes: 64
+allowReorder: true
+fields:
+  - id: "status"
+    name: "status"
+    type: "char"
+    sizeBytes: 1
+  - id: "reading"
+    name: "reading"
+    type: "int"
+    sizeBytes: 4
+  - id: "flag"
+    name: "flag"
+    type: "char"
+    sizeBytes: 1
+  - id: "timestamp"
+    name: "timestamp"
+    type: "int64_t"
+    sizeBytes: 8
+```
+
 When allocating memory for a `struct`, the compiler processes fields sequentially in declaration order. It tracks the current byte offset from the start of the struct, starting at offset `0`.
 
 Before placing field $i$ with alignment requirement $A_i$ and size $S_i$, the compiler rounds the current offset up to the nearest multiple of $A_i$:

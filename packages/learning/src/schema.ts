@@ -93,6 +93,26 @@ export const ExerciseSpec = z.object({
 })
 export type ExerciseSpec = z.infer<typeof ExerciseSpec>
 
+/**
+ * Interactive visual sandbox / game spec declared in a lesson's frontmatter.
+ */
+export const InteractiveSpec = z.object({
+  type: z.string().min(1),
+  props: z.record(z.string(), z.any()).default({}),
+})
+export type InteractiveSpec = z.infer<typeof InteractiveSpec>
+
+export const LessonFrontmatter = z.object({
+  id: lessonId,
+  title: z.string().min(1).max(120),
+  summary: z.string().min(1).max(300),
+  order: z.number().int().nonnegative(),
+  estimatedMinutes: z.number().int().positive().max(600),
+  exercise: ExerciseSpec.optional(),
+  interactive: InteractiveSpec.optional(),
+})
+export type LessonFrontmatter = z.infer<typeof LessonFrontmatter>
+
 /** One track a course declares. `id` is what a module's `track` names. */
 export const TrackMeta = z.object({
   id: slug,
@@ -137,16 +157,6 @@ export const ModuleMeta = z.object({
   estimatedHours: z.number().positive().max(100),
 })
 export type ModuleMeta = z.infer<typeof ModuleMeta>
-
-export const LessonFrontmatter = z.object({
-  id: lessonId,
-  title: z.string().min(1).max(120),
-  summary: z.string().min(1).max(300),
-  order: z.number().int().nonnegative(),
-  estimatedMinutes: z.number().int().positive().max(600),
-  exercise: ExerciseSpec.optional(),
-})
-export type LessonFrontmatter = z.infer<typeof LessonFrontmatter>
 
 /**
  * A lesson as it appears in the manifest. The body is deliberately absent:
