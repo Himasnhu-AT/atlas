@@ -48,6 +48,8 @@ import { validateWidgetProps } from '../src/widgets/schema'
 import {
   type CourseEntry,
   CourseMeta,
+  type ExerciseCase,
+  ExerciseCases,
   type LessonEntry,
   LessonFrontmatter,
   type Manifest,
@@ -97,6 +99,13 @@ async function readCourseLib(courseDir: string, libDir: string): Promise<CourseL
  * reports JSON on stdout so this file parses a result instead of scraping text.
  */
 const VALIDATOR_PATH = path.join(ROOT, 'scripts', 'validate_exercise.py')
+
+/**
+ * An exercise's case map. Never copied into the learner's workspace and never
+ * hashed into `exerciseHash`: editing a hint must not tell somebody mid
+ * exercise that the exercise moved underneath them.
+ */
+const CASES_FILENAME = 'cases.yaml'
 
 /**
  * How long one exercise gets. A reference solution against mockllm finishes in
@@ -242,7 +251,7 @@ async function verifyReference(
   }
 }
 
-type ValidatorResult = { problems: string[]; parsed: string[] }
+type ValidatorResult = { problems: string[]; parsed: string[]; tests?: string[] }
 
 /**
  * The static and structural half of the exercise gate, plus the scaffold run.
@@ -309,7 +318,128 @@ async function validateExercise(
   for (const problem of result.problems) {
     fail(where, problem.includes('\n') ? problem.replace(/\n/g, `\n${'      '}`) : problem)
   }
+  lastDiscoveredTests = result.tests ?? []
   return result.parsed
+}
+
+/**
+ * Test ids from the most recent `validateExercise` call.
+ *
+ * A side channel rather than a second return value, because `validateExercise`
+ * already returns `string[] | null` with a meaning attached to the null and
+ * widening it would touch every caller for one consumer.
+ */
+let lastDiscoveredTests: string[] = []
+
+/** How many exercises have a case map, and how many exist. Printed at the end. */
+const caseMapCoverage = { mapped: 0, total: 0 }
+
+/**
+ * Read and check an exercise's case map.
+ *
+ * Three states, driven by the file rather than by a flag. No `cases.yaml` is
+ * not an error while the catalogue is being converted, and the summary line
+ * says how far along that is. A `cases.yaml` that exists must be complete:
+ * a partial map is worse than none, because it looks finished and its holes
+ * are exactly where somebody got stuck.
+ */
+async function readExerciseCases(
+  exerciseDir: string,
+  tests: string[],
+  where: string,
+  referenceSource: string,
+): Promise<Record<string, ExerciseCase> | undefined> {
+  caseMapCoverage.total += 1
+  const casesPath = path.join(exerciseDir, CASES_FILENAME)
+  if (!existsSync(casesPath)) return undefined
+  caseMapCoverage.mapped += 1
+
+  let parsed: unknown
+  try {
+    parsed = parseYaml(await readFile(casesPath, 'utf8'))
+  } catch (error) {
+    fail(where, `${CASES_FILENAME} is not valid YAML: ${(error as Error).message}`)
+    return undefined
+  }
+
+  const result = ExerciseCases.safeParse(parsed)
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      fail(where, `${CASES_FILENAME} [${issue.path.join('.') || 'root'}] ${issue.message}`)
+    }
+    return undefined
+  }
+
+  const cases = result.data.cases
+  const known = new Set(tests)
+  const mapped = new Set(Object.keys(cases))
+
+  const missing = tests.filter((id) => !mapped.has(id))
+  if (missing.length > 0) {
+    fail(
+      where,
+      `${CASES_FILENAME} covers ${mapped.size} of ${tests.length} tests. Every test is a ` +
+        `condition the learner is told about by name when they miss it, so a partial map ` +
+        `has holes exactly where somebody got stuck.\n` +
+        `missing:\n${missing.map((id) => `  ${id}`).join('\n')}`,
+    )
+  }
+
+  const unknown = [...mapped].filter((id) => !known.has(id))
+  if (unknown.length > 0) {
+    fail(
+      where,
+      `${CASES_FILENAME} names tests that do not exist:\n` +
+        unknown.map((id) => `  ${id}${nearest(id, tests)}`).join('\n'),
+    )
+  }
+
+  // A condition that restates the method name adds nothing: the learner can
+  // already read the name. This is the check that stops a generated map from
+  // passing review.
+  const normalise = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '')
+  for (const [id, entry] of Object.entries(cases)) {
+    const method = id.slice(id.indexOf('.') + 1).replace(/^test_/, '').replace(/_/g, ' ')
+    if (normalise(entry.condition) === normalise(method)) {
+      fail(
+        where,
+        `${CASES_FILENAME} [${id}] the condition just restates the method name. Say what ` +
+          `the input looks like, not what the test is called.`,
+      )
+    }
+  }
+
+  // A hint may not be a line of the answer. Whitespace-normalised, and only
+  // lines long enough to be a real giveaway.
+  const referenceLines = new Set(
+    referenceSource
+      .split('\n')
+      .map((line) => line.trim().replace(/\s+/g, ' '))
+      .filter((line) => line.length >= 30),
+  )
+  for (const [id, entry] of Object.entries(cases)) {
+    for (const hint of entry.hints) {
+      const flat = hint.trim().replace(/\s+/g, ' ')
+      for (const line of referenceLines) {
+        if (flat.includes(line)) {
+          fail(where, `${CASES_FILENAME} [${id}] a hint contains a line of the reference solution`)
+          break
+        }
+      }
+    }
+  }
+
+  return cases
+}
+
+/** `, did you mean X?` when something close exists. */
+function nearest(id: string, candidates: string[]): string {
+  const target = id.toLowerCase()
+  const close = candidates.find((candidate) => {
+    const other = candidate.toLowerCase()
+    return other.startsWith(target.slice(0, Math.floor(target.length * 0.7)))
+  })
+  return close ? ` (did you mean ${close}?)` : ''
 }
 
 /**
@@ -496,6 +626,7 @@ async function buildModule(
     }
 
     let exerciseFiles: Record<string, string> | undefined
+    let exerciseCases: Record<string, ExerciseCase> | undefined
     if (front.exercise) {
       const spec = front.exercise
       const exerciseDir = path.join(moduleDir, 'exercises', spec.id)
@@ -526,6 +657,7 @@ async function buildModule(
               name.startsWith('solutions-') ||
               name.startsWith('solution-') ||
               name.startsWith('solutions_') ||
+              name === CASES_FILENAME ||
               name.endsWith('.out')
             ) {
               continue
@@ -537,6 +669,13 @@ async function buildModule(
           // actually imports. A lesson page reads this before deciding whether
           // to load a WebAssembly runtime at all.
           spec.browser = browserSupportFor(exerciseFiles)
+
+          exerciseCases = await readExerciseCases(
+            exerciseDir,
+            lastDiscoveredTests,
+            exerciseAt,
+            exerciseFiles[spec.reference] ?? '',
+          )
         }
       }
     }
@@ -567,6 +706,7 @@ async function buildModule(
       exerciseFiles,
       exerciseHash: hashFiles(exerciseFiles),
       interactive: front.interactive,
+      exerciseCases,
     })
   }
 
@@ -877,6 +1017,12 @@ async function main() {
   console.log(
     `${check ? 'Checked' : 'Built'} ${courses.length} course(s), ${allModules.length} modules, ` +
       `${lessonCount} lessons, ${exerciseCount} exercises. Content version ${contentVersion}.`,
+  )
+  // Not a failure. An exercise with no case map falls back to humanised test
+  // names, which is weaker but not broken; this line is how far the conversion
+  // has got. An exercise that HAS a map is held to covering all of it.
+  console.log(
+    `Case maps: ${caseMapCoverage.mapped} of ${caseMapCoverage.total} exercises name their conditions.`,
   )
 }
 
