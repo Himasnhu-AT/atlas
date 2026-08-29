@@ -7,6 +7,185 @@ estimatedMinutes: 60
 exercise:
   id: persona-harness
   timeboxMinutes: 30
+challenges:
+  goal: Write rubric rules that pass when they do not apply, and gate on the persona that failed rather than the checks that did not.
+
+  steps:
+    - id: the-rule-that-punishes-good-behaviour
+      kind: spot
+      prompt: >-
+        The cooperative persona gets an answer, says thanks and leaves. It never asks for a
+        person, and it fails this rule. Click the line.
+      lang: python
+      source: |
+        def hands_over_by_second_request(transcript):
+            requests = [i for i, turn in enumerate(transcript.turns) if turn.wants_human]
+            if len(requests) < 2:
+                return False
+            second = requests[1]
+            return "escalated" in transcript.actions[second:]
+      targets: [3]
+      decoys:
+        "1": Collecting the positions of the explicit requests is right, and it is what lets the rule say anything about the second one.
+        "2": Testing whether the rule applies at all is correct. What happens when it does not apply is decided below.
+        "4": The second request is the rule's own definition of the deadline. Nothing wrong with reading it here.
+        "5": Looking for the escalation at or after that point is the assertion the rule exists to make.
+      hints:
+        - The rule is about sessions where somebody asked twice. This session had nobody ask once.
+        - A rule that does not apply has not been broken.
+        - Ask what an agent would learn to do if this rule stayed as it is and it were being optimised against.
+      reveal: >-
+        A rule that fails when it does not apply is a rule that rewards escalating, because
+        the cheapest way to satisfy it is to hand every conversation to a human. Vacuous
+        truth is not a technicality here, it is what keeps the rubric from having an
+        opinion about sessions it was never written about.
+
+    - id: exactly-one-pushback
+      kind: blanks
+      prompt: >-
+        Fill in the three values in the pushback rule. Each one is a decision about what the
+        rule refuses to say.
+      lang: python
+      template: |
+        def pushed_back_once_before_escalating(transcript):
+            if "escalated" not in transcript.actions:
+                return {{1}}
+            first = transcript.actions.{{3}}("escalated")
+            return transcript.actions[:first].count("pushed_back") == {{2}}
+      blanks:
+        - n: 1
+          as: select
+          options: ['True', 'False', 'None']
+          accept: ['True']
+          note: The session never escalated, so a rule about what happens before escalating has nothing to judge. Anything but a pass here makes the rubric prefer agents that escalate.
+        - n: 3
+          as: select
+          options: ['index', 'count', 'rindex', 'find']
+          accept: ['index']
+          note: The first escalation. Using the last one would let a session escalate, keep pushing back and escalate again, and count the later pushbacks as if they came before.
+        - n: 2
+          as: select
+          options: ['1', '0', '2', 'len(transcript.actions)']
+          accept: ['1']
+          note: Exactly one. Zero is an agent that gives up on the customers who would have taken the article, and two is where the conversation starts feeling like a maze.
+      hints:
+        - One blank decides what this rule says about a session it was not written for.
+        - The slice is everything before the escalation, so which escalation you pick changes what is in it.
+        - The contract allows one attempt after the first request. Not none, not two.
+      reveal: >-
+        Three lines, and two of them are about scope rather than about the agent. A rubric
+        is a set of claims, and each claim has to be explicit about the transcripts it
+        declines to make a claim about, because the alternative is a score that moves for
+        reasons nobody wrote down.
+
+    - id: which-rule-broke
+      kind: assign
+      prompt: >-
+        Seven sessions from last night's run. Name the rule each one broke.
+      buckets:
+        - id: pushback-count
+          label: Broke the exactly one pushback rule
+        - id: late-handover
+          label: Broke the hand over by the second request rule
+        - id: grounding
+          label: Broke the verified citation rule
+        - id: clean
+          label: Broke nothing
+      items:
+        - id: eager
+          label: Configured with no pushbacks. The customer asks once and the session escalates immediately.
+          bucket: pushback-count
+          because: Zero pushbacks before escalating is not one. It hands a human a question the knowledge base answers, which is the failure the calibration baseline exists to prove the rubric catches.
+        - id: two-pushbacks
+          label: The customer asks once. The agent offers an article, then another, then escalates.
+          bucket: pushback-count
+          because: Two attempts against a single request. The second one landed after the customer had already said what they wanted.
+        - id: stubborn
+          label: Configured with an effectively unlimited pushback budget. The customer asks four times and gets four articles.
+          bucket: late-handover
+          because: It never escalates, so the pushback rule passes vacuously and this one catches it. Two rules that overlap on the happy path diverge exactly here.
+        - id: no-citation
+          label: Retrieval returned two articles and the reply quotes a refund window with no marker on it.
+          bucket: grounding
+          because: There was context and the reply did not use it in a checkable way. This is the unsupported route, and shipping it means the number in that sentence has nothing behind it.
+        - id: invented-marker
+          label: The reply cites A9. Retrieval returned A2 and A7.
+          bucket: grounding
+          because: A marker outside the allowed set. Either the model invented it or it copied a tag out of a document body, and both are caught by the same comparison.
+        - id: cooperative
+          label: Answered with a citation, customer said thanks, session ended.
+          bucket: clean
+          because: Every escalation rule passes vacuously and the grounding rule passes on its merits. A rubric that fails this transcript is teaching the agent to escalate.
+        - id: textbook
+          label: Answered, customer asked for a person, one article on the original topic, customer asked again, handed over with a payload.
+          bucket: clean
+          because: The contract, executed. It is worth having in the fixture because a rubric that only sees failures cannot tell you when it has started rejecting the thing you wanted.
+      hints:
+        - Two sessions escalated in the wrong number of steps and they are wrong in opposite directions.
+        - One session never escalates at all, which makes the pushback rule silent about it.
+        - Two sessions produced text nobody can check, for two different reasons.
+      reveal: >-
+        The two deliberately broken baselines are load-bearing. An eager session must fail
+        the pushback rule and a stubborn one must fail the handover rule, and if either of
+        them passes, the rubric has a hole in it that no amount of running it against the
+        real agent will show you.
+
+    - id: gate-the-suite
+      kind: text-contract
+      prompt: >-
+        Four personas, five rules each, and an acceptance floor of 0.8. Fill in what the
+        suite reports.
+      context:
+        as: table
+        caption: Rules failed, by persona
+        columns: [persona, rules passed, rule that failed]
+        rows:
+          - [cooperative, "5 of 5", "none"]
+          - [frustrated, "5 of 5", "none"]
+          - [direct, "4 of 5", pushed_back_once_before_escalating]
+          - [edge-case, "4 of 5", hands_over_by_second_request]
+      lang: json
+      initial: |
+        {
+          "pass_rate": 0.9,
+          "failures": [],
+          "ok": true
+        }
+      rules:
+        - message: This no longer parses. Check the brackets around the failures list.
+          check: { op: parses, as: json }
+        - message: Eighteen of the twenty rule checks passed, and two of the four personas did not. A persona that fails a rule has failed, so the rate is over personas rather than over checks.
+          check: { op: equals, path: pass_rate, value: 0.5 }
+        - message: Two failures, and each one names a persona and the rule it broke. An empty list here is a green suite with two broken conversations in it.
+          check: { op: length, path: failures, min: 2, max: 2 }
+        - message: Sorted, so the diff between two runs is readable. The direct persona comes first.
+          check: { op: equals, path: failures.0.0, value: direct }
+        - message: Name the rule beside the persona. Without it the report says something broke and leaves you to find out what.
+          check: { op: equals, path: failures.0.1, value: pushed_back_once_before_escalating }
+        - message: And the second pair.
+          check: { op: equals, path: failures.1.0, value: edge-case }
+        - message: The rule that persona broke, which is the other one.
+          check: { op: equals, path: failures.1.1, value: hands_over_by_second_request }
+        - message: Half the personas failed against a floor of 0.8. This does not ship.
+          check: { op: equals, path: ok, value: false }
+      hints:
+        - There are two ways to compute the rate here and they differ by a factor that decides whether this ships.
+        - The failure list is what somebody reads at nine in the morning. It has to say who and which.
+        - Compare whatever rate you computed against the floor before filling in the last field.
+      reveal: >-
+        Averaging over rule checks rather than over personas turns two broken conversations
+        into a 0.9 and a green build. The unit of the suite is a conversation, because a
+        persona that gets four rules right and hands nobody over is not ninety percent
+        right about anything.
+      solution: |
+        {
+          "pass_rate": 0.5,
+          "failures": [
+            ["direct", "pushed_back_once_before_escalating"],
+            ["edge-case", "hands_over_by_second_request"]
+          ],
+          "ok": false
+        }
 ---
 
 Single-turn evaluations measure whether individual replies match reference answers and invoke

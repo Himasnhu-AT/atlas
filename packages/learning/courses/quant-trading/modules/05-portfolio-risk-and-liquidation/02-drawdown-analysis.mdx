@@ -7,6 +7,186 @@ estimatedMinutes: 20
 exercise:
   id: drawdown-tracker
   timeboxMinutes: 25
+challenges:
+  goal: Measure how deep an equity curve fell and how long it stayed down, using only information available at each point.
+
+  steps:
+    - id: how-deep-did-it-go
+      kind: numeric
+      prompt: >-
+        Read the maximum drawdown off this equity curve, as a percentage of the peak it fell
+        from.
+      unit: '%'
+      context:
+        as: table
+        caption: Month end equity
+        columns: [month, equity]
+        rows:
+          - [1, 100]
+          - [2, 120]
+          - [3, 90]
+          - [4, 110]
+          - [5, 95]
+          - [6, 130]
+      answer: 25
+      tolerance: 0.1
+      scaleHint: >-
+        That is out by more than a factor of ten. A drawdown is a percentage of a peak and
+        this curve never fell by more than a third.
+      hints:
+        - Every drawdown is measured from the highest equity reached before it, not from the value just before the fall.
+        - The peak before month three is 120, and the peak before month five is still 120.
+        - Thirty dollars off a peak of 120 is the largest of the two candidates.
+      reveal: >-
+        Month five looks worse than it is. Equity fell from 110 to 95, which is a 13.6 percent
+        fall, and the drawdown is 20.8 percent because the mark it is measured against is
+        still the 120 set three months earlier. A drawdown is a distance from a high-water
+        mark rather than a return, and the mark only ever moves up.
+
+    - id: the-peak-that-had-not-happened-yet
+      kind: spot
+      prompt: >-
+        Two lines here are wrong. One reports drawdowns nobody was experiencing at the time,
+        and one answers a different question from the one it was asked. Click both.
+      lang: python
+      source: |
+        def drawdown_metrics(equity):
+            peak_all = max(equity)
+            dd = [(peak_all - e) / peak_all for e in equity]
+            max_dd = max(dd)
+            underwater = sum(1 for x in dd if x > 0)
+            return max_dd, underwater
+      targets: [1, 4]
+      requireAll: true
+      decoys:
+        '2': >-
+          The drawdown formula is right. Shortfall over the mark is the definition, and it is
+          computed correctly against whatever mark it is handed.
+        '3': >-
+          The worst value in the drawdown series is the maximum drawdown, given a correct
+          series. This line is right and is fed a wrong one.
+        '5': >-
+          Returning depth and duration together is right. They measure different things and a
+          report that omits either is incomplete.
+      hints:
+        - The first of the two uses a number that did not exist until the end of the sample.
+        - Every point before the all-time high is reported as being in drawdown, which is not what a person living through that day would have seen.
+        - The second counts something, and what it counts is not the same as the longest stretch of it.
+      reveal: >-
+        Using the global maximum is look-ahead bias wearing a risk manager's badge. A curve
+        that rose steadily for four years and then set its high on the last day reports every
+        earlier day as underwater, so the duration figure becomes the length of the sample.
+        The correct mark is the running maximum, and the correct duration is the longest
+        consecutive run rather than the total count.
+
+    - id: one-honest-pass
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions so this makes one pass over the curve and never reads
+        ahead of itself.
+      lang: python
+      template: |
+        def drawdown_metrics(equity):
+            peak = equity[0]
+            peak_index = 0
+            max_dd = 0.0
+            max_duration = 0
+
+            for i, value in enumerate(equity):
+                if value > peak:
+                    peak = value
+                    peak_index = {{1}}
+
+                dd = {{2}}
+                max_dd = max(max_dd, dd)
+                max_duration = max(max_duration, {{3}})
+
+            return max_dd, max_duration
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'i'
+            - 'peak'
+            - 'i - 1'
+          accept: ['i']
+          note: >-
+            The duration is counted from where the peak was set, so what has to be recorded is
+            the position rather than the value. Storing the value here loses the only piece of
+            information the duration needs.
+        - n: 2
+          as: select
+          options:
+            - '(peak - value) / peak'
+            - '(value - peak) / peak'
+            - 'peak - value'
+          accept: ['(peak - value) / peak']
+          note: >-
+            The drawdown is a positive fraction of the peak. The reversed version is negative
+            everywhere below the mark, and the undivided version is in currency, so it cannot
+            be compared across a curve that grew tenfold.
+        - n: 3
+          as: select
+          options:
+            - 'i - peak_index'
+            - 'i'
+            - 'peak_index'
+          accept: ['i - peak_index']
+          note: >-
+            Time underwater is the distance from the last high to now. Using the index alone
+            makes the duration grow forever, and using the peak index measures when the
+            trouble started rather than how long it lasted.
+      hints:
+        - Everything this loop needs is either the current position or something recorded at the last new high.
+        - A drawdown has to be dimensionless, or a 5,000 dollar fall on a million dollar book looks like a catastrophe on a 20,000 dollar one.
+        - The duration resets to zero automatically on a new high, because at that moment the two indices are equal.
+      reveal: >-
+        The whole calculation is one pass and three pieces of state, and it never looks at a
+        value it has not already reached. That is the property that makes it usable inside a
+        live risk system as well as on a finished backtest, and it is also what makes the
+        wrong version so tempting, since taking the maximum of the whole array is shorter and
+        reads as if it means the same thing.
+
+    - id: same-depth-different-strategy
+      kind: choice
+      prompt: >-
+        Two strategies both report a 20 percent maximum drawdown. One recovered in six weeks
+        and the other took four years. What does the duration actually change?
+      options:
+        - id: who-can-hold
+          label: Who is able to hold it, which is a different question from how risky it is
+          correct: true
+          note: >-
+            Capital has a calendar. Four years underwater is four years of fees on a losing
+            position and four years of an allocator defending it to a committee, and most
+            allocations do not survive that regardless of what the eventual recovery looks
+            like.
+        - id: more-volatile
+          label: The four year strategy is more volatile
+          note: >-
+            Duration is about the sign of the returns persisting rather than their size. A
+            long shallow drawdown is usually the calmer of the two, which is exactly what
+            makes it so hard to distinguish from a strategy that has simply stopped working.
+        - id: deeper
+          label: The four year strategy has a deeper drawdown in reality
+          note: >-
+            Both are 20 percent by construction. Depth and duration are independent
+            measurements and neither implies the other.
+        - id: nothing
+          label: Nothing, since both investors ended up in the same place
+          note: >-
+            Only the investors who stayed ended up in the same place. The ones who redeemed
+            in year three realized the loss and funded the recovery for everyone else.
+      hints:
+        - Both numbers describe the same 20 percent. Ask what else differs between the two experiences.
+        - Nothing about the depth tells you whether the strategy is still working or has quietly stopped.
+        - The people who decide whether a strategy continues are rarely the people trading it.
+      reveal: >-
+        Duration is the measure that maps onto how a strategy actually dies. Depth gets a
+        strategy stopped out; duration gets it redeemed, and redemption is the more common
+        ending. It is also the harder statistic to estimate, since a backtest of ten years
+        contains one or two independent observations of a multi-year drawdown, which is not
+        enough to say anything about the distribution.
 ---
 
 A strategy can generate a 30% annualized return while subjecting the investor to a 60% peak-to-trough decline that takes three years to recover.

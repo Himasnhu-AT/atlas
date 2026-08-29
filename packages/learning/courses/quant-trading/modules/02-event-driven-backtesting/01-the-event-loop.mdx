@@ -46,10 +46,10 @@ challenges:
       kind: order
       prompt: Put the objects that pass through the queue for one trading decision in order.
       items:
-        - { id: market, label: A MarketEvent carrying a new bid, ask and volume }
+        - { id: market, label: 'A MarketEvent carrying a new bid, ask and volume' }
         - { id: signal, label: A SignalEvent carrying a target weight }
-        - { id: order, label: An OrderEvent carrying a symbol, a side and a quantity }
-        - { id: fill, label: A FillEvent carrying executed quantity, price and commission }
+        - { id: order, label: 'An OrderEvent carrying a symbol, a side and a quantity' }
+        - { id: fill, label: 'A FillEvent carrying executed quantity, price and commission' }
         - { id: snapshot, label: A mark to market snapshot of total equity }
       solution: [market, signal, order, fill, snapshot]
       because:
