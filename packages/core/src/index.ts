@@ -1,5 +1,6 @@
 export * from './types'
 export * from './grading'
+export * from './challenges'
 export * from './client'
 export * from './platform'
 export * from './progress'
