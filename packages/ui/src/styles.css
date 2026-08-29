@@ -116,6 +116,29 @@
      One curve. It decelerates hard, so movement reads as an arrival rather
      than a slide. No bounce and no elastic anywhere in this product. */
   --ease-paper: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* The two entrances that fire on a state change rather than on scroll.
+     `Reveal` handles arrivals the reader scrolls to; these handle the ones a
+     click causes, where an IntersectionObserver would never fire. Both are the
+     Arrival gesture from DESIGN.md on the one curve, not a fourth behaviour.
+
+     `animate-fade-in` was already used by AppShell and ConfirmDialog and
+     resolved to nothing, so those backdrops appeared instantly. */
+  --animate-fade-in: atlas-fade-in 0.2s var(--ease-paper) both;
+  --animate-arrive: atlas-arrive 0.45s var(--ease-paper) both;
+
+  @keyframes atlas-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes atlas-arrive {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
 }
 
 @layer base {
@@ -357,6 +380,101 @@
   }
 
   /* Denser variant, for the desktop app's narrower lesson pane. */
+  /* --- Widgets inside prose ----------------------------------------------
+     `remarkWidgets` in the content build emits `<div class="atlas-widget-mount">`
+     and `InteractiveRenderer` portals a React component onto it. Both classes
+     below were used by every widget and defined nowhere, so a widget mounted
+     mid-lesson inherited the reading column's width cap and had its own
+     buttons, links and code spans restyled as prose.
+
+     A widget is an instrument, not a paragraph. It gets the full column width
+     and none of the typography. */
+
+  .atlas-widget-mount {
+    max-width: none;
+    width: 100%;
+  }
+
+  /*
+   * Opting out of prose.
+   *
+   * The prose rules here are plain descendant selectors (`.prose-learn a`),
+   * not Tailwind Typography's `:where(...):not(:where([class~=not-prose] *))`
+   * machinery, so opting out means restating the properties rather than
+   * excluding a subtree. These match specificity (0,1,1) and come later in the
+   * file, which is what makes them win.
+   *
+   * Only the elements widgets actually contain are listed. Adding a widget that
+   * renders a blockquote means adding a line here.
+   */
+  .not-prose {
+    color: var(--color-ink);
+    font-size: inherit;
+    line-height: normal;
+    max-width: none;
+  }
+
+  .not-prose > * + * {
+    margin-top: 0;
+  }
+
+  .not-prose h2,
+  .not-prose h3,
+  .not-prose h4 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-family: inherit;
+    letter-spacing: normal;
+  }
+
+  .not-prose a {
+    color: inherit;
+    text-decoration: none;
+    background-image: none;
+  }
+
+  .not-prose strong {
+    color: inherit;
+    font-weight: 600;
+  }
+
+  .not-prose ul,
+  .not-prose ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .not-prose li {
+    margin: 0;
+    padding: 0;
+  }
+
+  .not-prose ul > li::before {
+    content: none;
+  }
+
+  .not-prose :not(pre) > code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  .not-prose table {
+    margin: 0;
+    font-size: inherit;
+  }
+
+  .not-prose th,
+  .not-prose td {
+    padding: 0;
+    border: 0;
+    text-align: inherit;
+  }
+
   .prose-compact {
     font-size: 15.5px;
     line-height: 1.68;

@@ -106,7 +106,7 @@ export function LessonStageController({
       {/* STAGE 1: PLAY (FULL SCREEN IMMERSION, NO HERO/SIDEBAR CLUTTER)      */}
       {/* =================================================================== */}
       {activeStage === 'play' && hasInteractive && (
-        <div className="w-full animate-in fade-in duration-200">
+        <div className="w-full animate-fade-in">
           {React.isValidElement(interactiveNode)
             ? React.cloneElement(interactiveNode as React.ReactElement<any>, {
                 onGoToCode: () => setActiveStage(hasExercise ? 'code' : 'read'),
@@ -120,7 +120,7 @@ export function LessonStageController({
       {/* STAGE 2: READ (EDITORIAL DOCUMENTATION + SIDEBAR)                   */}
       {/* =================================================================== */}
       {activeStage === 'read' && (
-        <div className="flex flex-col lg:flex-row lg:gap-14 animate-in fade-in duration-200">
+        <div className="flex flex-col lg:flex-row lg:gap-14 animate-fade-in">
           {sidebarNode && (
             <div className="w-full lg:w-64 shrink-0">{sidebarNode}</div>
           )}
@@ -164,7 +164,7 @@ export function LessonStageController({
       {/* STAGE 3: CODE (SPLIT SCREEN: 50% SPECS / 50% CODE EDITOR)           */}
       {/* =================================================================== */}
       {activeStage === 'code' && hasExercise && (
-        <div className="w-full animate-in fade-in duration-200">
+        <div className="w-full animate-fade-in">
           <div className="grid gap-8 lg:grid-cols-12">
             {/* Left 50% Column: Problem Spec, Invariants, & Requirements */}
             <div className="lg:col-span-5 space-y-6">

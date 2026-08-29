@@ -124,7 +124,7 @@ export function StateMachineSimulator({
             <button
               key={action}
               onClick={() => handleTransition(action)}
-              className="inline-flex items-center gap-1.5 rounded-field border border-accent bg-accent px-3.5 py-1.5 text-caption font-medium text-white shadow-xs transition-colors hover:bg-accent-deep active:scale-98"
+              className="inline-flex items-center gap-1.5 rounded-field border border-accent bg-accent px-3.5 py-1.5 text-caption font-medium text-white shadow-xs transition-colors hover:bg-accent-deep"
             >
               <span>{action}</span>
               <span className="text-[11px] opacity-75">&rarr; {states[target]?.label || target}</span>
