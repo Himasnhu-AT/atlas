@@ -7,6 +7,177 @@ estimatedMinutes: 20
 exercise:
   id: momentum-signals
   timeboxMinutes: 25
+challenges:
+  goal: Size a trend signal by its own realized volatility, and know what a lagging risk estimate cannot protect you from.
+
+  steps:
+    - id: what-the-scaling-asks-for
+      kind: numeric
+      prompt: >-
+        The lookback return is positive and the market is more volatile than your risk
+        target. What weight does the scaling call for?
+      context:
+        as: pairs
+        items:
+          - { k: Lookback return, v: plus 8.4 percent }
+          - { k: Daily deviation over the lookback, v: '1.20 percent' }
+          - { k: Annualisation, v: multiply the daily figure by the square root of 252 }
+          - { k: Target volatility, v: 15 percent annualised }
+          - { k: Leverage cap, v: '1.0' }
+      answer: 0.7874
+      tolerance: 0.005
+      scaleHint: >-
+        That is out by more than a factor of ten, which usually means a percentage was mixed
+        with a fraction. Both sides of the ratio have to be in the same units.
+      hints:
+        - The size of the return does not enter the weight at all. Only its sign does.
+        - The square root of 252 is about 15.87, so a 1.20 percent daily move annualises to about 19.05 percent.
+        - The weight is the target over the realized figure, capped at one, and here the cap does not bind.
+      reveal: >-
+        The magnitude of the trend is deliberately thrown away. Trend following makes its
+        money from the sign being right often enough, and letting the size of the recent move
+        set the position means the biggest bet is placed after the biggest move, which is
+        exactly when the move is most likely to be over.
+
+    - id: sign-from-one-place-size-from-another
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions. One decides the direction, one decides the size, and
+        one is the window they are both measured over.
+      lang: python
+      template: |
+        def weight(prices, lookback, target_vol, ann):
+            past = prices[-lookback - 1]
+            lookback_return = {{1}}
+
+            window = prices[-lookback - 1:]
+            rets = [window[i] / window[i - 1] - 1.0 for i in range(1, len(window))]
+            realized = statistics.stdev(rets) * math.sqrt(ann)
+            if realized == 0.0:
+                return 0.0
+
+            return {{2}} * min(1.0, {{3}})
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - '(prices[-1] - past) / past'
+            - 'prices[-1] - past'
+            - 'prices[-1] / past'
+          accept: ['(prices[-1] - past) / past']
+          note: >-
+            A return is a fraction of what was risked, so the change is divided by the
+            starting price. The bare difference is in dollars and the bare ratio is above one
+            for every rise, which makes its sign useless.
+        - n: 2
+          as: select
+          options:
+            - 'math.copysign(1.0, lookback_return)'
+            - 'lookback_return'
+            - 'abs(lookback_return)'
+          accept: ['math.copysign(1.0, lookback_return)']
+          note: >-
+            The direction comes from the trend and the size comes from the volatility.
+            Passing the return through instead makes a violent month a large position, which
+            is the leverage the scaling exists to remove.
+        - n: 3
+          as: select
+          options:
+            - 'target_vol / realized'
+            - 'realized / target_vol'
+            - 'target_vol * realized'
+          accept: ['target_vol / realized']
+          note: >-
+            Position size moves inversely with risk. The inverted ratio buys more of whatever
+            is moving most, which is how a trend book turns a volatility spike into a
+            drawdown.
+      hints:
+        - Two of these three lines are about direction and scale respectively, and neither of them should contain the other's information.
+        - A return has to be dimensionless before its sign means anything.
+        - If realized volatility doubles, the weight should halve.
+      reveal: >-
+        The cap at 1.0 is doing quiet work here. Without it a very calm market produces a
+        weight of three or four, and the first time volatility normalises the book takes the
+        full move at that size. Most trend programmes cap well below the level their target
+        would allow, and treat the difference as the price of not trusting their own
+        volatility estimate.
+
+    - id: the-volatility-that-never-moved
+      kind: spot
+      prompt: >-
+        This scales by volatility and still lost 40 percent in the crash it was supposed to
+        survive. Click the line responsible.
+      lang: python
+      source: |
+        def weight(prices, lookback, target_vol):
+            r = prices[-1] / prices[-lookback - 1] - 1.0
+            rets = np.diff(prices) / prices[:-1]
+            vol = rets.std() * np.sqrt(252)
+            return np.sign(r) * min(1.0, target_vol / vol)
+      targets: [2]
+      requireAll: true
+      decoys:
+        '1': >-
+          The lookback return is right, offset included. Dividing by the price lookback bars
+          ago gives the return over exactly that window.
+        '3': >-
+          Annualising a daily standard deviation by the root of 252 is the convention the
+          target is quoted in, so both sides of the ratio agree.
+        '4': >-
+          The sign and the cap are both right. Taking the sign discards the magnitude
+          deliberately, and the cap is what bounds leverage in a quiet market.
+      hints:
+        - Every other line in this function is measured over the lookback window. One is not.
+        - The volatility estimate here is a ten year average, and the position it produces is the same on a calm Tuesday as it is in October 2008.
+        - Compare the slice this line takes against the slice on the line above it.
+      reveal: >-
+        Volatility scaling is worth nothing if the volatility estimate does not respond.
+        Measured over the whole history the figure barely moves, the weight barely moves, and
+        the strategy is an unscaled trend follower with an extra function call. The window
+        length is the actual parameter of this technique, and it is a tradeoff rather than a
+        detail, because a short window responds quickly and jumps the position around on
+        noise.
+
+    - id: what-the-lag-costs
+      kind: choice
+      prompt: >-
+        Volatility scaling reads an estimate built from bars that have already printed. What
+        does that lag actually cost you?
+      options:
+        - id: cuts-after
+          label: The size is cut after the move that raised the estimate, not before it
+          correct: true
+          note: >-
+            The first violent day is taken at the old, larger size, and the reduction lands
+            in time for the recovery. This is the structural cost of every risk control
+            estimated from realized data.
+        - id: lower-sharpe
+          label: It lowers the Sharpe ratio of the strategy
+          note: >-
+            It usually raises it. Most of a trend programme's return comes from a few
+            sustained moves in ordinary conditions, and most of its losses come from
+            volatility spikes, so equalising risk across the two helps.
+        - id: needs-leverage
+          label: It needs leverage above one in calm markets
+          note: >-
+            It would, and that is exactly why the formula caps the weight at one. That makes
+            this a cost of the cap rather than of the lag, and it shows up as running below
+            target rather than as a loss.
+        - id: wrong-direction
+          label: It makes the strategy get the direction of the trend wrong more often
+          note: >-
+            The direction is the sign of the lookback return and the scaling never touches
+            it. Size and direction are computed independently for precisely this reason.
+      hints:
+        - Ask when the estimate changes relative to when the loss happens.
+        - Realized volatility on Monday is a fact about the previous weeks, so a violent Monday is taken at Friday's size.
+        - The reduction arrives in time for whatever comes next, which is often the bounce.
+      reveal: >-
+        Every risk control built from realized data sells low and buys high by construction,
+        and knowing that is what stops you from expecting it to be a crash hedge. It is a
+        leverage governor, not a stop, and the way to reduce the lag is a faster estimate,
+        which costs you turnover and noise instead. Options are the instrument that pays
+        before the move rather than after it, and they cost a premium for exactly that.
 ---
 
 **Time-series momentum** (trend following) assumes that an asset with positive excess returns over a lookback window will continue to outperform over future horizons.

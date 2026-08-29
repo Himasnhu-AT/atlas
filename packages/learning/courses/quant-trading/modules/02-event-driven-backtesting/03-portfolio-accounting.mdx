@@ -7,6 +7,189 @@ estimatedMinutes: 25
 exercise:
   id: portfolio-ledger
   timeboxMinutes: 30
+challenges:
+  goal: Keep a ledger that survives a partial close and a short, and read total equity off it without counting anything twice.
+
+  steps:
+    - id: what-the-short-actually-made
+      kind: numeric
+      prompt: >-
+        A short was opened in two clips and partly covered. How much profit is realized,
+        in dollars, ignoring commission?
+      unit: dollars
+      context:
+        as: table
+        caption: Fills in the order they arrived
+        columns: [side, quantity, price]
+        rows:
+          - [sell, 100, 42.00]
+          - [sell, 100, 38.00]
+          - [buy, 120, 34.00]
+      answer: 720
+      tolerance: 0.5
+      scaleHint: >-
+        That is out by more than a factor of ten. The profit per share is single digit
+        dollars and the shares covered are in the low hundreds.
+      hints:
+        - The two sells establish one position at one average price before anything is realized.
+        - Averaging 42 and 38 over equal clips gives 40, and only the covered shares realize anything.
+        - A short earns the average minus the fill, not the other way round.
+      reveal: >-
+        Nothing is realized when the position grows and everything is realized in proportion
+        when it shrinks, which is why the average price is the only piece of state that
+        makes a ledger more than a running total. The 80 shares still short carry the same
+        average of 40 and have realized nothing.
+
+    - id: the-two-branches-of-a-fill
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions. One handles a position growing, one handles it
+        shrinking, and one handles it flipping sign.
+      lang: python
+      template: |
+        def apply(self, fill):
+            q, p = fill.signed_quantity, fill.price
+            self.cash -= q * p + fill.commission
+            pos = self.positions[fill.symbol]
+
+            if pos.quantity == 0 or (pos.quantity > 0) == (q > 0):
+                pos.avg_price = {{1}}
+            else:
+                closed = min(abs(q), abs(pos.quantity))
+                direction = 1.0 if pos.quantity > 0 else -1.0
+                self.realized += {{2}}
+                if abs(q) > abs(pos.quantity):
+                    pos.avg_price = {{3}}
+
+            pos.quantity += q
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - '(pos.avg_price * pos.quantity + p * q) / (pos.quantity + q)'
+            - '(pos.avg_price + p) / 2'
+            - 'p'
+          accept: ['(pos.avg_price * pos.quantity + p * q) / (pos.quantity + q)']
+          note: >-
+            The new average is weighted by size. Averaging the two prices is only right when
+            the clips happen to be equal, and taking the fill price throws away everything
+            already held.
+        - n: 2
+          as: select
+          options:
+            - '(p - pos.avg_price) * closed * direction'
+            - '(p - pos.avg_price) * closed'
+            - '(pos.avg_price - p) * closed'
+          accept: ['(p - pos.avg_price) * closed * direction']
+          note: >-
+            A long realizes fill minus average and a short realizes the opposite, so the
+            direction of the position being reduced has to appear in the expression. Either
+            version without it is right for exactly one side of the book.
+        - n: 3
+          as: select
+          options:
+            - 'p'
+            - 'pos.avg_price'
+            - '(pos.avg_price + p) / 2'
+          accept: ['p']
+          note: >-
+            The old position is gone and the remainder was all bought at this fill, so the
+            basis restarts here. Carrying the old average forward means the new position
+            inherits a cost it never paid.
+      hints:
+        - The branch you are in already tells you whether the position is growing or shrinking, so the expressions do not need to test that again.
+        - Reducing a position never touches the average price, which is why one of these three lines sits inside a second condition.
+        - The variable named direction exists for exactly one of the three blanks.
+      reveal: >-
+        The reason the average survives a reduction untouched is that it is the cost of what
+        is still held, and selling some of it did not change what the rest cost. Recomputing
+        it on the way out is the most common ledger bug there is, and it hides because the
+        cash is still right.
+
+    - id: equity-counted-twice
+      kind: spot
+      prompt: >-
+        This equity function is wrong in two places and both of them flatter the curve.
+        Click both lines.
+      lang: python
+      source: |
+        def equity(self, prices):
+            total = self.cash
+            for symbol, pos in self.positions.items():
+                total += abs(pos.quantity) * prices[symbol]
+            return total + self.realized
+      targets: [3, 4]
+      requireAll: true
+      decoys:
+        '1': >-
+          Settled cash is the right thing to start from. It already carries every fill and
+          every commission that has been applied.
+        '2': >-
+          Walking every open position is right. A position that is flat contributes zero and
+          costs nothing to include.
+      hints:
+        - Work a short position through this by hand. It should reduce equity and it does not.
+        - The cash balance already moved when each fill was applied, so ask what is left to add on top of it.
+        - Two lines, and one of them adds a number that has already been counted.
+      reveal: >-
+        Realized profit is not a separate pot, it is already inside cash, because cash moved
+        on every fill that produced it. Adding it again doubles every closed trade. The
+        absolute value is the other half of the same misunderstanding, since a short is a
+        liability that shrinks equity until it is bought back.
+
+    - id: repair-the-snapshot
+      kind: text-contract
+      prompt: >-
+        The ledger produced this snapshot after the three fills below. Correct every field it
+        got wrong.
+      context:
+        as: table
+        caption: Starting cash 100,000, no commission, mark price 70.00
+        columns: [side, quantity, price]
+        rows:
+          - [buy, 100, 50.00]
+          - [buy, 100, 60.00]
+          - [sell, 150, 65.00]
+      lang: json
+      initial: |
+        {
+          "cash": 98750,
+          "quantity": 50,
+          "avg_price": 65.0,
+          "realized": 2250.0,
+          "equity_at_70": 104500.0
+        }
+      rules:
+        - message: The snapshot no longer parses as JSON. Check the braces and the commas.
+          check: { op: parses, as: json }
+        - message: Two buys of 100 and a sell of 150 leave 50 shares long.
+          check: { op: equals, path: quantity, value: 50 }
+        - message: Cash is the starting balance less both buys plus the sell, and no commission was charged.
+          check: { op: equals, path: cash, value: 98750 }
+        - message: Reducing a position does not touch its cost basis. The average is still what the two buys established.
+          check: { op: equals, path: avg_price, value: 55 }
+        - message: The 150 shares closed came off the average of the position, not off the price of the first lot.
+          check: { op: equals, path: realized, value: 1500 }
+        - message: Equity is settled cash plus the market value of what is still held. Realized profit is already inside cash.
+          check: { op: equals, path: equity_at_70, value: 102250 }
+      hints:
+        - Two of the five fields are already right, and working out which two is most of the work.
+        - The average price was reset to the last fill and the profit was booked against the first lot. Neither is how a weighted average ledger works.
+        - Once the average is 55 the realized figure follows, and equity is cash plus 50 shares marked at 70 and nothing else.
+      reveal: >-
+        Every wrong field here comes from a different plausible convention. Resetting the
+        basis is FIFO thinking applied to an average cost ledger, booking against the first
+        lot is FIFO again, and adding realized to equity is treating a bookkeeping total as
+        an asset. Pick one convention and let the numbers follow from it, because a ledger
+        that mixes two is wrong in ways that cancel on some days and compound on others.
+      solution: |
+        {
+          "cash": 98750,
+          "quantity": 50,
+          "avg_price": 55,
+          "realized": 1500,
+          "equity_at_70": 102250
+        }
 ---
 
 A trading strategy can hold simultaneous long and short positions across multiple assets while cash fluctuates from executions, commissions, and borrow fees.

@@ -7,6 +7,181 @@ estimatedMinutes: 20
 exercise:
   id: kelly-sizing
   timeboxMinutes: 20
+challenges:
+  goal: Compute a Kelly fraction, refuse to size a negative edge, and choose the multiple of full Kelly a real desk can survive.
+
+  steps:
+    - id: the-full-kelly-fraction
+      kind: numeric
+      prompt: >-
+        A strategy wins 55 percent of the time and its average win is 1.5 times its average
+        loss. What fraction of capital does full Kelly call for?
+      context:
+        as: pairs
+        items:
+          - { k: Win probability p, v: '0.55' }
+          - { k: Payoff ratio b, v: '1.5' }
+          - { k: Kelly fraction, v: p minus the quantity one minus p, divided by b }
+      answer: 0.25
+      tolerance: 0.001
+      scaleHint: >-
+        That is out by more than a factor of ten. The answer is a fraction of capital between
+        zero and one, not a percentage and not a multiple.
+      hints:
+        - The loss side of the formula is a probability divided by a payoff, so it is smaller than the probability itself.
+        - One minus 0.55 is 0.45, and 0.45 divided by 1.5 is 0.30.
+        - Subtract that from the win probability.
+      reveal: >-
+        A quarter of capital on a single bet is an enormous position, and this is the size
+        that maximises long run growth on parameters most people would call a modest edge.
+        That gap between the mathematically optimal size and the size anybody would actually
+        send is what the rest of this lesson is about.
+
+    - id: the-two-guards
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions. One is the formula, one refuses a bet that should not
+        be made, and one bounds the one that should.
+      lang: python
+      template: |
+        def kelly_fraction(win_rate, win_loss_ratio, multiple, cap):
+            if win_loss_ratio <= 0.0:
+                return 0.0
+
+            f = {{1}}
+            if {{2}}:
+                return 0.0
+
+            return {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'win_rate - (1.0 - win_rate) / win_loss_ratio'
+            - 'win_rate * win_loss_ratio - 1.0'
+            - '(win_rate - 0.5) * win_loss_ratio'
+          accept: ['win_rate - (1.0 - win_rate) / win_loss_ratio']
+          note: >-
+            The loss side is the probability of losing divided by how much a win pays
+            relative to a loss. A better payoff makes the same loss rate cost less capital,
+            which is why the ratio is in the denominator.
+        - n: 2
+          as: select
+          options:
+            - 'f <= 0.0'
+            - 'f >= cap'
+            - 'win_rate < 0.5'
+          accept: ['f <= 0.0']
+          note: >-
+            A non-positive fraction means the edge is negative, and the right size for a
+            negative edge is nothing. A win rate below a half is a different thing entirely,
+            since a 40 percent win rate at three to one is a good strategy.
+        - n: 3
+          as: select
+          options:
+            - 'min(cap, f * multiple)'
+            - 'min(cap, f) * multiple'
+            - 'f * multiple'
+          accept: ['min(cap, f * multiple)']
+          note: >-
+            Scale first and cap second, so the cap limits what is actually risked. Capping
+            before scaling makes the cap mean something different at every multiple, and
+            leaving it out lets one noisy estimate size the whole book.
+      hints:
+        - The formula has a division in it, and what is divided is not the probability of winning.
+        - One of the guards is about the sign of the answer, not about the size of any input.
+        - The cap has to be the last thing that touches the number, or it is capping something other than the position.
+      reveal: >-
+        The negative-edge guard matters more than it looks. Without it a strategy whose
+        parameters have drifted returns a negative fraction, and a caller that multiplies
+        equity by it quietly runs the strategy backwards at full size. Sizing functions
+        should return zero rather than a sign, because inverting a losing strategy is a
+        decision somebody has to make deliberately.
+
+    - id: three-points-of-win-rate
+      kind: choice
+      prompt: >-
+        Your backtest reports p of 0.55 and b of 1.5, so you size at the full 0.25. The true
+        p is 0.52, which makes true full Kelly 0.20. What have you actually done?
+      options:
+        - id: ruin
+          label: Guaranteed eventual ruin
+          note: >-
+            Growth turns negative only past twice Kelly, and 0.25 against a true 0.20 is
+            1.25 times. Ruin is not certain here, it is merely a great deal more likely than
+            the backtest implied.
+        - id: flat-top
+          label: Given up a little growth and taken on a lot more drawdown
+          correct: true
+          note: >-
+            The growth curve is flat near its peak, so being 25 percent over costs almost
+            nothing in expected growth. The drawdown distribution is not flat at all, and it
+            scales roughly with the fraction itself.
+        - id: nothing
+          label: Nothing worth worrying about, since three points of win rate is a small error
+          note: >-
+            Three points of p is a 25 percent error in position size, because the formula
+            divides the loss side by the payoff and the two effects compound. Small parameter
+            errors are not small sizing errors.
+        - id: better
+          label: Improved growth, since a larger position on a positive edge compounds faster
+          note: >-
+            Growth rises with size only up to full Kelly and falls after it. Past the peak
+            the extra variance costs more than the extra edge earns, which is the whole
+            content of the criterion.
+      hints:
+        - Ask what shape the growth curve has near its maximum, and what shape the drawdown curve has there.
+        - A function at its maximum is flat, so a small step either side changes it very little.
+        - The other quantity in play has no maximum and rises steadily with size.
+      reveal: >-
+        Kelly is a maximum, and maxima are forgiving to the left and punishing to the right.
+        Under-betting costs you a little growth and nothing else; over-betting costs you a
+        little growth and a great deal of drawdown. Since every parameter is estimated and
+        errors go both ways, the asymmetry is the argument for deliberately sitting to the
+        left of the peak.
+
+    - id: pick-the-multiple
+      kind: tune
+      prompt: >-
+        The mandate allows a 30 percent peak to trough drawdown and needs at least 8.8
+        percent of annual log growth. Find a multiple of full Kelly that delivers both.
+      inputs:
+        - id: multiple
+          label: Multiple of full Kelly
+          min: 0
+          max: 2
+          step: 0.1
+          initial: 2
+      outputs:
+        - id: growth
+          label: Expected annual log growth
+          unit: '%'
+          terms:
+            - { coef: 24, of: [multiple] }
+            - { coef: -12, of: [multiple, multiple] }
+          target: { min: 8.8 }
+          note: >-
+            Growth is too low. It peaks at full Kelly and falls away on both sides, so a
+            multiple near zero and a multiple near two give you the same nothing.
+        - id: drawdown
+          label: Typical peak to trough
+          unit: '%'
+          terms:
+            - { coef: 50, of: [multiple] }
+          target: { max: 30 }
+          note: >-
+            Too deep for the mandate. Drawdown rises in proportion to the multiple and has no
+            peak to sit near, which is why it is the constraint that binds first.
+      hints:
+        - Start by finding the multiple the drawdown limit allows, then check whether the growth at that size clears the hurdle.
+        - Drawdown is proportional to the multiple, so the mandate rules out anything above six tenths.
+        - Half of full Kelly is inside both limits, and it is not a coincidence that this is the number desks quote.
+      reveal: >-
+        Half Kelly gives up a quarter of the growth and halves the drawdown, which is the
+        trade almost every institutional allocator makes. It also buys something the numbers
+        here do not show: at half Kelly you can be wrong about your edge by a factor of two
+        and still be under-betting rather than over-betting, which is the only defence
+        against parameters estimated from a sample you have already fitted to.
 ---
 
 A trading strategy with a positive expected return can still suffer capital wipeout if position sizes are too large.

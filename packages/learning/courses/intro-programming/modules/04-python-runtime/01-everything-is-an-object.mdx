@@ -7,6 +7,170 @@ estimatedMinutes: 20
 exercise:
   id: boxed-object-model
   timeboxMinutes: 25
+challenges:
+  goal: Read a Python name as a pointer to a boxed object, and predict when two names reach the same one.
+
+  steps:
+    - id: what-a-list-of-ints-costs
+      kind: numeric
+      prompt: >-
+        How many bytes does this list occupy in total, counting the pointer array and every
+        object it points at?
+      context:
+        as: code
+        lang: python
+        source: |
+          values = list(range(1000, 2000))   # 1000 distinct ints, all above the cache
+
+          # on this build:
+          #   a pointer is 8 bytes
+          #   a PyLongObject holding one digit is 28 bytes
+      answer: 36000
+      unit: bytes
+      tolerance: 0
+      scaleHint: >-
+        An answer near 8000 is the C array. Two allocations are being counted here and the
+        pointer array is only one of them.
+      hints:
+        - Two different things are allocated, and only one of them holds any of the numbers.
+        - The list itself is 1000 pointers of 8 bytes, and not one of those bytes is a value.
+        - Every value above 256 misses the small integer cache and gets its own object, so add 1000 of them.
+      reveal: >-
+        Thirty-six kilobytes where C spends eight, and the size is the smaller half of the
+        problem. Those thousand objects are scattered across the heap, so walking the list is a
+        thousand dependent loads rather than one linear scan a prefetcher can see coming. That
+        gap is the reason numpy exists: one contiguous buffer of raw int64 with a single
+        PyObject wrapped around the whole thing.
+
+    - id: same-object-or-same-value
+      kind: assign
+      prompt: >-
+        These lines are typed one at a time at the interactive prompt. Sort each expression by
+        what it evaluates to.
+      context:
+        as: code
+        lang: python
+        source: |
+          a = [1, 2, 3]
+          b = [1, 2, 3]
+          c = a
+          x = 250
+          y = 250
+          p = 1000
+          q = 1000
+      buckets:
+        - id: is-true
+          label: Evaluates to True
+          note: Either the two names reach one object, or two objects compare equal.
+        - id: is-false
+          label: Evaluates to False
+          note: Two separate objects, and the question being asked was about identity.
+      items:
+        - id: a-is-b
+          label: "a is b"
+          bucket: is-false
+          because: Two list displays ran, so two lists were allocated. Nothing about equal contents makes them one object.
+        - id: a-is-c
+          label: "a is c"
+          bucket: is-true
+          because: Assignment copies the pointer and nothing else, so both names hold the same address.
+        - id: a-eq-b
+          label: "a == b"
+          bucket: is-true
+          because: Equality asks the type to compare contents, and list does that element by element.
+        - id: x-is-y
+          label: "x is y, where both are 250"
+          bucket: is-true
+          because: Every integer from -5 to 256 is preallocated once at startup, so both names got a pointer to the same cached object.
+        - id: p-is-q
+          label: "p is q, where both are 1000"
+          bucket: is-false
+          because: Outside the cached range each literal allocates its own object, and at the prompt the two lines are compiled separately so nothing shares a constant.
+        - id: p-eq-q
+          label: "p == q, where both are 1000"
+          bucket: is-true
+          because: Two distinct objects holding the same digits, which is the only thing equality was ever asking about.
+      hints:
+        - Every name here holds an address. Two of these questions ask about the address and the rest ask about what is at it.
+        - Two of the six are about integers, and the answers differ between them for a reason that is a performance optimisation rather than a rule of the language.
+        - Small integers are shared and large ones are not, so identity between two ints depends on which side of 256 they fall.
+      reveal: >-
+        Identity is a pointer comparison and equality is a call into the type. They agree by
+        accident often enough that using is on numbers or strings appears to work, and the
+        accident is the small integer cache and string interning. Both are implementation
+        details that can and do change between versions, which is why is belongs to None and to
+        sentinels and nowhere else.
+
+    - id: what-immutable-actually-forbids
+      kind: choice
+      prompt: >-
+        A name holds a str and the next line appends to it. What happened to the object the
+        name held?
+      context:
+        as: code
+        lang: python
+        source: |
+          s = "abc"
+          t = s
+          s += "d"
+      options:
+        - id: mutated
+          label: The string grew in place, so id(s) is unchanged and t now reads "abcd" as well.
+          note: str exposes no operation that writes into its own buffer, which is the whole of what immutable means. t still reads "abc", because the object it names never changed.
+        - id: new-object
+          label: A new str was built from both parts and s was rebound to it. The original is untouched and t still names it.
+          correct: true
+          note: Every transformation of an immutable object allocates. The name moved and the object did not, which is why t is unaffected and why building a string in a loop allocates once per iteration.
+        - id: copy-on-write
+          label: CPython defers the change with copy-on-write until something reads s again.
+          note: There is no copy-on-write for str. The concatenation runs and allocates on the line that asks for it.
+        - id: optimised
+          label: Nothing observable, because CPython turns += on strings into an in-place update.
+          note: CPython does have that optimisation, and it applies only when the reference count is exactly one. Here t holds a second reference, so it cannot fire, and even when it does the language semantics are still that a new object was made.
+      hints:
+        - Ask what str could do to its own bytes, given that the type offers no method that changes them.
+        - The line rebinds a name. Check what the other name reports afterwards to find out whether anything else moved.
+        - One of the four answers is about a real CPython optimisation and still gets the semantics wrong.
+      reveal: >-
+        Immutable means the type has no operation that changes the payload, so every
+        transformation allocates a new object and rebinds a name. That is why building a string
+        with += in a loop is quadratic unless the parts are collected and joined once, and it is
+        also what makes the small integer cache safe: nothing can make the shared 250 stop
+        being 250.
+
+    - id: three-rows-one-list
+      kind: spot
+      prompt: >-
+        This builds a grid and writing into one cell changes three. Click the line that shares
+        what it should have copied.
+      lang: python
+      source: |
+        def make_grid(rows, cols):
+            row = [0] * cols
+            grid = [row] * rows
+            return grid
+
+
+        grid = make_grid(3, 3)
+        grid[0][0] = 99
+        print(grid)
+        # [[99, 0, 0], [99, 0, 0], [99, 0, 0]]
+      targets: [2]
+      decoys:
+        '1': Repeating a list of one zero is safe. It copies the pointer to the integer 0 three times, and nothing can change what 0 is.
+        '6': Asking for a three by three grid is reasonable, and the thing that comes back really does have three rows and three columns.
+        '7': Writing into one cell is an ordinary assignment and exactly what the caller intended. The surprise is how many rows it reaches.
+        '8': Printing reports what is actually there. Nothing here is lying about the contents.
+      hints:
+        - Two lines multiply a list and only one of them causes trouble. The difference is what is inside the list being repeated.
+        - Repeating a list copies the pointers it holds, never the objects those pointers reach.
+        - Sharing an object costs nothing when nothing can change it, and everything when something can.
+      reveal: >-
+        Repeating a list copies a pointer n times, and whether that is a bug depends entirely on
+        whether the pointed-at object is mutable. Three references to one list is not a grid, it
+        is one row seen three times, and the write is what proves it. The fix is a comprehension,
+        because the inner expression is evaluated once per row and allocates a separate list
+        each time.
 ---
 
 In C and C++, variables map directly to memory addresses containing raw byte representations of types like `int32_t` or `double`. In CPython, every variable is a pointer to a heap-allocated C structure called `PyObject`.

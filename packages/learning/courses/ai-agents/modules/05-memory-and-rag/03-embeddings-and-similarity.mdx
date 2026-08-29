@@ -7,6 +7,158 @@ estimatedMinutes: 40
 exercise:
   id: vector-search
   timeboxMinutes: 35
+challenges:
+  goal: Score a query against a corpus, rank the results the same way twice, and let the retriever say nothing matched.
+
+  steps:
+    - id: angle-not-length
+      kind: numeric
+      prompt: >-
+        Two vectors, two dimensions each, so you can do this by hand. What is their cosine
+        similarity, to two decimal places?
+      context:
+        as: pairs
+        items:
+          - { k: a, v: "[3, 4]" }
+          - { k: b, v: "[4, 3]" }
+      answer: 0.96
+      tolerance: 0.005
+      scaleHint: That is the dot product on its own. Cosine divides it by the two magnitudes, which is the step that makes length stop mattering.
+      hints:
+        - The dot product first. Multiply componentwise and add.
+        - Both vectors have the same length, and it is the one from the three four five triangle.
+        - 24 over 5 times 5.
+      reveal: >-
+        Dividing by the magnitudes is what makes a two sentence chunk and a two page chunk
+        comparable, since only the direction survives. When a provider hands back vectors
+        that are already unit length, the division is by one and cosine similarity is the
+        dot product, which is why production code often writes the dot product.
+
+    - id: same-answer-twice
+      kind: blanks
+      prompt: >-
+        This ranks the corpus. Finish the sort key so that two runs over the same index
+        always produce the same order.
+      lang: python
+      template: |
+        scored = [
+            (cosine_similarity(query_vector, vector), position, document)
+            for position, (vector, document) in enumerate(zip(index.vectors, index.documents))
+        ]
+        scored.sort(key=lambda item: ({{1}}, {{2}}))
+        return scored[:k]
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - '-item[0]'
+            - 'item[0]'
+            - 'item[1]'
+            - '-item[1]'
+          accept:
+            - '-item[0]'
+          note: sort is ascending, so the highest score has to become the smallest key. Negating it is the usual way to say descending inside a tuple key.
+        - n: 2
+          as: select
+          options:
+            - 'item[1]'
+            - '-item[1]'
+            - 'item[2]'
+            - 'item[0]'
+          accept:
+            - 'item[1]'
+          note: The second element of the key only matters when the first ties. Ascending position means the chunk indexed first wins, which is a rule that does not change between runs.
+      hints:
+        - Python sorts ascending and you want the best score first.
+        - The second element of the tuple is only consulted when two scores are equal.
+        - The position was carried into the tuple for exactly one reason.
+      reveal: >-
+        Two chunks scoring identically is common once a corpus has near duplicates, and
+        without a second key their order depends on nothing you control. Then a test passes
+        on your machine and fails in CI, and the diff between two traces shows a change that
+        is not one. Rank on score descending, then on insertion order ascending.
+
+    - id: no-words-in-common
+      kind: choice
+      prompt: >-
+        The query is how long until I get my money back. The corpus holds a chunk titled
+        billing-refunds that answers it exactly, and it does not come back. Why?
+      options:
+        - id: hashing
+          label: The course embeds by hashing words into buckets, and the two strings share no words.
+          correct: true
+          note: Word hashing gives you real vectors with real geometry, which is enough to test ranking, thresholds and top k. What it does not give you is any notion that money back and refund mean the same thing.
+        - id: threshold
+          label: The score threshold is set too high.
+          note: Lowering it would let this chunk through only if it were scoring near the top, and it is not. Its score against this query is close to what an unrelated chunk would get.
+        - id: chunking
+          label: The chunk was split badly, so the answer is spread across two chunks.
+          note: A real failure mode, and not this one. The chunk contains the whole answer, and it still does not match.
+        - id: wrong-model
+          label: The index was built with a different embedding model from the one embedding the query.
+          note: That does break retrieval, and it breaks every query rather than the ones that paraphrase. Here the queries that use the corpus vocabulary work fine.
+      hints:
+        - Try the query again using the word refund and see what you would expect to happen.
+        - Ask what the embedding function in this course actually looks at.
+        - Nothing is misconfigured. The vectors are doing exactly what they were built to do.
+      reveal: >-
+        Hashed embeddings capture vocabulary overlap and stop there. A trained embedding
+        model puts money back near refund because it saw them used the same way millions of
+        times, and that is the one thing hashing cannot approximate. Everything else in the
+        pipeline, the ranking, the top k, the threshold, the margin, behaves the same under
+        both, which is why the course can teach retrieval without a network call.
+
+    - id: three-verdicts
+      kind: assign
+      prompt: >-
+        Your retriever must return a verdict, not just a list. The floor is 0.35 and two
+        candidates within 0.02 of each other are a tie. Sort these results.
+      buckets:
+        - id: confident
+          label: CONFIDENT
+          note: One candidate is above the floor and clearly ahead of the next.
+        - id: ambiguous
+          label: AMBIGUOUS
+          note: Good enough scores, and no reason to prefer one over the other. Ask, or widen the context.
+        - id: no-match
+          label: NO_MATCH
+          note: Nothing cleared the floor. Return nothing and let the caller say so.
+      items:
+        - id: clear-winner
+          label: 0.81, then 0.44
+          bucket: confident
+          because: Above the floor and 0.37 clear of the runner up. This is what you want every query to look like.
+        - id: only-one
+          label: 0.72, and the corpus holds nothing else
+          bucket: confident
+          because: A single candidate cannot tie with anything. Reporting ambiguity here is a bug the tests check for.
+        - id: near-tie-high
+          label: 0.63, then 0.62
+          bucket: ambiguous
+          because: Both would answer, and 0.01 is not a reason to pick one. Choosing arbitrarily is how a confident wrong answer starts.
+        - id: near-tie-low
+          label: 0.41, then 0.40
+          bucket: ambiguous
+          because: Barely over the floor and separated by less than the margin. Two weak candidates in a photo finish is still a tie.
+        - id: both-low
+          label: 0.19, then 0.17
+          bucket: no-match
+          because: Neither clears the floor, so the margin never gets consulted. Without the floor the retriever would hand back 0.19 as its best answer and the model would write from it.
+        - id: top-below-floor
+          label: 0.34, then 0.11
+          bucket: no-match
+          because: A clear winner among candidates that are all irrelevant. Being ahead of the others is not the same as being relevant.
+      hints:
+        - Check the floor before you check the gap. One of these is decided entirely by the floor.
+        - Two of them have a gap smaller than the margin, and they are not both strong.
+        - One has nothing to be ambiguous against.
+      reveal: >-
+        Without a floor there is always a best match, so a question about payroll returns
+        your returns policy at 0.19 and the model writes a fluent answer from it. The floor
+        is what lets the retriever return nothing, and returning nothing is a better answer
+        than the closest thing on file. The margin catches the other case, where two
+        candidates are both plausible and picking either one is a coin toss you did not tell
+        anybody you were making.
 ---
 
 Retrieval systems require a method to determine semantic relevance between user queries and document chunks

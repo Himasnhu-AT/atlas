@@ -7,6 +7,168 @@ estimatedMinutes: 25
 exercise:
   id: fractional-diff
   timeboxMinutes: 35
+challenges:
+  goal: Pick the smallest differencing order that passes a stationarity test, and configure the job so the weights it keeps are the memory it keeps.
+
+  steps:
+    - id: run-the-recursion
+      kind: numeric
+      prompt: >-
+        With d set to 0.4, run the weight recursion far enough to give the weight on the
+        third lag.
+      context:
+        as: pairs
+        items:
+          - { k: w0, v: '1.0' }
+          - { k: Recursion, v: 'w_k = -w_(k-1) * (d - k + 1) / k' }
+          - { k: d, v: '0.40' }
+          - { k: Wanted, v: w3, the coefficient on the price three steps back }
+      answer: -0.064
+      tolerance: 0.0005
+      hints:
+        - Three applications of the recursion, starting from w0 equal to 1.
+        - w1 is minus 0.4, because the numerator at k equal to 1 is just d.
+        - w2 is minus 0.12. Feed that back in at k equal to 3, where the numerator is d minus 2.
+      reveal: >-
+        Every weight after the first is negative and they shrink slowly, which is the whole
+        point. First differencing is the special case where the recursion terminates after
+        two terms, so the price three steps back has a coefficient of exactly zero. At
+        d equal to 0.4 it still has 6.4 percent of a vote, and so does the price a hundred
+        steps back.
+
+    - id: the-truncation-test
+      kind: blanks
+      prompt: >-
+        Fill in the recursion and the stopping rule. The weights are negative from the first
+        lag onward, so the stopping rule has to account for that.
+      lang: python
+      template: |
+        def weights(d: float, threshold: float = 1e-4) -> list[float]:
+            w = [1.0]
+            k = 1
+            while True:
+                nxt = {{1}}
+                if {{2}}:
+                    break
+                w.append(nxt)
+                k += 1
+            return w
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - '-w[-1] * (d - k + 1) / k'
+            - 'w[-1] * (d - k) / k'
+            - '-w[-1] * (k - d) / k'
+            - 'w[-1] * d / k'
+          accept: ['-w[-1] * (d - k + 1) / k']
+          note: Check the candidate at k equal to 1. Only one of them gives minus d, which is the coefficient the binomial expansion starts with.
+        - n: 2
+          as: select
+          options:
+            - 'abs(nxt) < threshold'
+            - 'nxt < threshold'
+            - 'abs(nxt) > threshold'
+            - 'k > 1 / d'
+          accept: ['abs(nxt) < threshold']
+          note: Every weight past w0 is negative, so an unsigned comparison against a small positive threshold is true on the very first pass and the loop returns a list of one.
+      hints:
+        - Try each recursion candidate at k equal to 1 and see which one produces minus d.
+        - The stopping rule compares a magnitude, and the sign of the weights is what makes that matter.
+        - One of the stopping rules would break out immediately and hand back a list containing only 1.0.
+      reveal: >-
+        The threshold is the real hyperparameter here, not d. At d equal to 0.4 a threshold
+        of 1e-4 keeps 282 weights, so every transformed value is a weighted sum over more
+        than a year of daily history. Raise the threshold to 1e-2 and the window collapses
+        to a few dozen lags, which quietly turns a memory-preserving transform back into a
+        short moving average.
+
+    - id: pick-the-order
+      kind: choice
+      prompt: >-
+        The augmented Dickey-Fuller test rejects a unit root when the statistic is below the
+        critical value of minus 2.86. Which d do you ship?
+      context:
+        as: table
+        caption: Differenced series, same 12 years of daily closes
+        columns: [d, ADF statistic, Correlation with the raw price]
+        rows:
+          - [0.0, -0.42, 1.00]
+          - [0.2, -1.61, 0.99]
+          - [0.4, -2.94, 0.94]
+          - [0.6, -4.85, 0.79]
+          - [1.0, -21.3, 0.03]
+      options:
+        - id: d-zero
+          label: d equal to 0, and model the price level directly
+          note: The statistic is nowhere near the critical value, so the series has a unit root. Regressions on it will find relationships between two independent random walks and report them with high confidence.
+        - id: d-four
+          label: d equal to 0.4
+          correct: true
+          note: The smallest order on the grid that clears the critical value, and it keeps 94 percent of the correlation with the price. Everything past it is stationarity you have already bought, paid for again in memory.
+        - id: d-six
+          label: d equal to 0.6, for a safety margin on the test
+          note: The statistic is much further past the threshold, and a rejected unit root is rejected. The 15 points of correlation this costs against d equal to 0.4 buy nothing the test was asking for.
+        - id: d-one
+          label: d equal to 1, since returns are what everyone models
+          note: Stationary and almost uncorrelated with the price, which means the level information is gone. Where the price sits relative to a decade of history is exactly the kind of feature this was supposed to preserve.
+      hints:
+        - Two of these five rows fail the test outright, so start by ruling those out.
+        - The test is a threshold, not a score. Clearing it by more is not clearing it better.
+        - Read the correlation column as what you are paying, and pick the cheapest row that passes.
+      reveal: >-
+        The rule is the minimum d that passes, and it is a rule because the temptation runs
+        the other way. Overshooting d feels conservative and costs the thing the transform
+        exists to protect. Practitioners search d on a grid and stop at the first pass, which
+        makes the ADF critical value the only tuning decision in the whole procedure.
+
+    - id: configure-the-job
+      kind: text-contract
+      prompt: >-
+        This job config would run and produce numbers. Repair it until those numbers mean
+        what the lesson says they mean.
+      context:
+        as: pairs
+        items:
+          - { k: d, v: strictly between 0 and 1, or it is integer differencing again }
+          - { k: threshold, v: 1e-3 or tighter, or the memory window collapses }
+          - { k: min_periods, v: at least 282, the number of weights d equal to 0.4 keeps }
+          - { k: fit_scaler_on, v: train or expanding, never the full sample }
+      lang: json
+      initial: |
+        {
+          "d": 1.0,
+          "threshold": 0.1,
+          "min_periods": 0,
+          "fit_scaler_on": "full_sample"
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: d of 1.0 is ordinary first differencing, and d of 0 is the raw price. The whole method lives strictly between them.
+          check: { op: range, path: d, min: 0.05, max: 0.95 }
+        - message: A threshold of 0.1 truncates the weights after a handful of lags, which is a short moving average wearing the name of a memory-preserving transform.
+          check: { op: range, path: threshold, max: 0.001 }
+        - message: min_periods of 0 emits a value from the first row, computed against a window that does not exist yet. Those rows are not comparable to the rest of the series.
+          check: { op: range, path: min_periods, min: 282 }
+        - message: The scaler is fitted on the full sample, so the mean and standard deviation of every transformed row already know how the series ends.
+          check: { op: oneOf, path: fit_scaler_on, values: [train, expanding] }
+      hints:
+        - Four fields, and each one is wrong for a different reason.
+        - Two of them are about how much history each output row is allowed to depend on.
+        - The last field is the only one that would still be wrong if the maths were perfect.
+      reveal: >-
+        The first three fields decide what the transform means. The fourth decides whether
+        the backtest is honest, and it is the only one a stationarity test would never catch.
+        A full-sample scaler leaks the end of the series into every row, and the resulting
+        equity curve is smooth, plausible and worthless.
+      solution: |
+        {
+          "d": 0.4,
+          "threshold": 0.0001,
+          "min_periods": 282,
+          "fit_scaler_on": "train"
+        }
 ---
 
 To apply standard machine learning models to financial prices, practitioners routinely take integer first differences: $\Delta P_t = P_t - P_{t-1}$.

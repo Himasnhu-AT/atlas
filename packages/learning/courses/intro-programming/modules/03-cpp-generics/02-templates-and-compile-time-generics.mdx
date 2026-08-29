@@ -7,6 +7,168 @@ estimatedMinutes: 20
 exercise:
   id: generic-algorithm-pipeline
   timeboxMinutes: 25
+challenges:
+  goal: Write one algorithm that serves every container, and know what it costs in code size and in the wrong iterator.
+
+  steps:
+    - id: how-many-bodies
+      kind: numeric
+      prompt: >-
+        A header defines one template. Four source files include it and call it as shown. How
+        many distinct min_val function bodies are in the linked executable?
+      context:
+        as: code
+        lang: cpp
+        source: |
+          /* min.hpp */
+          template <typename T>
+          T min_val(T a, T b) { return (a < b) ? a : b; }
+
+          /* a.cpp */  min_val(10, 20);
+          /* b.cpp */  min_val(3, 7);
+          /* c.cpp */  min_val(3.14, 2.71);
+          /* d.cpp */  min_val(std::string("x"), std::string("y"));
+      answer: 3
+      tolerance: 0
+      hints:
+        - Count distinct type arguments rather than call sites. Two of these four calls ask for the same function.
+        - Each translation unit really does compile its own copy, so the object files hold four bodies between them.
+        - Identical instantiations are folded at link time, so what survives is one body per distinct type.
+      reveal: >-
+        Monomorphization is per distinct type argument, not per call. A template used fifty
+        times with one type costs one body, and one used once each with fifty types costs fifty.
+        The code bloat people warn about is a count of types, which is why a template
+        parameterised on something with few possible values is usually fine.
+
+    - id: written-for-every-iterator
+      kind: blanks
+      prompt: >-
+        Complete transform so it works for every container in the library, including one whose
+        iterator can only move forward one step at a time.
+      lang: cpp
+      template: |
+        template <typename InputIt, typename OutputIt, typename UnaryOp>
+        OutputIt transform(InputIt first, InputIt last, OutputIt d_first, UnaryOp op) {
+            while ({{1}}) {
+                *d_first++ = {{2}};
+            }
+            return {{3}};
+        }
+      blanks:
+        - n: 1
+          as: select
+          options: ["first != last", "first < last", "last - first > 0", "first != nullptr"]
+          accept: ["first != last"]
+          note: Only a random access iterator supports comparison by order or subtraction. Inequality is the one test every category can answer, which is why the whole library is written with it.
+        - n: 2
+          as: select
+          options: ["op(*first++)", "op(first++)", "op(*first)", "*op(first)++"]
+          accept: ["op(*first++)"]
+          note: The callable is handed the element rather than the iterator, and the iterator has to advance somewhere or the loop never ends.
+        - n: 3
+          as: select
+          options: ["d_first", "first", "last", "op"]
+          accept: ["d_first"]
+          note: The useful thing to hand back is one past the last element written, so a caller can start the next range where this one stopped.
+      hints:
+        - An input iterator can be dereferenced, advanced by one, and compared for equality. Every line here has to stay inside that.
+        - The loop needs the element and it needs to move on, and one of the options does both in the right order.
+        - Nobody who called this already knows where the output ended, because the output iterator was passed by value.
+      reveal: >-
+        Written this way it compiles for a vector, a list, a forward_list and a stream, and the
+        compiler generates a separate specialised body for each of them. Comparing the two
+        iterators by order instead would have quietly restricted it to containers with
+        contiguous or indexed storage, and the error would have surfaced inside the template
+        rather than at the call.
+
+    - id: what-the-iterator-can-do
+      kind: assign
+      prompt: >-
+        Sort each of these by the weakest iterator category that can support it. The weakest
+        category that works is the one an algorithm should ask for.
+      buckets:
+        - id: input
+          label: Input or forward
+          note: Dereference, advance by one, compare for equality. Nothing else.
+        - id: bidirectional
+          label: Bidirectional
+          note: All of the above, and it can step backwards as well as forwards.
+        - id: random
+          label: Random access
+          note: All of the above, and it can jump n places or measure a distance in constant time.
+      items:
+        - id: deref-advance
+          label: Reading each element once, with a dereference and a step forward
+          bucket: input
+          because: This is the whole of what an input iterator promises, which is why a stream can supply one.
+        - id: find
+          label: std::find over a range
+          bucket: input
+          because: A linear scan looks at each element once and stops. It never needs to go back or jump.
+        - id: reverse
+          label: std::reverse, which walks in from both ends and swaps
+          bucket: bidirectional
+          because: One of the two walks runs backwards, and going backwards is exactly the capability the bidirectional category adds.
+        - id: prev
+          label: Stepping backwards with --it
+          bucket: bidirectional
+          because: A singly linked node knows its successor and not its predecessor, which is why forward_list stops short of this.
+        - id: sort
+          label: std::sort
+          bucket: random
+          because: Introsort partitions around a pivot and recurses on subranges, and both need positions computed rather than walked to.
+        - id: jump
+          label: Advancing n places in constant time
+          bucket: random
+          because: Constant time is the claim that fails first. Every category can advance n places by taking n steps.
+        - id: distance
+          label: Getting the number of elements between two iterators in constant time
+          bucket: random
+          because: Subtracting two positions is arithmetic when elements are laid out at a fixed stride, and a walk when they are not.
+      hints:
+        - Two of these need to go backwards and three of them need to arrive somewhere without visiting what is in between.
+        - The phrase in constant time is doing the work in two of the items. Every iterator can advance n places if it is allowed to take n steps.
+        - Ask which container would be the first to fail. A forward_list, a std::list, or neither.
+      reveal: >-
+        Asking for more than an algorithm needs is what makes it refuse containers it could have
+        served. The categories are a ladder and every rung above the one you need is a container
+        excluded, which is the reason the library spells them out at all rather than letting
+        each algorithm fail wherever it happens to.
+
+    - id: the-log-n-that-is-not
+      kind: spot
+      prompt: >-
+        This is documented as O(log n) and it is, on a vector. Click the line that makes it O(n)
+        on a std::list.
+      lang: cpp
+      source: |
+        template <typename It, typename T>
+        It binary_search(It first, It last, const T &target) {
+            while (first != last) {
+                It mid = first;
+                std::advance(mid, std::distance(first, last) / 2);
+                if (*mid == target) return mid;
+                if (*mid < target) first = std::next(mid);
+                else last = mid;
+            }
+            return last;
+        }
+      targets: [4]
+      decoys:
+        '2': Comparing two iterators for inequality is the one comparison every category supports, and it costs nothing on any container.
+        '5': Dereferencing and comparing an element is constant time whatever holds it.
+        '6': Advancing by exactly one is constant time for every iterator category there is.
+        '7': Narrowing the range from the far end is what makes this a halving search in the first place.
+      hints:
+        - The number of iterations really is logarithmic. What each iteration costs is the other half of the answer.
+        - On a vector both of these library calls become arithmetic on a pointer. On a list neither of them can.
+        - Two calls on this line each walk the range one node at a time when the iterator has no way to jump.
+      reveal: >-
+        The range still halves log n times and each midpoint now costs a walk, so the total is
+        n over 2 plus n over 4 and so on, which lands on O(n) rather than O(n log n). It
+        compiles either way, and that is the point: duck typing accepted the list iterator and
+        the only symptom is that it got slow. Iterator category tags and C++20 concepts exist to
+        turn this into a compile error instead of a benchmark.
 ---
 
 Runtime polymorphism through virtual functions enables dynamic dispatch across heterogeneous object collections, but incurs indirection and memory overhead per instance. C++ templates provide an alternative paradigm: compile-time parametric polymorphism.

@@ -7,6 +7,185 @@ estimatedMinutes: 30
 exercise:
   id: out-of-band-check
   timeboxMinutes: 30
+challenges:
+  goal: Build a check on values the conversation never touched, and see why a model asked to review the transcript inherits its compromise.
+
+  steps:
+    - id: what-the-attacker-can-reach
+      kind: assign
+      prompt: >-
+        A refund is about to be dispatched. Sort each value a check might read by whether
+        text in the conversation could have shaped it.
+      buckets:
+        - id: reachable
+          label: The conversation can shape this
+          note: It arrived through the transcript, or it was generated from the transcript.
+        - id: out-of-band
+          label: Established outside the conversation
+          note: Written before this turn by something the model cannot address.
+      items:
+        - id: doc-text
+          label: The body of a retrieved support document
+          bucket: reachable
+          because: Retrieval does not launder a string. Whoever wrote the document wrote part of your prompt.
+        - id: reasoning
+          label: The agent's explanation of why the refund is authorised
+          bucket: reachable
+          because: Generated tokens. It is the thing under attack, not evidence about the attack.
+        - id: order-id-arg
+          label: The order_id in the proposed tool call
+          bucket: reachable
+          because: The model picked it. Use it as a key to look something up, never as the answer to anything.
+        - id: order-total
+          label: order.total, read from the orders table by that id
+          bucket: out-of-band
+          because: Your service wrote that row before the conversation started, and no wording in the transcript can change it.
+        - id: session-user
+          label: The authenticated user id on the session
+          bucket: out-of-band
+          because: Established at login. The model has no write path to it, so ownership questions have an answer that cannot be argued with.
+        - id: limit
+          label: session.limits.auto_refund
+          bucket: out-of-band
+          because: Configuration your service set. The transcript can ask for a higher ceiling all it likes and the number stays where it was.
+      hints:
+        - The question is not whether a value looks trustworthy. It is whether it travelled through the prompt.
+        - One of these is chosen by the model and still safe to use, as long as you only use it to look something else up.
+        - Two of the six were written by your own systems before this turn began.
+      reveal: >-
+        The order id is the interesting one. It is attacker shaped, and it is still fine as
+        a database key, because what comes back is a row you wrote. A check is out of band
+        when every value it compares was established by something the conversation cannot
+        reach, even if the conversation chose which row to fetch.
+
+    - id: the-judge-reads-the-attack
+      kind: spot
+      prompt: >-
+        This validator returns SAFE on a transcript carrying an injected instruction. Click
+        the line that hands the attack to the judge.
+      lang: python
+      source: |
+        def is_safe(proposed_action, transcript):
+            verdict = client.chat.completions.create(
+                model="mock",
+                messages=[
+                    {"role": "system", "content": "Answer SAFE or UNSAFE."},
+                    {"role": "user", "content": f"Action: {proposed_action}\n\nContext:\n{transcript}"},
+                ],
+            )
+            return verdict.choices[0].message.content.strip() == "SAFE"
+      targets: [5]
+      decoys:
+        "0": The signature is not the bug, though it is worth asking which of the two parameters carries text somebody else wrote.
+        "3": Building a messages list is ordinary. What matters is what goes into it.
+        "4": The system prompt is the one string here the attacker did not write. It is also not enough on its own to make the call safe.
+        "8": Parsing the verdict is reasonable as far as it goes. The problem is upstream, in what the verdict is worth.
+      hints:
+        - The judge is a second model reading a prompt. Ask who wrote that prompt.
+        - An injection that convinced the first model is sitting somewhere in this call, verbatim.
+        - One line interpolates the whole conversation into the question.
+      reveal: >-
+        A second model reading the same transcript is not a second opinion. It is the same
+        opinion, reached from the same text, and now you have a logged SAFE verdict sitting
+        over the action as evidence that it was reviewed. Sharing an input with the thing you
+        are guarding means sharing its compromise.
+
+    - id: where-a-model-check-earns-its-place
+      kind: choice
+      prompt: Model based checks are not useless. Which job is one actually suited to?
+      options:
+        - id: tone
+          label: Screening outbound text for tone and policy before it reaches the user.
+          correct: true
+          note: A miss here produces a reply that is slightly off. Nothing irreversible sits behind the check, so a probabilistic answer is an improvement over none.
+        - id: refunds
+          label: Approving refunds above the automatic limit.
+          note: Money that has left an account is not recalled by a later verdict, and this decision is precisely what an injection is aiming at.
+        - id: ownership
+          label: Deciding whether the current user owns the record being edited.
+          note: Ownership is a session field compared with a column. Asking a model to infer it replaces a lookup that cannot be talked out of with one that can.
+        - id: destructive-shell
+          label: Judging whether a shell command is destructive before running it.
+          note: Irreversible, and the command text is attacker shaped. If this check has to exist it belongs behind an allowlist, not in place of one.
+      hints:
+        - Ask what happens when the check is wrong, not how often it is wrong.
+        - Two of these have an authoritative answer already sitting in a table.
+        - The survivor is the one where being wrong costs a redo.
+      reveal: >-
+        Scale the control to how reversible the action is, not to how likely you think an
+        attack is. A model in front of something you can retract is cheap insurance. A model
+        in front of a transfer, an email or a delete is a control that can be argued with,
+        and arguing is the whole of what an attacker does.
+
+    - id: drive-it-to-a-refusal
+      kind: machine
+      prompt: >-
+        An injected document has talked the agent into proposing a $900 refund. Drive the
+        request to a refusal that is on the record.
+      initial: proposed
+      vars: { amount: 0, logged: 0 }
+      states:
+        proposed:
+          label: Refund of $900 proposed on order A-77
+          note: A tool call, not a decision. Nothing has been checked yet.
+        model-judged:
+          label: A model judge read the transcript and answered SAFE
+          note: The verdict is now in your logs, which makes the next action look reviewed.
+        checked:
+          label: order.total read from the orders table
+          note: A number that came from your database rather than from the conversation.
+        refused:
+          label: Refused, and the attempt is in the audit log
+          terminal: true
+        paid:
+          label: $900 has left the account
+          terminal: true
+          error: true
+      transitions:
+        - from: proposed
+          on: Ask a model whether the action is safe
+          to: model-judged
+          note: The judge is handed the transcript, and the transcript is where the injection lives.
+        - from: proposed
+          on: Read order.total from the orders table
+          to: checked
+          effects: [{ var: amount, op: set, value: 900 }]
+          note: The order id came from the model and the row came from you. Only the second one is an answer.
+        - from: model-judged
+          on: Dispatch, because the verdict said SAFE
+          to: paid
+          note: The verdict was produced by a model reading the attacker's text. It is not independent evidence of anything.
+        - from: model-judged
+          on: Read order.total from the orders table
+          to: checked
+          effects: [{ var: amount, op: set, value: 900 }]
+          note: Still available, and it makes the verdict irrelevant, which is the correct amount of weight to give it.
+        - from: checked
+          on: Refuse and log the attempt
+          to: refused
+          when: [{ var: amount, cmp: gt, value: 500 }]
+          effects: [{ var: logged, op: set, value: 1 }]
+          note: 900 is over the 500 ceiling your service set, so the comparison decides this rather than any sentence in the transcript.
+        - from: checked
+          on: Dispatch, the amount is under the limit
+          to: paid
+          when: [{ var: amount, cmp: lte, value: 500 }]
+          note: Never offered here. The guard reads the fetched total, and 900 is not within 500.
+      mode: drive
+      win:
+        state: refused
+        maxSteps: 4
+        requires: [{ var: logged, cmp: gte, value: 1 }]
+      hints:
+        - One of the two opening actions reads something the injected document could have written.
+        - The comparison needs a number before it can compare anything, so something has to fetch one first.
+        - A refusal nobody can find afterwards is not a control. The final action has to leave a trace.
+      reveal: >-
+        Two steps, and neither of them reads the conversation. Fetch the total by the id the
+        model gave you, compare it with a ceiling the model cannot write to, refuse, and
+        record the attempt. The dispatch path stays in the machine because it exists in real
+        systems, and its guard is the whole difference: it asks the database, so no amount of
+        persuasion in the transcript can satisfy it.
 ---
 
 In [guardrails that can stop a run](lesson:ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run), you construct enforcement layers that intercept agent execution. This lesson examines the data dependencies of those checks to ensure they withstand adversarial inputs.

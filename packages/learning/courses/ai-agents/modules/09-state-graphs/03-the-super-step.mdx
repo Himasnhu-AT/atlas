@@ -7,6 +7,211 @@ estimatedMinutes: 60
 exercise:
   id: super-step-engine
   timeboxMinutes: 30
+challenges:
+  goal: Place each node in the super-step that runs it, wire a join that waits for both branches, and end a run on purpose.
+
+  steps:
+    - id: which-super-step
+      kind: assign
+      prompt: >-
+        The entry write sets question. plan has edges to search_a and fetch_b. read_b wakes
+        on pages_b, which fetch_b writes. join wakes on findings_a and findings_b. Put each
+        node in the step that first runs it.
+      buckets:
+        - id: step-0
+          label: Super-step 0
+        - id: step-1
+          label: Super-step 1
+        - id: step-2
+          label: Super-step 2
+        - id: step-3
+          label: Super-step 3
+      items:
+        - id: plan
+          label: plan
+          bucket: step-0
+          because: The entry write bumped question before anything ran, so plan is the only stale node when the scheduler first looks.
+        - id: search-a
+          label: search_a
+          bucket: step-1
+          because: plan wrote a tick to its trigger channel in step 0. An edge is a channel write, so being pointed at by an edge and being woken by data are the same event.
+        - id: fetch-b
+          label: fetch_b
+          bucket: step-1
+          because: The other edge from plan, written in the same step, so both branches start together. That is all fan-out is.
+        - id: read-b
+          label: read_b
+          bucket: step-2
+          because: It wakes on pages_b, and pages_b does not exist until fetch_b has returned and its writes have merged. Branch b is two steps deep where branch a is one.
+        - id: join
+          label: join
+          bucket: step-3
+          because: It subscribes to both findings channels and findings_b is not written until step 2 finishes. search_a's result has been sitting in its channel since step 1 waiting for it.
+      hints:
+        - Everything a step produces becomes visible at the end of that step, never during it.
+        - Two nodes start in the same step because one node wrote both of their triggers.
+        - One branch is deeper than the other, and the join runs on the deeper one's clock.
+      reveal: >-
+        Nothing here schedules anything. Each node became stale because a version it watches
+        moved, and the shape of the run fell out of the subscriptions. That is why a
+        checkpoint of the channel versions is a checkpoint of the pending work.
+
+    - id: the-join-that-fires-early
+      kind: spot
+      prompt: >-
+        Branch b takes two steps and branch a takes one. The summary comes out with branch
+        a's findings and nothing from branch b. Click the line responsible.
+      lang: python
+      source: |
+        builder.add_node("plan", plan, subscribes=["question"])
+        builder.add_node("search_a", search_a, subscribes=["to:search_a"])
+        builder.add_node("fetch_b", fetch_b, subscribes=["to:fetch_b"])
+        builder.add_node("read_b", read_b, subscribes=["pages_b"])
+        builder.add_node("join", join, subscribes=["findings_a"])
+        builder.add_edge("plan", "search_a")
+        builder.add_edge("plan", "fetch_b")
+      targets: [4]
+      decoys:
+        "0": Subscribing plan to the question is how the run starts at all. The entry write moves that channel before step zero.
+        "1": Waking on a trigger channel is what being on the end of an edge means. Nothing is wrong with it.
+        "3": read_b waking on pages_b is exactly why branch b is two steps deep. It is correct, and it is what exposes the real defect rather than causing it.
+        "5": A static edge. It writes a tick to a trigger channel, which is the entire mechanism.
+        "6": The second edge out of plan. Two edges from one node is fan-out, and it needs nothing else.
+      hints:
+        - The join ran, so something it subscribes to moved. Ask what, and when.
+        - There is no join primitive here. Waiting is a consequence of what a node watches.
+        - If both branches were one step deep this wiring would produce the right answer, which is why it survived review.
+      reveal: >-
+        Fan-in is a subscription list, so a join waits for exactly the channels you named
+        and no others. Naming one of two branches is a race that the shorter branch always
+        wins, and it stops looking like a bug the moment both branches happen to be the
+        same depth.
+
+    - id: fix-the-wiring
+      kind: text-contract
+      prompt: >-
+        Repair the compiled graph description. Branch b writes findings_b, and the router
+        has one target that no node answers to.
+      lang: json
+      initial: |
+        {
+          "nodes": {
+            "join": { "subscribes": ["findings_a"] },
+            "write": { "subscribes": ["summary"] }
+          },
+          "router": { "from": "join", "targets": ["write", "reserch"] },
+          "max_steps": 200
+        }
+      rules:
+        - message: This no longer parses. Check the braces around each node entry.
+          check: { op: parses, as: json }
+        - message: The join has to wake on both branches, so it needs both channels in its subscription list.
+          check: { op: length, path: nodes.join.subscribes, min: 2, max: 2 }
+        - message: Branch a's channel stays in the list. Adding branch b is not the same as replacing branch a.
+          check: { op: equals, path: nodes.join.subscribes.0, value: findings_a }
+        - message: And the second branch's channel, which is the one that made the join fire early.
+          check: { op: equals, path: nodes.join.subscribes.1, value: findings_b }
+        - message: The second router target names a node that does not exist. The runtime should raise on that rather than accept it, and the branch that has nothing left to do should end.
+          check: { op: equals, path: router.targets.1, value: END }
+        - message: The budget counts super-steps, not model calls. This graph settles in four and loops a few times at most, so a cap in the tens is a bound and 200 is a way of finding out at three in the morning.
+          check: { op: range, path: max_steps, min: 4, max: 20 }
+      hints:
+        - One list is missing an entry and one list has an entry that is a typo for nothing.
+        - A router target has to be a node in the graph or the end marker. There is no third option, and silently accepting one strands the writes.
+        - Read the step budget as a number of super-steps and ask how many this graph could plausibly need.
+      reveal: >-
+        A router returning an unknown name is worth an immediate exception, because the
+        alternative is a run that keeps writing to a channel with no subscriber and then
+        stops quietly at quiescence with no output and no error.
+      solution: |
+        {
+          "nodes": {
+            "join": { "subscribes": ["findings_a", "findings_b"] },
+            "write": { "subscribes": ["summary"] }
+          },
+          "router": { "from": "join", "targets": ["write", "END"] },
+          "max_steps": 12
+        }
+
+    - id: run-it-to-the-end
+      kind: machine
+      prompt: >-
+        Run this graph to a written draft. Both branches append one finding, and the budget
+        is four super-steps.
+      initial: entry-written
+      vars: { supersteps: 0, findings: 0 }
+      states:
+        entry-written:
+          label: Entry write done, plan is stale
+        plan-ran:
+          label: plan ran, both branches are stale
+          note: One node wrote two trigger channels, so the next step has two nodes in it.
+        searches-ran:
+          label: Both branches ran, join is stale
+          note: Both appends merged at the end of the same step, in sorted node order, so the findings list is the same on every run.
+        join-ran:
+          label: join ran, the router is about to be evaluated
+          note: The router reads state after the merge, so it can see what join just wrote.
+        write-stale:
+          label: Routed to write, which is now stale
+        drafted:
+          label: Draft written
+          terminal: true
+        stopped:
+          label: Ended with nothing written
+          note: A branch that routes to END terminates, and terminating is not the same as finishing.
+          terminal: true
+          error: true
+      transitions:
+        - from: entry-written
+          on: run a super-step
+          to: plan-ran
+          effects: [{ var: supersteps, op: inc, value: 1 }]
+          note: One node was stale, so the step contains one node.
+        - from: plan-ran
+          on: run a super-step
+          to: searches-ran
+          effects:
+            - { var: supersteps, op: inc, value: 1 }
+            - { var: findings, op: inc, value: 2 }
+          note: Two nodes, one snapshot, two appends merged afterwards. A fan-out across two nodes is one super-step, not two.
+        - from: searches-ran
+          on: run a super-step
+          to: join-ran
+          effects: [{ var: supersteps, op: inc, value: 1 }]
+        - from: join-ran
+          on: route to write
+          to: write-stale
+          when: [{ var: findings, cmp: gte, value: 2 }]
+          note: Routing is not a step. It happens after this step's merge and decides what the next one contains.
+        - from: join-ran
+          on: route back to plan
+          to: plan-ran
+          note: A legal cycle, and it costs two more super-steps to get back here. Worth it when the join found the findings thin, expensive when it did not.
+        - from: join-ran
+          on: route to END
+          to: stopped
+          note: The branch terminates. Nothing has been written, and the run reports success because ending is one of the three ways a graph is allowed to stop.
+        - from: write-stale
+          on: run a super-step
+          to: drafted
+          effects: [{ var: supersteps, op: inc, value: 1 }]
+          note: One node, one write, and then nothing is stale, which is quiescence.
+      mode: drive
+      win:
+        state: drafted
+        maxSteps: 10
+        requires:
+          - { var: supersteps, cmp: lte, value: 4 }
+          - { var: findings, cmp: gte, value: 2 }
+      hints:
+        - Count what increments. One of the actions here moves the machine without spending any budget at all.
+        - Two nodes running together is one step. That is the whole reason the budget is counted in steps.
+        - Going round the loop is allowed and it costs two steps you do not get back.
+      reveal: >-
+        Four super-steps, six nodes and two of the three termination conditions on offer.
+        The budget counts steps rather than model calls because a step is what a checkpoint
+        covers, so a run that dies mid-step resumes at a boundary the runtime can name.
 ---
 
 The scheduler operates on a single execution model derived from Pregel, Google's distributed

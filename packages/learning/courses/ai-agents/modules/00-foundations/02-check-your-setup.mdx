@@ -7,6 +7,145 @@ estimatedMinutes: 15
 exercise:
   id: check-your-setup
   timeboxMinutes: 10
+challenges:
+  goal: Read a unittest failure down to the value your code returned, then fix the code from that line alone.
+
+  steps:
+    - id: find-the-value
+      kind: spot
+      prompt: >-
+        Your suite just printed this. Click the one line that tells you what your code
+        actually returned.
+      lang: text
+      source: |
+        test_an_empty_string_is_zero (__main__.TestCountingWords.test_an_empty_string_is_zero) ... FAIL
+        ======================================================================
+        FAIL: test_an_empty_string_is_zero (__main__.TestCountingWords.test_an_empty_string_is_zero)
+        ----------------------------------------------------------------------
+        Traceback (most recent call last):
+          File "/Users/you/exercises/check-your-setup/test.py", line 34, in test_an_empty_string_is_zero
+            self.assertEqual(count_words(""), 0)
+        AssertionError: 1 != 0
+        ----------------------------------------------------------------------
+        Ran 16 tests in 0.001s
+        FAILED (failures=3)
+      targets: [7]
+      decoys:
+        "0": That is the one line summary unittest prints as it goes. It says this test failed, not what it produced.
+        "2": The name of the failing test. It tells you which behaviour is wrong, which is a different question from what the value was.
+        "5": The file and line of the assertion. That finds you the test; it does not tell you what came back.
+        "6": The call under test. This is the input your code was given, not the output it returned.
+        "9": How many tests ran and how long they took. Nothing here is about your code.
+        "10": A count across the whole run. It says how much is broken, not what any one thing returned.
+      hints:
+        - Read a traceback from the bottom, and stop at the first line carrying two values rather than a name.
+        - One line has both what your code produced and what was wanted, in that order.
+        - The left side of the comparison is yours.
+      reveal: >-
+        Left is what you returned, right is what was expected. Getting that order the wrong
+        way round sends you looking for a bug in the test. Everything above the assertion
+        line locates it, and everything below counts it.
+
+    - id: narrow-the-run
+      kind: blanks
+      prompt: >-
+        One logic error is failing five tests in the same class. Fill in the arguments that
+        run just the class, and then just one case inside it.
+      lang: bash
+      template: |
+        python3 test.py                     # all 16
+        python3 test.py {{1}}               # just that class
+        python3 test.py {{2}}               # just the simplest case in it
+      blanks:
+        - n: 1
+          as: select
+          options: [TestCountingWords, test_none_is_zero, TestCountingWords.test_none_is_zero, --class TestCountingWords]
+          accept: [TestCountingWords]
+          note: A class is named on its own. Adding a method to it narrows further than asked, and a flag is not how unittest takes this.
+        - n: 2
+          as: select
+          options: [test_none_is_zero, TestCountingWords.test_none_is_zero, TestCountingWords, --test test_none_is_zero]
+          accept: [TestCountingWords.test_none_is_zero]
+          note: A single method is addressed through the class that holds it, joined with a dot. The bare method name does not resolve on its own.
+      hints:
+        - Both arguments are dotted paths into test.py, not command line flags.
+        - The second is the first with something appended.
+        - A method needs the class in front of it, the same way an import does.
+      reveal: >-
+        unittest runs alphabetically, so the failure at the top of your terminal is chosen by
+        the test's name. Pick the case with the smallest input instead, usually the empty or
+        zero one, and run it on its own. One assertion and one traceback is the cleanest
+        signal you can get.
+
+    - id: which-one-first
+      kind: choice
+      prompt: The run ends with three ERRORs and five FAILs. Which do you open first?
+      context:
+        as: log
+        lines:
+          - test_an_empty_string_is_zero ... FAIL
+          - test_collapses_runs_of_whitespace ... FAIL
+          - test_none_is_zero ... ERROR
+          - test_role_counts_counts_each_role ... ERROR
+          - "FAILED (failures=5, errors=3)"
+      options:
+        - id: errors-first
+          label: The three ERRORs.
+          correct: true
+          note: An ERROR is an unhandled exception, so that code never reached the point of being merely wrong. One exception usually explains several of the FAILs underneath it.
+        - id: fails-first
+          label: The five FAILs, because there are more of them.
+          note: A count is not a priority. Five failures caused by one exception collapse to zero the moment the exception is fixed.
+        - id: top-of-output
+          label: Whatever is at the top of the terminal.
+          note: unittest runs alphabetically, so the top of the output was decided by a test name rather than by how simple the case is.
+        - id: read-all
+          label: Read all eight, then write one fix for everything.
+          note: Eight tracebacks at once is more state than the fix needs. The suite is cheap to rerun, so it is cheaper to learn from one at a time.
+      hints:
+        - FAIL and ERROR are not two words for the same outcome.
+        - In one of them your code ran and returned something wrong. In the other it did not finish running.
+        - Fixing the second kind often clears several of the first for free.
+      reveal: >-
+        FAIL means an assertion did not hold. ERROR means an exception escaped, so the
+        function has no return value to be wrong about. Clear the exceptions first, rerun,
+        and the FAIL count usually drops without you touching an assertion.
+
+    - id: fix-from-the-signal
+      kind: text-contract
+      prompt: >-
+        This is what produced the failure above. Repair it so an empty string counts zero,
+        runs of whitespace count once, and a tool call turn does not crash it.
+      context:
+        as: pairs
+        items:
+          - { k: count_words("hello there"), v: "2" }
+          - { k: count_words("  a   b  c d "), v: "4, whatever the spacing is" }
+          - { k: count_words(""), v: "0" }
+          - { k: count_words(None), v: "0, because a tool call turn has no text" }
+      lang: python
+      initial: |
+        def count_words(content: str | None) -> int:
+            return len(content.split(" "))
+      rules:
+        - message: Splitting on a single space is what makes the empty string count as one word, and it counts every double space as another. Split on whitespace generally instead.
+          check: { op: notContains, text: 'split(" ")' }
+        - message: content is None on a turn that only called a tool, and None has no split method. Substitute something splittable before you reach for it.
+          check: { op: notContains, text: content.split }
+        - message: The count still has to come from splitting the text. Nothing else here counts words.
+          check: { op: contains, text: split() }
+      hints:
+        - Two separate bugs, and the second one is not visible in any of the failing assertions about spaces.
+        - Calling split with no argument at all treats any run of whitespace as one separator and returns nothing for an empty string.
+        - The idiom the rest of this course uses puts an or between the value and an empty string, in brackets, before the split.
+      reveal: >-
+        Both bugs are one character each and neither is a typo. split(" ") and split() are
+        different functions with different edge cases, and content is genuinely None on every
+        assistant turn that only asked for a tool. You will write this exact guard in almost
+        every exercise from here on.
+      solution: |
+        def count_words(content: str | None) -> int:
+            return len((content or "").split())
 ---
 
 Every exercise in this course runs the same way. Taking ten minutes to verify your local environment now prevents tooling issues in later modules. The introductory exercise verifies that Python, the editor, the test runner, and the mock client interact properly on your machine.

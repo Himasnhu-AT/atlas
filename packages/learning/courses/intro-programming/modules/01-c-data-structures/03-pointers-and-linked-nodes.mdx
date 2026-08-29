@@ -7,6 +7,187 @@ estimatedMinutes: 20
 exercise:
   id: doubly-linked-list
   timeboxMinutes: 25
+challenges:
+  goal: Splice a node out of a list without losing the list, and know which of its operations are constant time.
+
+  steps:
+    - id: what-a-node-costs
+      kind: numeric
+      prompt: >-
+        One node of this list holds a single 4-byte int. How many bytes does the process
+        spend to store it, counting the node struct and the allocator's own header?
+      context:
+        as: code
+        lang: c
+        source: |
+          struct Node {
+              void        *val;
+              struct Node *prev;
+              struct Node *next;
+          };
+
+          /* Every node is its own malloc, and glibc prepends a
+             16 byte chunk header to each allocation. */
+      answer: 40
+      unit: bytes
+      tolerance: 0
+      scaleHint: >-
+        An answer in the hundreds is counting bits. Every quantity here is in bytes and so is
+        the answer.
+      hints:
+        - Three fields, and on a 64-bit machine all three are pointer width whatever they point at.
+        - The struct comes to 24 bytes with no padding at all, because every field is already 8 bytes wide.
+        - The header is charged once per allocation, and a linked list allocates once per node.
+      reveal: >-
+        Four bytes of data inside forty bytes of memory. The nine tenths that are not payload
+        are also why traversal is slow: a node is smaller than a cache line, so visiting one
+        fetches a whole line and uses a fraction of it.
+
+    - id: what-is-actually-constant
+      kind: assign
+      prompt: >-
+        The container holds head, tail and size. Sort these by whether they finish in constant
+        time or have to walk the list before they can start.
+      buckets:
+        - id: constant
+          label: Constant time
+          note: Every pointer it needs is already in hand.
+        - id: walk
+          label: Needs a traversal first
+          note: The work is finding the node, and that is linear whatever happens afterwards.
+      items:
+        - id: unlink-held
+          label: Unlink a node you already hold a pointer to
+          bucket: constant
+          because: Four pointer writes to the two neighbours the node already names, and nothing else in the list moves.
+        - id: move-to-front
+          label: Move a node you already hold to the head
+          bucket: constant
+          because: An unlink followed by a push front, and both touch a fixed number of nodes.
+        - id: push-front
+          label: Insert at the front
+          bucket: constant
+          because: head names the only node that has to be relinked, so there is nothing to search for.
+        - id: pop-back
+          label: Remove the last node
+          bucket: constant
+          because: The tail pointer is what buys this. A singly linked list would have to walk to find the new tail.
+        - id: find-value
+          label: Find the node holding the value 42
+          bucket: walk
+          because: There is no index and no ordering to exploit, so every node is a candidate until it has been read.
+        - id: index-ten
+          label: Read the tenth element
+          bucket: walk
+          because: Nodes are not contiguous, so there is no address to compute. The tenth is ten dereferences from the first.
+        - id: insert-middle
+          label: Insert before the tenth element
+          bucket: walk
+          because: The splice is constant and getting to the tenth node is not. The two are usually quoted as one operation.
+      hints:
+        - Ask what each one is handed. Some arrive holding a node pointer, and some arrive holding a value or a position.
+        - Everything the structure already names, head, tail, and the neighbours a node names, is reachable without a search.
+        - Three of these are searches wearing the name of an edit.
+      reveal: >-
+        Constant time insertion is a claim about the splice, not about the operation a caller
+        actually wants. It only pays when something else already holds the node, which is why
+        the linked list in an LRU cache comes with a hash map beside it. The map does the
+        finding and the list does the splicing.
+
+    - id: unlink-both-ends
+      kind: blanks
+      prompt: >-
+        Complete remove_node. There are no sentinel nodes, so each side has to cope with the
+        neighbour being absent.
+      lang: c
+      template: |
+        void remove_node(struct DoublyLinkedList *list, struct Node *curr) {
+            if (curr->prev != NULL) {
+                {{1}} = curr->next;
+            } else {
+                {{2}} = curr->next;
+            }
+
+            if (curr->next != NULL) {
+                curr->next->prev = {{3}};
+            } else {
+                {{4}} = curr->prev;
+            }
+
+            curr->prev = NULL;
+            curr->next = NULL;
+            list->size--;
+        }
+      blanks:
+        - n: 1
+          as: select
+          options: ["curr->prev->next", "curr->next->prev", "curr->prev", "list->head"]
+          accept: ["curr->prev->next"]
+          note: The node before this one has to stop naming it and start naming whatever follows it.
+        - n: 2
+          as: select
+          options: ["list->head", "list->tail", "curr->prev", "curr->next"]
+          accept: ["list->head"]
+          note: A node with nothing before it was the first one, so the container is what has to be repointed.
+        - n: 3
+          as: select
+          options: ["curr->prev", "curr->next", "list->head", "NULL"]
+          accept: ["curr->prev"]
+          note: The node after this one has to point back past it, to whatever came before it.
+        - n: 4
+          as: select
+          options: ["list->tail", "list->head", "curr->next", "NULL"]
+          accept: ["list->tail"]
+          note: A node with nothing after it was the last one, and the tail is now its predecessor.
+      hints:
+        - The two halves are mirror images. One reaches backwards out of the node and one reaches forwards.
+        - Inside the if the neighbour exists, so the neighbour is what gets rewritten. Inside the else there is no neighbour, so the container is.
+        - When curr is both head and tail, both else branches run and both fields end up NULL, which is exactly what an empty list looks like.
+      reveal: >-
+        Sentinel nodes exist to delete these four branches. A dummy head and a dummy tail that
+        always exist mean curr->prev and curr->next are never NULL, so the unlink becomes two
+        unconditional writes. What it costs is two permanent allocations and a traversal that
+        has to remember to skip its own endpoints.
+
+    - id: the-list-of-one
+      kind: spot
+      prompt: >-
+        This passes every test with two or more nodes and faults on a list of one. Click the
+        line that faults.
+      lang: c
+      source: |
+        void *pop_back(struct DoublyLinkedList *list) {
+            if (list->tail == NULL) {
+                return NULL;
+            }
+            struct Node *last = list->tail;
+            void *val = last->val;
+
+            list->tail = last->prev;
+            list->tail->next = NULL;
+            if (list->head == last) {
+                list->head = NULL;
+            }
+
+            free(last);
+            list->size--;
+            return val;
+        }
+      targets: [8]
+      decoys:
+        '1': The empty list is already handled here. That is the boundary somebody remembered.
+        '7': Taking the new tail from last->prev is right, and it stays right when the answer is NULL. What is wrong is what the following line assumes about that answer.
+        '9': Clearing head when the removed node was also the head is necessary and correct. It never gets the chance to run.
+        '13': Reading the payload out before freeing the node is the right order. Swapping these two would be a different bug.
+      hints:
+        - Hand the function a list of exactly one node and walk it a line at a time, saying what each pointer holds.
+        - Removing the only node leaves nothing behind it, so last->prev is NULL and the new tail is NULL.
+        - One line writes a field through the new tail without first asking whether there is one.
+      reveal: >-
+        Without sentinels, empty, one and many are three different lists, and code that handles
+        two of them looks finished. The guard at the top catches empty because empty is the
+        obvious case. One is the case that ships, because the only thing separating it from
+        many is that a pointer the code has already used comes back NULL.
 ---
 
 While contiguous arrays organize elements adjacently in linear memory, linked structures decouple logical sequence from physical address space.

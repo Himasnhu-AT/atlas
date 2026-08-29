@@ -7,6 +7,209 @@ estimatedMinutes: 20
 exercise:
   id: call-stack-simulator
   timeboxMinutes: 25
+challenges:
+  goal: Say where each variable lives, how a frame is built and torn down, and what a pointer to a local is worth after the return.
+
+  steps:
+    - id: where-does-it-live
+      kind: assign
+      prompt: >-
+        Sort each of these by the region of the process image its storage comes from. Read the
+        labels carefully. Some name a pointer and some name what the pointer addresses.
+      buckets:
+        - id: stack
+          label: The calling function's stack frame
+          note: Reclaimed the moment that function returns, without anybody asking.
+        - id: heap
+          label: The heap
+          note: Lives until something frees it, whatever the calling function does.
+        - id: static
+          label: Fixed for the whole run
+          note: Laid out by the linker before main starts, at an address that never moves.
+      items:
+        - id: local-int
+          label: "int counter; declared inside process()"
+          bucket: stack
+          because: An ordinary local has automatic storage duration, which means the frame owns it.
+        - id: local-array
+          label: "char buf[64]; declared inside process()"
+          bucket: stack
+          because: The 64 bytes sit in the frame. A large array here is what exhausts a thread's stack quota.
+        - id: parameter
+          label: The parameter n of a function taking int n
+          bucket: stack
+          because: Arguments are part of the activation record, whether they arrive in registers or on the stack.
+        - id: malloc-bytes
+          label: The 64 bytes that malloc(64) returned
+          bucket: heap
+          because: The allocator owns these until free is called, which is why they can outlive the function that asked for them.
+        - id: malloc-pointer
+          label: "int *p, the local variable holding what malloc returned"
+          bucket: stack
+          because: The pointer is eight bytes of local storage in the frame. Where it points has nothing to do with where it lives.
+        - id: static-local
+          label: "static int calls = 0; declared inside process()"
+          bucket: static
+          because: static changes the storage duration and not the scope. The name is local, the storage is not.
+        - id: file-scope
+          label: "int total = 0; declared at file scope"
+          bucket: static
+          because: A file scope variable is placed by the linker and exists before main is entered.
+        - id: literal
+          label: The characters of the literal in const char *msg = "ok"
+          bucket: static
+          because: The literal is baked into the read-only image. Only the pointer to it is local.
+      hints:
+        - Two of these name a pointer rather than the thing it addresses, and the pointer itself is always just a local variable.
+        - The keyword static does not make a variable private. It changes how long its storage lasts.
+        - A string literal is part of the compiled program, so it has an address before the program starts running.
+      reveal: >-
+        Storage duration and scope are separate questions, and C spells them with overlapping
+        words. Where a name can be used is decided by braces; how long its bytes last is decided
+        by which region they came from. Every dangling pointer bug is somebody answering the
+        first question when the second one mattered.
+
+    - id: build-and-tear-down
+      kind: order
+      prompt: >-
+        Put the instructions that surround one function call in the order the processor runs
+        them, from the caller reaching the call to the caller getting control back.
+      items:
+        - id: call
+          label: "call pushes the address of the next caller instruction"
+        - id: push-rbp
+          label: "push rbp saves the caller's frame pointer"
+        - id: set-rbp
+          label: "mov rbp, rsp makes this frame's base"
+        - id: sub-rsp
+          label: "sub rsp, 32 reserves room for the locals"
+        - id: body
+          label: The function body runs against offsets from rbp
+        - id: restore-rsp
+          label: "mov rsp, rbp discards the locals"
+        - id: pop-rbp
+          label: "pop rbp restores the caller's frame pointer"
+        - id: ret
+          label: "ret pops the return address into rip"
+      solution: [call, push-rbp, set-rbp, sub-rsp, body, restore-rsp, pop-rbp, ret]
+      because:
+        call: The return address is pushed by the call itself, before the callee has run a single instruction of its own.
+        push-rbp: The caller's base pointer has to be saved before it is overwritten, or there is no way back to the caller's frame.
+        set-rbp: The base has to be fixed before any local is addressed, because every local is named as an offset from it.
+        sub-rsp: Room for the locals is taken after the base is set, so the offsets stay stable no matter how much is reserved.
+        restore-rsp: The teardown runs in reverse. Locals go first, because they were reserved last.
+        ret: The return address is the last thing off, and it was the first thing on.
+      hints:
+        - The first thing on the stack is put there by the caller, not by the function being called.
+        - The prologue and the epilogue mirror each other. Whatever went on first comes off last.
+        - The base pointer has to be established before any local can be addressed and restored only after the last one is finished with.
+      reveal: >-
+        The frame is a stack discipline inside a stack discipline, and that symmetry is the only
+        reason a return knows where to go. It also explains the attack: the return address sits
+        above the locals in the same contiguous block, so a local array that writes past its end
+        writes over the address the processor is about to jump to.
+
+    - id: drive-the-stack
+      kind: machine
+      prompt: >-
+        Make three calls and return from all of them without exhausting the stack. This thread
+        has room for three frames.
+      initial: outside
+      vars: { depth: 0, calls: 0 }
+      states:
+        outside:
+          label: No frame live
+          note: main has not been entered, or everything has returned.
+          terminal: false
+        inside:
+          label: At least one frame live
+          note: The depth counter is how many activation records are stacked up right now.
+        overflow:
+          label: Stack exhausted
+          note: The stack pointer walked into the guard page. The process is gone, and no return will run.
+          terminal: true
+          error: true
+      transitions:
+        - from: outside
+          on: call
+          to: inside
+          effects:
+            - { var: depth, op: inc, value: 1 }
+            - { var: calls, op: inc, value: 1 }
+          note: The first call pushes a frame onto an empty stack.
+        - from: inside
+          on: call
+          to: inside
+          when: [{ var: depth, cmp: lt, value: 3 }]
+          effects:
+            - { var: depth, op: inc, value: 1 }
+            - { var: calls, op: inc, value: 1 }
+          note: Room remains, so another activation record is pushed on top.
+        - from: inside
+          on: call
+          to: overflow
+          when: [{ var: depth, cmp: gte, value: 3 }]
+          note: There was no room left. The prologue reserved space past the end of the stack region.
+        - from: inside
+          on: return
+          to: inside
+          when: [{ var: depth, cmp: gt, value: 1 }]
+          effects: [{ var: depth, op: dec, value: 1 }]
+          note: One frame is popped and the caller's frame is on top again.
+        - from: inside
+          on: return
+          to: outside
+          when: [{ var: depth, cmp: eq, value: 1 }]
+          effects: [{ var: depth, op: dec, value: 1 }]
+          note: The last frame is gone, so nothing is running.
+      mode: drive
+      win:
+        state: outside
+        maxSteps: 8
+        requires: [{ var: calls, cmp: gte, value: 3 }]
+      hints:
+        - Three calls is the target and three frames is the ceiling, but nothing says all three have to be live at once.
+        - At a depth of three the only call on offer is the one that walks off the end. Returning first buys the room back.
+        - Either go down three and come back up three, or call and return three times over. Both make three calls and both finish with the stack empty.
+      reveal: >-
+        Depth is the resource, not the number of calls. A program can call a million functions
+        and never grow past a handful of frames, while a recursion twenty thousand deep dies
+        having called one function. That is why the fix for a stack overflow is a base case or a
+        loop rather than a bigger machine.
+
+    - id: the-pointer-that-outlives-it
+      kind: spot
+      prompt: >-
+        This prints the right number on a good day and garbage on a bad one. Click the line that
+        makes it undefined.
+      lang: c
+      source: |
+        static int limit = 100;
+
+        int *compute_result(void) {
+            int value = 42;
+            return &value;
+        }
+
+        void process(void) {
+            int *p = compute_result();
+            printf("result: %d\n", *p);
+        }
+      targets: [4]
+      decoys:
+        '0': A file scope variable lives for the whole run, so its address stays valid indefinitely. Nothing is wrong with this one.
+        '3': Declaring a local is fine. What goes wrong is what happens to its address afterwards.
+        '8': Calling the function and keeping what it returns is reasonable. The problem was created before this line ran.
+        '9': By the time this reads through p the damage is already done, and printf is often the very call that overwrites the bytes.
+      hints:
+        - Everything here compiles, and on many builds it prints 42 the first time you run it.
+        - Follow the lifetime of value rather than the lifetime of the pointer. One of them ends at the closing brace.
+        - The frame that held value is popped as the function returns, so the address handed back names memory that now belongs to whoever calls next.
+      reveal: >-
+        The address stays mapped, which is exactly what makes this bug survive testing. The page
+        is still there and still writable, so the read succeeds and returns whatever the next
+        frame put in those bytes. Returning storage that has to outlive the frame means the heap,
+        an output parameter, or a static, and the compiler will warn about this one if you let it.
 ---
 
 Function invocation and local variable lifecycle management in compiled systems rely on the execution call stack.

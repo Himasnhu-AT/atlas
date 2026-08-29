@@ -7,6 +7,171 @@ estimatedMinutes: 40
 exercise:
   id: chunking
   timeboxMinutes: 30
+challenges:
+  goal: Cut a document where the meaning allows it, and keep enough with each piece to cite it later.
+
+  steps:
+    - id: pick-the-splitter
+      kind: assign
+      prompt: >-
+        Four splitters, and each of these corpora suits one of them. Sort them.
+      buckets:
+        - id: fixed
+          label: Fixed size
+          note: Count characters and cut. The only option when there are no delimiters to respect.
+        - id: paragraph
+          label: Paragraph or sentence
+          note: Cut on blank lines or punctuation. Complete thoughts, uneven sizes.
+        - id: structural
+          label: Structural
+          note: Cut on headings or tags, and keep the hierarchy as metadata.
+        - id: recursive
+          label: Recursive character
+          note: Try the coarsest separator, fall back to finer ones only where a piece is still too big.
+      items:
+        - id: ocr-contract
+          label: A scanned contract run through OCR, with no paragraph breaks left in it.
+          bucket: fixed
+          because: Nothing to split on. Every semantic delimiter was lost at the scanner, so the honest answer is a character count and a healthy overlap.
+        - id: sensor-notes
+          label: Forty thousand characters of sensor notes written as one unbroken run.
+          bucket: fixed
+          because: Same situation. A splitter that respects structure needs structure to respect.
+        - id: blog-archive
+          label: A blog archive of ordinary prose with blank lines between paragraphs.
+          bucket: paragraph
+          because: The author already marked where one thought ends. Sizes will be uneven and that is usually fine for prose.
+        - id: meeting-notes
+          label: Meeting notes written as short paragraphs of roughly even length.
+          bucket: paragraph
+          because: Even sizes mean the main weakness of paragraph splitting does not bite, and the blank lines are real boundaries.
+        - id: markdown-handbook
+          label: A Markdown handbook with two levels of headings.
+          bucket: structural
+          because: The headings are both the boundary and the metadata. Cutting on them gives you a section title to prefix and to cite.
+        - id: html-docs
+          label: HTML product docs marked up with section and article tags.
+          bucket: structural
+          because: The same idea in a different markup. The document already says where a unit begins.
+        - id: mixed-corpus
+          label: A mixed corpus of Markdown, plain text and source files with wildly different shapes.
+          bucket: recursive
+          because: No single separator works across all of it, so you need one that tries the coarsest and falls back only where it has to.
+        - id: uneven-legal
+          label: Legal prose where some paragraphs are one line and some run for three pages.
+          bucket: recursive
+          because: Splitting on blank lines alone leaves chunks far over any size limit, so the three page ones have to be cut again on something finer.
+        - id: uneven-headings
+          label: A wiki where two sections are a sentence and one is fifteen thousand characters.
+          bucket: recursive
+          because: Structure exists and is not enough on its own. The fallback is the whole point of the recursive splitter.
+      hints:
+        - Two of these have no delimiters at all, which narrows them to one option.
+        - Two of them come with markup that names the sections, and that markup is worth keeping.
+        - Three of them have structure that works most of the time and fails on a few oversized pieces.
+      reveal: >-
+        The splitter you can use is decided by the document, not by preference. Structure
+        aware splitting is the best option when the structure is there, because the heading
+        it cuts on is also the metadata you need for a citation. Everything else is a
+        fallback, and fixed size is the fallback of last resort.
+
+    - id: how-many-windows
+      kind: numeric
+      prompt: How many windows does this loop emit?
+      context:
+        as: code
+        lang: python
+        source: |
+          size, overlap = 800, 200
+          text = load_document()          # 5000 characters
+
+          step = size - overlap
+          windows = []
+          for start in range(0, len(text), step):
+              windows.append(text[start : start + size])
+      answer: 9
+      unit: windows
+      tolerance: 0
+      scaleHint: Check what the loop steps by. It is not the chunk size.
+      hints:
+        - Work out step before anything else.
+        - The loop starts at 0 and adds step each time, while start is under 5000.
+        - The last window starts at 4800 and holds 200 characters rather than 800.
+      reveal: >-
+        Six chunks would cover 5000 characters with no overlap and this emits nine, so a
+        fifth of the index is duplicated text. That is what the overlap costs: more vectors
+        to embed and store, and two near identical chunks competing for the same slot in a
+        prompt. It buys you the fact that fell across a boundary, which for fixed size
+        splitting is a fact you would otherwise have lost.
+
+    - id: the-recursion-that-does-not-end
+      kind: spot
+      prompt: >-
+        This splitter hangs on one document in the corpus and returns immediately on every
+        other. Click the line.
+      lang: python
+      source: |
+        def split_recursive(text, max_size, separators):
+            if len(text) <= max_size:
+                return [text]
+            sep, rest = separators[0], separators[1:]
+            chunks = []
+            for piece in text.split(sep):
+                if len(piece) > max_size:
+                    chunks.extend(split_recursive(piece, max_size, separators))
+                else:
+                    chunks.append(piece)
+            return chunks
+      targets: [7]
+      requireAll: true
+      decoys:
+        '1': The size test is the base case and it is correct.
+        '2': Returning a single chunk when it already fits is right.
+        '3': Taking the head separator and keeping the tail is right. Look at where the tail goes.
+        '5': Splitting on the current separator is the whole idea.
+        '6': Testing whether a piece is still too big is what decides whether to recurse.
+        '9': Keeping a piece that already fits is right.
+        '10': Returning the accumulated chunks is right, although a merge pass belongs before it.
+      hints:
+        - Line 3 computes two values and only one of them is ever used.
+        - Ask what the recursive call gets to try next, and whether it is different from what this call just tried.
+        - A document with a paragraph longer than max_size and no blank line inside it will split on the same separator forever.
+      reveal: >-
+        Passing rest is what makes the recursion terminate: each level has one fewer
+        separator to try, so the stack cannot go deeper than the separator list is long.
+        Passing the full list means a piece that the coarsest separator cannot shrink gets
+        handed back the coarsest separator. Add the greedy merge pass after this too, or a
+        document full of one line paragraphs comes back as a thousand chunks with no context
+        in any of them.
+
+    - id: embed-one-cite-the-other
+      kind: choice
+      prompt: >-
+        You prefix the heading path onto each chunk, so the body now starts with Handbook
+        then Refunds. Which text goes where?
+      options:
+        - id: embed-prefixed-cite-body
+          label: Embed the prefixed text, and quote the original body in the citation.
+          correct: true
+          note: The prefix is there so a chunk that never says the word refunds still matches a question about refunds. The reader gets the document's own words, which is what a citation is for.
+        - id: both-prefixed
+          label: Embed the prefixed text and quote the prefixed text.
+          note: The search half is right and the citation now quotes a string that does not appear in the source document. Anybody checking the quote against the handbook will not find it.
+        - id: both-original
+          label: Embed the original body and quote the original body.
+          note: Consistent, and the prefix does nothing. A chunk in the refunds section that says only within thirty days of delivery will not match a question that says refund.
+        - id: two-vectors
+          label: Embed both versions, so the chunk is in the index twice.
+          note: Double the vectors, double the cost, and the two entries score similarly and both come back, so one chunk now occupies two of the slots in your prompt.
+      hints:
+        - The two texts are read by two different audiences at two different times.
+        - Ask what the prefix was added for, then ask whether a human reading a quote needs it.
+        - One of these produces a quotation that cannot be found in the document it names.
+      reveal: >-
+        The chunk carries two representations because it does two jobs. The embedded string
+        is written for the search, so it holds every keyword that would help it be found,
+        including the section title it sits under. The stored body is written for the
+        reader, so it stays exactly what the document says.
 ---
 
 Documents must be partitioned into chunks because the chunk serves as both the retrieval unit and the context

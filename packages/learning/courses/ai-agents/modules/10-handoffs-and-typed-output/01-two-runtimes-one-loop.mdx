@@ -4,6 +4,145 @@ title: Two runtimes, one loop
 summary: Architecture choices between the OpenAI Agents SDK and Pydantic AI, dependency stability risks, and strategies to minimize vendor lock-in.
 order: 1
 estimatedMinutes: 30
+challenges:
+  goal: Recognise the same tool loop under two runtimes, and keep the parts of a system that are yours out of theirs.
+
+  steps:
+    - id: which-runtime
+      kind: choice
+      prompt: >-
+        You are turning a support email into a database row with a title, a severity from 1
+        to 5 and some tags. One agent, one lookup tool, two weeks, and no appetite for
+        owning a validation retry loop. Which runtime?
+      options:
+        - id: agents-sdk
+          label: The OpenAI Agents SDK, for its agents and handoffs.
+          note: Orchestration you do not have. There is one agent and nowhere to hand off to, so the concepts you would be paying attention to are the ones this job never reaches.
+        - id: pydantic-ai
+          label: Pydantic AI, for its output type and validation retries.
+          correct: true
+          note: The whole job is the boundary between an untyped reply and a typed row, which is the thing this runtime is built around, including handing validation errors back for a second attempt.
+        - id: both
+          label: Both, one for the extraction and one for the specialists you might add later.
+          note: Two pre-1.0 dependencies and two changelogs to read, for a system with one agent in it. Add the second when the second agent exists.
+        - id: neither
+          label: Neither. The loop is forty lines and the schema is a dataclass.
+          note: True, and the forty lines are not the work. The retry that feeds a validation error back as a tool result is the fiddly part, and it is the part you said you did not want to own.
+      hints:
+        - Count the agents in the description, then count the handoffs.
+        - One of these runtimes is organised around a boundary this job is entirely made of.
+        - The build-it-yourself answer is right often enough to take seriously. Ask which sentence in the brief rules it out.
+      reveal: >-
+        Neither library does anything the other cannot. They differ in what they made easy,
+        so the question is which of your problems you want the library to have opinions
+        about. Here it is the type boundary, and that is one library's whole subject.
+
+    - id: the-shared-loop
+      kind: order
+      prompt: >-
+        Both runtimes are this loop with different words on it. Put one turn in order,
+        including the parts that happen outside the model call.
+      items:
+        - { id: guard, label: Run the input guardrails }
+        - { id: build, label: Build the request from the active agent's instructions and its tools }
+        - { id: call, label: Send it and read the response }
+        - { id: dispatch, label: Run each requested tool and append its result under the matching call id }
+        - { id: transfer, label: Reassign the active agent if one of those calls was a transfer }
+        - { id: validate, label: Validate the final output against its schema }
+      solution: [guard, build, call, dispatch, transfer, validate]
+      because:
+        guard: The guardrail is first because being first is the entire benefit. Run it after the model call and it can still protect the user, but it can no longer protect the budget.
+        build: The instructions are prepended to each request rather than stored in the history. That is what stops one agent's instructions following the conversation into another agent's turn.
+        dispatch: Every tool call the model made needs a result appended against its id before the next request goes out, or the provider rejects the history.
+        transfer: The reassignment is recorded here and takes effect on the next request, which is why a handoff costs a turn.
+        validate: Validation is on the final output, so it is the last thing in the turn and the thing that can send you round again.
+      hints:
+        - One of these can stop the run before a single token is spent, so it cannot be anywhere but first.
+        - The active agent decides what the request contains, which fixes where reassigning it can usefully happen.
+        - Two steps deal with tool calls, and one of them is about a tool that is not really a tool.
+      reveal: >-
+        A handoff is a reassignment, a guardrail is a call that happens before the loop, and
+        typed output is a validator on the way out. Once you can see the loop under both
+        libraries, choosing between them stops being an architecture decision and becomes a
+        question of whose defaults you want.
+
+    - id: what-moves-with-you
+      kind: assign
+      prompt: >-
+        You are eighteen months in and the runtime you chose has had four breaking releases.
+        Sort what the system is made of by how much of it comes with you.
+      buckets:
+        - id: yours
+          label: Yours already
+        - id: shaped
+          label: Yours, in their shape
+        - id: theirs
+          label: Theirs, unless you kept a copy
+      items:
+        - id: prompt-text
+          label: The system prompt for each agent
+          bucket: yours
+          because: Plain text. It is the highest value thing in the system and the cheapest to carry, which is a good argument for keeping it in files rather than in decorators.
+        - id: tool-bodies
+          label: The function bodies behind the tools
+          bucket: yours
+          because: Ordinary Python that looks something up and returns a string. The decorator is framework, the function is not, and keeping that line clean costs nothing while you are writing it.
+        - id: output-schema
+          label: The JSON schema the runtime generated from your dataclass
+          bucket: shaped
+          because: The dataclass is yours and the schema is a rendering of it. Regenerating it under another library is a translation, not a rewrite.
+        - id: routing-logic
+          label: The routing rules, written in terms of the runtime's agent and handoff objects
+          bucket: shaped
+          because: The decisions are yours and the vocabulary is theirs. Expressed as a table of names, the same rules would have been in the first bucket.
+        - id: history-in-your-db
+          label: Message history stored in your own table, in the runtime's serialisation
+          bucket: shaped
+          because: You own the rows and somebody else designed the columns. Readable, migratable, and worth a schema you understand before it is a million rows deep.
+        - id: hosted-session
+          label: Conversation state living only behind a hosted session id
+          bucket: theirs
+          because: There is no copy on your side. When the hosted feature changes shape you are migrating live data you cannot read, which is the expensive kind of lock-in.
+        - id: server-side-files
+          label: Uploaded documents held in the provider's own store and referenced by id
+          bucket: theirs
+          because: Same problem with a different asset. The fix is the same too, which is to keep the originals somewhere you control and treat the remote copy as a cache.
+      hints:
+        - Two of these are plain text and plain functions, and they are the ones you would be most upset to lose.
+        - Three are your decisions written in somebody else's vocabulary. A translation pass, not a rewrite.
+        - Ask which items exist only in one place, and whether that place is yours.
+      reveal: >-
+        Pinning versions and hiding the library behind an adapter deals with the package.
+        The expensive migration is the data, and the rule is simple enough to apply while
+        you are building: anything that would be painful to lose gets a copy on your side
+        of the boundary on the day it is created.
+
+    - id: the-line-that-still-costs
+      kind: spot
+      prompt: >-
+        This is deliberately the only module that imports the runtime, and it is a good
+        adapter. Click the line that still makes leaving expensive.
+      lang: python
+      source: |
+        from agents import Agent, Runner, RunResult
+
+        async def handle_ticket(text: str) -> dict:
+            result: RunResult = await Runner.run(triage, text)
+            store.save(ticket_id, result.to_input_list())
+            return {"reply": result.final_output}
+      targets: [4]
+      decoys:
+        "0": Importing the runtime here is the plan working. One module knows about it and the rest of the application does not.
+        "3": Calling the runner is what the adapter is for, and the annotation stays inside the module that already imports the type.
+        "5": Returning a plain dictionary is the boundary doing its job. Nothing past this line knows which library produced the answer.
+      hints:
+        - Everything on the way in and out of this function is either a string or a dict. One line is neither.
+        - Ask which of these lines produces something that outlives the process.
+        - The import is reversible in an afternoon. One of these is reversible only with a migration.
+      reveal: >-
+        The adapter contains the code and not the data. A million rows of somebody else's
+        message format are the migration, whatever your import graph looks like, so the
+        serialisation you persist deserves the same scrutiny as the API you call.
 ---
 
 While graph-based frameworks represent agent workflows as explicit state machines, another

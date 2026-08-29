@@ -7,6 +7,167 @@ estimatedMinutes: 40
 exercise:
   id: parallel-dispatch
   timeboxMinutes: 30
+challenges:
+  goal: Run a turn's worth of tool calls at once and hand back a transcript that survives one of them failing.
+
+  steps:
+    - id: one-turn-or-two
+      kind: assign
+      prompt: >-
+        The model is about to answer each of these. Sort them by whether it can ask for
+        every tool it needs in a single turn.
+      buckets:
+        - id: one-turn
+          label: One turn
+          note: Every argument is already known, so the calls are independent.
+        - id: two-turns
+          label: Two turns at least
+          note: An argument for one call is the output of another, so the model has to see the first result before it can write the second call.
+      items:
+        - id: three-cities
+          label: The population of Paris, Tokyo and Lagos.
+          bucket: one-turn
+          because: Three lookups, three city names already in the question. Nothing about one depends on another.
+        - id: tokyo-two-facts
+          label: The timezone and the current weather in Tokyo.
+          bucket: one-turn
+          because: Two different tools, one argument, and neither needs the other's answer.
+        - id: largest-city
+          label: The population of the largest city in Brazil.
+          bucket: two-turns
+          because: The second call needs a city name that only the first call can supply. Batching these means guessing the city, and the model will guess.
+        - id: three-skus
+          label: Whether these three SKUs are in stock.
+          bucket: one-turn
+          because: The same tool three times with three arguments the question already gave you.
+        - id: convert-total
+          label: The invoice total for order 4821, in euros.
+          bucket: two-turns
+          because: The conversion needs an amount, and the amount is what the lookup returns.
+        - id: order-then-email
+          label: Place the order, then email the confirmation to the address on it.
+          bucket: two-turns
+          because: A dependency and a side effect at once. Even if the address were known, running these concurrently means emailing a confirmation for an order that may not exist yet.
+      hints:
+        - Ask, for each call, whether you could write out its arguments right now.
+        - One of these needs an answer before it can be asked.
+        - The last one has a second reason beyond the missing argument, and it is about the order things happen in the world.
+      reveal: >-
+        Batching is a question about the arguments, not about the tools. Providers give you
+        a switch to turn it off, and it is worth using when tools have side effects, because
+        serialising costs you latency and concurrency can cost you correctness.
+
+    - id: how-long-a-batch-takes
+      kind: numeric
+      prompt: >-
+        These calls are network bound, so a thread pool is the right tool. How long does the
+        batch take?
+      context:
+        as: pairs
+        items:
+          - { k: calls in the turn, v: "6" }
+          - { k: each call, v: 400 ms, almost all of it waiting on HTTP }
+          - { k: max_workers, v: "3" }
+      answer: 800
+      unit: ms
+      tolerance: 0
+      scaleHint: Check whether you have added the calls up or divided them among the workers.
+      hints:
+        - Three workers pick up three calls at once. What happens at 400 ms?
+        - Two rounds of three.
+        - Sequentially this is 2400 ms.
+      reveal: >-
+        Threads help here because the time is spent waiting rather than computing. Give the
+        same six calls a pure Python computation each and the interpreter lock puts you back
+        near 2400 ms, at which point the answer is a process pool. Almost every agent tool is
+        the first kind.
+
+    - id: order-out-order-in
+      kind: spot
+      prompt: >-
+        This dispatches the batch concurrently and builds the tool messages. Click every
+        line that makes the transcript wrong.
+      lang: python
+      source: |
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {pool.submit(run_one, registry, call): call for call in calls}
+            results = [future.result() for future in as_completed(futures)]
+        return [
+            {"role": "tool", "tool_call_id": call.id, "content": result.content}
+            for call, result in zip(calls, results)
+        ]
+      targets: [2, 5]
+      requireAll: true
+      decoys:
+        '0': A thread pool is the right shape for calls that spend their time waiting on the network.
+        '1': Submitting one future per call in request order is fine. What goes wrong is how they are collected.
+        '3': Returning a list of tool messages is what the loop wants.
+        '4': The message shape is correct, and tool_call_id is the right field to key on.
+        '6': Closing the list is fine.
+      hints:
+        - Ask what order the results come out in, then ask what order the code assumes they are in.
+        - as_completed yields whichever finished first, which depends on the network that day.
+        - Once the order is scrambled, the line that pairs them up is pairing the wrong things together.
+      reveal: >-
+        Submit in request order and read the futures back in request order. Then the results
+        line up with the calls no matter who finished first, the transcript is identical on
+        every run, and a diff between two runs shows a behaviour change rather than a
+        latency change.
+
+    - id: owe-a-result-for-every-call
+      kind: text-contract
+      prompt: >-
+        The turn asked for three tools and one of them raised. Repair the transcript until
+        the provider would accept it and the model could act on it.
+      context:
+        as: pairs
+        items:
+          - { k: call_a, v: lookup_population for Paris, returned 2102650 }
+          - { k: call_b, v: lookup_population for Atlantis, raised LookupError with no population on file }
+          - { k: call_c, v: lookup_timezone for Tokyo, returned Asia/Tokyo }
+          - { k: what the provider requires, v: one result per call, and they stay in request order }
+      lang: json
+      initial: |
+        {
+          "calls": ["call_a", "call_b", "call_c"],
+          "results": [
+            { "tool_call_id": "call_c", "content": "Asia/Tokyo" },
+            { "tool_call_id": "call_a", "content": "{\"city\": \"Paris\", \"population\": 2102650}" }
+          ]
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: Three calls went out and there are not three results. A call with no tool message is an unanswered call, and the provider rejects the whole payload.
+          check: { op: length, path: results, min: 3, max: 3 }
+        - message: The results are in the order they finished rather than the order they were asked for. call_a came first.
+          check: { op: equals, path: results.0.tool_call_id, value: call_a }
+        - message: The second result should answer call_b, which is the one that failed.
+          check: { op: equals, path: results.1.tool_call_id, value: call_b }
+        - message: The third result should answer call_c.
+          check: { op: equals, path: results.2.tool_call_id, value: call_c }
+        - message: call_b has a result now, but nothing in it says the call failed. The model reads the content string and nothing else.
+          check: { op: contains, path: results.1.content, text: "error:" }
+        - message: Name the exception type in the content. LookupError tells the model to try other arguments, ConnectionError tells it the service is down, and the two deserve different next moves.
+          check: { op: contains, path: results.1.content, text: LookupError }
+      hints:
+        - Count the ids in calls, then count the results. The failure is not an excuse to skip a result.
+        - The two results you have are the two that finished, in the order they finished.
+        - The failed call gets a tool message like any other. What goes in its content is the error, written so the model can tell one kind of failure from another.
+      reveal: >-
+        Letting the exception out of the batch throws away two good results and tells the
+        model nothing. Catching it per call keeps the turn intact and turns the failure into
+        something the model can read and work around, which is often all it needs to get the
+        next turn right.
+      solution: |
+        {
+          "calls": ["call_a", "call_b", "call_c"],
+          "results": [
+            { "tool_call_id": "call_a", "content": "{\"city\": \"Paris\", \"population\": 2102650}" },
+            { "tool_call_id": "call_b", "content": "error: LookupError: no population on file for Atlantis" },
+            { "tool_call_id": "call_c", "content": "Asia/Tokyo" }
+          ]
+        }
 ---
 
 A basic loop handles multiple tool requests if the inner loop iterates over `choice.message.tool_calls`

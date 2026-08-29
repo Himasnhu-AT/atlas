@@ -7,6 +7,203 @@ estimatedMinutes: 35
 exercise:
   id: tool-schemas
   timeboxMinutes: 40
+challenges:
+  goal: Write a tool schema the model reads the way you meant it, and validate what comes back.
+
+  steps:
+    - id: what-survives
+      kind: assign
+      prompt: >-
+        You are writing a parameter schema. Sort these JSON Schema keywords by whether you
+        can lean on them to shape what the model generates.
+      buckets:
+        - id: carried
+          label: Steers generation
+          note: Forwarded by every provider, and models act on it.
+        - id: dropped
+          label: Enforce it yourself
+          note: Providers forward it, ignore it or reject the schema outright, and even when it is forwarded it only tilts sampling.
+      items:
+        - id: type
+          label: type
+          bucket: carried
+          because: The spine of the whole subset. Constrained decoding is built on it.
+        - id: properties
+          label: properties
+          bucket: carried
+          because: Without it there are no arguments to describe.
+        - id: required
+          label: required
+          bucket: carried
+          because: It is the difference between an argument the model must produce and one it decides about.
+        - id: enum
+          label: enum
+          bucket: carried
+          because: The one constraint that is genuinely enforced under constrained decoding, which is why it beats writing the options into prose.
+        - id: description
+          label: description
+          bucket: carried
+          because: The part the model actually reads. Every constraint you cannot express in the subset ends up written here.
+        - id: items
+          label: items
+          bucket: carried
+          because: An array with no item type is an array of anything, and the model will oblige.
+        - id: minimum
+          label: minimum
+          bucket: dropped
+          because: A number below it is still a syntactically valid integer, so nothing stops it being generated. Range checks belong in your validator.
+        - id: maxlength
+          label: maxLength
+          bucket: dropped
+          because: Same shape of problem. Truncating an over-long string is your job, and silently is the wrong way to do it.
+        - id: pattern
+          label: pattern
+          bucket: dropped
+          because: Some providers reject a schema carrying it. Put the shape in the description with an example instead, then check it on arrival.
+        - id: format
+          label: format
+          bucket: dropped
+          because: Two providers rarely agree on what date-time or email means here, and neither will fail a call that violates it.
+      hints:
+        - Six of these describe the shape of the data and four describe limits on its values.
+        - Ask which ones a token sampler could enforce while it is generating, one token at a time.
+        - The four that do not survive are all about how big, how long or what the characters look like.
+      reveal: >-
+        The subset is small because it is the part a sampler can enforce. Anything narrower
+        than a type goes in the description, where the model reads it as instruction rather
+        than as law, and then again in your validator, where it is law. Arguments arrive as
+        an untrusted JSON string and no provider checks them for you.
+
+    - id: what-it-costs
+      kind: numeric
+      prompt: >-
+        Every model call in a run carries the whole tool list. How many tokens do the
+        schemas alone cost across this run?
+      context:
+        as: pairs
+        items:
+          - { k: tools registered, v: "6" }
+          - { k: schema size, v: 180 tokens each }
+          - { k: model calls in the run, v: "8" }
+      answer: 8640
+      unit: tokens
+      tolerance: 0
+      scaleHint: You have the per-call figure. The point of the question is that it is paid again on every turn of the loop.
+      hints:
+        - Work out what one model call carries before you think about the run.
+        - The tool list is part of the request, not part of the session, so nothing about it is remembered between calls.
+        - Six schemas per call, eight calls.
+      reveal: >-
+        Under nine thousand tokens before a single word of the conversation, and it grows
+        with the tool count and with the length of the run at the same time. That is the
+        real argument for choosing which tools go out on a given turn rather than shipping
+        the catalogue every time.
+
+    - id: three-searches
+      kind: choice
+      prompt: >-
+        Six tools, and three of them search something. The model keeps reaching for the
+        wrong one of the three. What fixes it?
+      options:
+        - id: cut-to-four
+          label: Delete tools until you are down to four.
+          note: Count is not the axis. Twenty tools covering twenty distinct domains behave better than six where three overlap, and you have just deleted capability to treat a symptom.
+        - id: negative-boundaries
+          label: Say in each description what that tool does not cover, naming the other two.
+          correct: true
+          note: The confusion is between three descriptions that all read as plausible. Drawing the boundary is the only edit that changes which one reads as plausible for a given question.
+        - id: per-turn-filter
+          label: Send only the tools that suit the current conversation state.
+          note: A real technique, but for a different problem. It cuts tokens and dilution across a large catalogue; here all three are still relevant to the same turn, so filtering leaves the ambiguity intact.
+        - id: add-pattern
+          label: Add pattern and minLength to the query parameters so the arguments are stricter.
+          note: The model is picking the wrong tool, not malforming the arguments, and those two keywords are in the half providers disagree about anyway.
+      hints:
+        - The model chose from the descriptions, so the fault is in the descriptions.
+        - Nothing in any of the three tells the model where its own remit ends.
+        - Selection degrades between tools that overlap, so the fix has to be about the overlap rather than about the count.
+      reveal: >-
+        A tool description is read against its siblings, not on its own. Stating what a tool
+        is not for is often worth more than another sentence about what it is for, because
+        it is the only sentence that separates it from the tool next to it.
+
+    - id: write-it-for-the-model
+      kind: text-contract
+      prompt: >-
+        This schema is everything the model will ever know about the function. Rewrite it
+        until it says enough.
+      context:
+        as: pairs
+        items:
+          - { k: name, v: search_help_articles }
+          - { k: description, v: what it searches, when to reach for it, and one thing it does not cover }
+          - { k: query, v: replaces q, and its description shows the shape with an example }
+          - { k: limit, v: replaces n, and its description states the range and the default }
+          - { k: required, v: query alone }
+      lang: json
+      initial: |
+        {
+          "name": "search",
+          "description": "Search.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "q": { "type": "string", "description": "Query" },
+              "n": { "type": "integer", "description": "Number" }
+            },
+            "required": ["q"]
+          }
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The name is still search. Name the data source, so that a model reading the list can tell it from every other search you own.
+          check: { op: equals, path: name, value: search_help_articles }
+        - message: The description is too short to say what it searches and when to reach for it. This is the only sentence the model gets.
+          check: { op: length, path: description, min: 120 }
+        - message: Nothing in the description says where this tool stops. Write what it does not cover.
+          check: { op: contains, path: description, text: does not }
+        - message: The parameter is still called q. A one letter name carries no signal into generation.
+          check: { op: absent, path: parameters.properties.q }
+        - message: There is no query parameter yet.
+          check: { op: exists, path: parameters.properties.query }
+        - message: The query description does not show what a query should look like. Give an example of the shape you want.
+          check: { op: contains, path: parameters.properties.query.description, text: for example }
+        - message: The parameter is still called n, and its description still says Number without saying a number of what.
+          check: { op: absent, path: parameters.properties.n }
+        - message: limit is optional, so its description has to say what happens when the model leaves it out.
+          check: { op: contains, path: parameters.properties.limit.description, text: default }
+        - message: The required list still names q. Only query is required.
+          check: { op: equals, path: parameters.required, value: [query] }
+      hints:
+        - Both parameter names are single letters, and both descriptions are single words. Start there.
+        - The description has three jobs and currently does none of them, and one of the three is saying what the tool is not for.
+        - An optional parameter needs its default written down, because the model has to decide whether omitting it is safe.
+      reveal: >-
+        None of this is documentation. The model has no signature, no type hints and no
+        source, so a vague description is a vague prompt and shows up as the wrong tool with
+        confident arguments. Then validate what arrives anyway, because a description is
+        advice and the arguments are an untrusted JSON string.
+      solution: |
+        {
+          "name": "search_help_articles",
+          "description": "Search the customer help centre for articles about billing, shipping and returns. Use it before answering anything about company policy. It does not know about any specific customer or their orders.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Two to six keywords rather than a sentence. For example: refund window international."
+              },
+              "limit": {
+                "type": "integer",
+                "description": "How many articles to return, from 1 to 10. Default 3 when omitted."
+              }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
 ---
 
 The model never sees your Python function. It sees a name, a description string, and a list of parameters with

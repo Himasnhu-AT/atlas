@@ -4,6 +4,145 @@ title: Why retrieval
 summary: The model knows its training data and nothing about your documents. Retrieval is one of three ways to fix that, and the only one that hands you a citation and a prompt whose size you control.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Choose between stuffing, retrieval and fine-tuning on the evidence, and name the failure retrieval brings with it.
+
+  steps:
+    - id: three-ways-in
+      kind: assign
+      prompt: >-
+        Each of these is a real requirement. Sort them by which way of getting private data
+        to a model fits.
+      buckets:
+        - id: stuff
+          label: Put it in every prompt
+          note: Cheap to build, paid for on every turn, and bounded by the context window.
+        - id: retrieve
+          label: Search it and inject the excerpts
+          note: An index to build and keep current, in exchange for a prompt whose size you choose.
+        - id: finetune
+          label: Train on it
+          note: Moves behaviour into the weights. Nothing it produces comes with a source.
+      items:
+        - id: short-policy
+          label: Six paragraphs of returns policy that change twice a year.
+          bucket: stuff
+          because: It fits, it is stable, and an index for six paragraphs is machinery with nothing to do.
+        - id: one-page-faq
+          label: A one page FAQ read by a single endpoint.
+          bucket: stuff
+          because: Same shape. Prompt caching makes a static prefix cheap enough that retrieval would be the more expensive option.
+        - id: ticket-corpus
+          label: Forty thousand support tickets, updated hourly, and every answer has to link to the ticket it came from.
+          bucket: retrieve
+          because: Too large for any window, changing too fast for training, and the link requirement is only satisfiable if you know which passages you supplied.
+        - id: long-manual
+          label: A nine hundred page product manual where each question touches one section.
+          bucket: retrieve
+          because: The whole manual is billed on every turn if you stuff it, and the answer needed one section. Retrieval is the option that bills you for the section.
+        - id: house-envelope
+          label: Every reply must come back in the house JSON envelope, whatever is asked.
+          bucket: finetune
+          because: A format, not a fact. Training teaches shape reliably, and a shape has no source to cite.
+        - id: house-tone
+          label: Replies should sound like the team writes, terse and without apologies.
+          bucket: finetune
+          because: Tone is style, and style is what training moves best. No amount of retrieved text will reliably change a voice.
+      hints:
+        - Two of these are small and stable, and machinery for them is machinery with nothing to do.
+        - Ask whether the requirement is about a fact or about a shape.
+        - One requirement names something none of the other approaches can produce at all.
+      reveal: >-
+        Training moves style and format into the weights, and it moves facts badly: updating
+        one of them means another training run, and nothing it says arrives with a source.
+        The requirement that decides most cases is the citation, because only the approach
+        that chose the passages knows what they were.
+
+    - id: what-stuffing-costs
+      kind: numeric
+      prompt: >-
+        Somebody proposes pasting the whole manual into every request because it fits now.
+        What does that cost a day?
+      context:
+        as: pairs
+        items:
+          - { k: the manual, v: 100 pages, about 75000 input tokens }
+          - { k: input price, v: 3 dollars per million tokens }
+          - { k: traffic, v: 20000 requests a day }
+      answer: 4500
+      unit: dollars a day
+      tolerance: 0
+      scaleHint: Check where the million in the price goes. The token count is per request and the price is per million tokens.
+      hints:
+        - Work out the tokens for one day before you touch the price.
+        - Seventy five thousand tokens twenty thousand times is one and a half billion tokens.
+        - The price is quoted per million, so divide before you multiply.
+      reveal: >-
+        Four and a half thousand dollars a day to send a hundred pages so the model can use
+        one sentence of it, and that is only the input. Caching a static prefix takes the
+        edge off it and does not remove the per token charge. Retrieval is the option where
+        you decide how many tokens the prompt carries and the corpus can grow without that
+        number moving.
+
+    - id: lost-in-the-middle
+      kind: choice
+      prompt: >-
+        The window got bigger, so you dropped retrieval and pasted the whole manual.
+        Questions about section 40 of 60 now answer worse than they did. Why?
+      options:
+        - id: uneven-attention
+          label: The model recalls the start and the end of a long context more reliably than the middle.
+          correct: true
+          note: Attention over a long span is not uniform. Section 40 sits in the region that is recalled worst, and no amount of window makes that region behave like the top of the prompt.
+        - id: overflow
+          label: The manual is longer than the window and the middle is being truncated.
+          note: It fits, which is the premise of the change. Truncation would take the end rather than the middle anyway, and that is visible in the token count.
+        - id: temperature
+          label: Sampling temperature is too high for factual questions.
+          note: That would degrade every section equally. What you have is a failure that depends on where in the prompt the answer sits.
+        - id: tokenizer
+          label: The manual tokenizes badly, so the middle costs more tokens than it looks like.
+          note: Tokenization affects cost and length, not which part of a long prompt the model can recall.
+      hints:
+        - The failure depends on position, so look for an explanation that depends on position.
+        - Sections 1 and 60 are presumably fine.
+        - Nothing changed about the model, the questions or the manual. Only where the answer sits in the prompt.
+      reveal: >-
+        A bigger window removes the hard limit and not the two soft ones. You still pay for
+        every token on every turn, time to first token still grows with the prompt, and
+        recall across the middle of a long span is worse than recall at either end.
+        Retrieval puts the relevant passage at the top of a short prompt, which is the
+        position the model reads best.
+
+    - id: confidently-wrong
+      kind: order
+      prompt: >-
+        Retrieval returned three plausible chunks that do not answer the question, and the
+        model wrote a confident cited answer anyway. Put the four defences in pipeline order.
+      items:
+        - id: chunking
+          label: Chunk so that a passage is a complete thought
+        - id: threshold
+          label: Reject retrievals below a similarity threshold
+        - id: instruct
+          label: Tell the model to decline when the passages do not contain the answer
+        - id: verify
+          label: Check the identifiers it cited against the passages you actually sent
+      solution: [chunking, threshold, instruct, verify]
+      because:
+        threshold: Nothing can be scored until the chunks exist, and a threshold over badly cut chunks throws away good passages and keeps bad ones.
+        instruct: The prompt is written after retrieval has decided what goes in it, so this can only ever be the third line of defence.
+        verify: The only one that runs after the model has spoken, which makes it the only one that catches a citation it invented.
+      hints:
+        - Three of these happen before the model is called and one after.
+        - The first one decides what the other three are working with.
+        - Two of them are about what goes into the prompt and they are not interchangeable.
+      reveal: >-
+        Retrieval narrows what the model can draw on. It does not stop it drawing. Three
+        passages scoring 0.61 that answer a neighbouring question produce fluent prose with
+        real citations attached to a claim the passages never made, and the citation is what
+        makes it convincing. The last defence is the one worth building first, because it is
+        the only one that can tell you the other three are failing.
 ---
 
 A model knows only what was included in its training corpus. It has no access to private API documentation,

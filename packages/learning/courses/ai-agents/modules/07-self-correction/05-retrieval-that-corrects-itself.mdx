@@ -7,6 +7,229 @@ estimatedMinutes: 35
 exercise:
   id: corrective-retrieval
   timeboxMinutes: 35
+challenges:
+  goal: Grade what the retriever returned, rewrite the query when it misses, and stop the loop before it drifts.
+
+  steps:
+    - id: retrieve-or-not
+      kind: assign
+      prompt: >-
+        Each of these is the next turn in a support conversation. Decide which ones are
+        worth a vector search before the model is allowed to answer.
+      buckets:
+        - id: search
+          label: Search, the answer is in the corpus
+        - id: skip
+          label: Skip, the last few turns are enough
+        - id: search-anyway
+          label: Cannot tell, so search
+      items:
+        - id: retry-window
+          label: What is the retry window after a rejected authorisation?
+          bucket: search
+          because: A specific fact with a specific answer in the manual. Answering this from weights is how a support agent invents a number.
+        - id: error-402
+          label: What does error 402 mean?
+          bucket: search
+          because: The code is in the documentation and nowhere in the conversation. Nothing here can be answered from what has already been said.
+        - id: thanks
+          label: Thanks, that sorted it.
+          bucket: skip
+          because: Nothing was asked. Embedding it returns four chunks about whatever it is nearest to, and they all go in the prompt.
+        - id: plainer
+          label: Can you say that again in plainer words?
+          bucket: skip
+          because: The material is already in the transcript. Retrieving again risks pulling a different passage and answering a slightly different question.
+        - id: summarise
+          label: Summarise what you have told me so far.
+          bucket: skip
+          because: The scope of this turn is the conversation itself. There is no external fact to ground.
+        - id: annual-plan
+          label: Does that apply to the annual plan as well?
+          bucket: search-anyway
+          because: It might be a follow-up the transcript answers, and it might be a plan-specific rule only the manual has. Cheap to check, expensive to guess.
+        - id: still-current
+          label: Is the number you gave me still current?
+          bucket: search-anyway
+          because: A question about whether the retrieved passage is stale. The conversation cannot answer that about itself.
+      hints:
+        - Two of these ask about the conversation. Three ask about the product.
+        - A search on a turn with no question in it still returns four chunks.
+        - When you genuinely cannot tell, compare the cost of the wasted search against the cost of the invented answer.
+      reveal: >-
+        The routing step exists to keep irrelevant chunks out of the prompt, not to save
+        money. When it is a close call the asymmetry decides it: an unnecessary retrieval
+        costs tokens, and a skipped one costs a fabricated answer the user believes.
+
+    - id: where-trust-starts
+      kind: spot
+      prompt: >-
+        This pipeline is running on a question the corpus has nothing about. Click the line
+        where it loses the ability to notice.
+      lang: python
+      source: |
+        def answer(question):
+            hits = index.search(embed(question), k=4)
+            context = "\n\n".join(hit.text for hit in hits)
+            reply = model(GROUNDED_PROMPT, context=context, question=question)
+            log.info("answered from %d chunks", len(hits))
+            return reply
+      targets: [2]
+      decoys:
+        "1": Searching is fine. A nearest neighbour search returns neighbours, and asking for them is not the same as believing them.
+        "3": The prompt will do a careful job on whatever context it is handed. It has no way of knowing the context is about something else.
+        "4": This counts chunks rather than useful chunks, so it reads the same on a good day and a bad one. It records the problem rather than causing it.
+        "5": By here the answer exists and has been generated. Nothing you add at this line can unspend the call.
+      hints:
+        - Every retrieval returns something. Ask which line acts as though that something is an answer.
+        - Between the search and the prompt there is one operation, and it has no opinion about what it is joining.
+        - The word missing from this function is grade.
+      reveal: >-
+        A join is where retrieved becomes relevant with no step in between. Put the grader
+        there, one call over the four chunks, and the pipeline gains the state it needs
+        most: knowing that it found nothing.
+
+    - id: rewrite-into-the-corpus
+      kind: text-contract
+      prompt: >-
+        The grader threw out all four chunks. Rewrite the question in the words the manual
+        actually uses so the second search has something to hit.
+      context:
+        as: table
+        caption: Section headings in the indexed manual
+        columns: [section, heading]
+        rows:
+          - ["4.1", "Error 402: payment method rejected"]
+          - ["4.2", "Retry windows after a rejected authorisation"]
+          - ["7.3", "Updating a stored payment method"]
+      lang: text
+      initial: |
+        why did my card get declined???
+      rules:
+        - message: The punctuation came from a chat box. It is noise in an embedding and it is in no heading in the manual.
+          check: { op: notContains, text: "???" }
+        - message: A first person pronoun has nothing to match against. The manual does not know whose card this is.
+          check: { op: notMatches, pattern: "\\bmy\\b", flags: i }
+        - message: Declined is the word on the card reader. The index only knows the word the manual chose, and it chose a different one.
+          check: { op: notMatches, pattern: "\\bdeclined\\b", flags: i }
+        - message: Use the noun the manual uses for the thing that failed.
+          check: { op: contains, text: payment method }
+        - message: And the verb it pairs with that noun.
+          check: { op: contains, text: rejected }
+        - message: The code is the most distinctive token in the whole section. Leaving it out throws away the one term that appears nowhere else.
+          check: { op: contains, text: "402" }
+        - message: Keep it a question. A rewritten query that is no longer a question tends to retrieve definitions instead of causes.
+          check: { op: matches, pattern: "\\?\\s*$" }
+        - message: This is longer than the passage you are trying to find. Extra words dilute the embedding towards the average of everything in it.
+          check: { op: length, max: 80 }
+      hints:
+        - You have the headings. The rewrite is mostly a matter of borrowing from them.
+        - The user's words and the manual's words describe the same event and share almost no tokens.
+        - One line, carrying the code and the manual's phrase for the failure, still ending in a question mark.
+      reveal: >-
+        Rewriting is translation between two vocabularies, and the user has no idea the
+        second one exists. It is also the step most likely to drift, which is why it gets a
+        budget: two rewrites that both miss mean the corpus does not cover this.
+      solution: |
+        What causes error 402, payment method rejected?
+
+    - id: drive-the-loop
+      kind: machine
+      prompt: >-
+        Take this question to a grounded answer. The first search misses and a rewritten
+        query hits, and you are allowed one rewrite.
+      initial: question
+      vars: { rewrites: 0 }
+      states:
+        question:
+          label: Question routed to retrieval
+          note: Nothing has been searched yet.
+        retrieved:
+          label: Four chunks in hand, ungraded
+          note: The search returned neighbours. Whether they are about the question is not known here.
+        graded-empty:
+          label: Graded, nothing relevant
+          note: The useful state. The pipeline knows it has found nothing, which is the one thing an ungraded pipeline cannot know.
+        graded-good:
+          label: Graded, at least one chunk kept
+        answered:
+          label: Answered from the retained chunks
+          terminal: true
+        ungrounded:
+          label: Answered without grading anything
+          note: The chunks went into the prompt because they were returned, not because they were about the question.
+          terminal: true
+          error: true
+        declined:
+          label: Told the user the manual does not cover it
+          terminal: true
+        drifting:
+          label: Rewriting past the budget
+          note: Each rewrite moves further from what was asked. Past the second, the query that finally hits something is answering a different question.
+          terminal: true
+          error: true
+      transitions:
+        - from: question
+          on: search
+          to: retrieved
+          note: One embedding and one nearest neighbour lookup. It always returns k chunks.
+        - from: retrieved
+          on: grade
+          to: graded-empty
+          when: [{ var: rewrites, cmp: lt, value: 1 }]
+          note: The user's phrasing and the manual's share almost no vocabulary, so all four chunks are about something else.
+        - from: retrieved
+          on: grade
+          to: graded-good
+          when: [{ var: rewrites, cmp: gte, value: 1 }]
+          note: The rewritten query is in the manual's own words, and two of the four chunks are the section it was taken from.
+        - from: retrieved
+          on: answer
+          to: ungrounded
+          note: Skipping the grader saves one cheap call and spends the expensive one on context nobody checked.
+        - from: graded-empty
+          on: rewrite
+          to: question
+          when: [{ var: rewrites, cmp: lt, value: 2 }]
+          effects: [{ var: rewrites, op: inc, value: 1 }]
+          note: Same question, the corpus vocabulary. This is the only corrective action that changes what the search can find.
+        - from: graded-empty
+          on: rewrite
+          to: drifting
+          when: [{ var: rewrites, cmp: gte, value: 2 }]
+          note: Two rewrites that both missed is evidence about the corpus, not about the phrasing.
+        - from: graded-empty
+          on: answer
+          to: ungrounded
+          note: No chunks survived grading, so this answer comes entirely from the weights while looking exactly like a retrieved one.
+        - from: graded-empty
+          on: decline
+          to: declined
+          note: Saying the manual does not cover it. The right ending when the rewrites are spent, and an expensive one to reach early.
+        - from: graded-good
+          on: answer
+          to: answered
+          note: Generation over the chunks that survived grading.
+        - from: graded-good
+          on: rewrite
+          to: question
+          when: [{ var: rewrites, cmp: lt, value: 2 }]
+          effects: [{ var: rewrites, op: inc, value: 1 }]
+          note: You already have relevant material. Another rewrite spends budget to look for something better and may come back with less.
+      mode: drive
+      win:
+        state: answered
+        maxSteps: 8
+        requires: [{ var: rewrites, cmp: lte, value: 1 }]
+      hints:
+        - Grading is a separate action from retrieving, and answering is available before either of them.
+        - The first grade comes back empty. That is the loop working, not the loop failing.
+        - Once chunks survive the grader, spending another rewrite cannot improve the ending and can cost you the budget.
+      reveal: >-
+        Three of the endings here are reachable in six steps and only one of them is the
+        job. What separates them is a grading call that costs a fraction of the generation,
+        and a counter that says when rephrasing has stopped being correction and started
+        being a search for a question the corpus can answer.
 ---
 
 In [The RAG pipeline](lesson:ai-memory-and-rag.the-rag-pipeline), the standard workflow follows four deterministic steps: embed the query, retrieve the top k nearest chunks, insert them into the prompt context, and generate an answer.

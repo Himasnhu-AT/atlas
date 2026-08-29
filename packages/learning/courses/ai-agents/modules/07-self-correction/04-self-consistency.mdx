@@ -7,6 +7,163 @@ estimatedMinutes: 30
 exercise:
   id: sample-and-agree
   timeboxMinutes: 30
+challenges:
+  goal: Sample a question more than once, count the answers so the count means something, and act on the disagreement.
+
+  steps:
+    - id: pick-the-temperature
+      kind: choice
+      prompt: >-
+        You are about to draw five samples of the same classification prompt and take the
+        majority. What temperature do you sample at?
+      options:
+        - id: zero
+          label: 0, so the answers are reproducible.
+          note: At zero the five samples are one sample billed five times. The vote is unanimous on every question, including the ones the model has no idea about.
+        - id: low
+          label: 0.2, to keep the answers close together.
+          note: Close together on the hard questions as well as the easy ones. The whole point of the vote is that difficulty should show up as disagreement, and this flattens it.
+        - id: moderate
+          label: 0.6, high enough that the paths differ and low enough that they stay on the topic.
+          correct: true
+          note: The samples explore different routes to the answer while staying in the high probability region. Agreement then reflects the question rather than the decoding settings.
+        - id: high
+          label: 1.4, to explore as widely as possible.
+          note: Up here the disagreement comes from the tail of the distribution rather than from the problem. Everything looks uncertain, so nothing does.
+      hints:
+        - Ask what a unanimous vote would prove at each of these settings.
+        - You want the variation to be caused by the question, not by the sampler.
+        - Two settings destroy the signal from opposite ends.
+      reveal: >-
+        The vote measures how tightly the model's distribution is concentrated on this
+        question. That measurement only exists in a band where sampling is free to move
+        and still constrained by probability, which in practice is somewhere near 0.5 to 0.7.
+
+    - id: normalise-before-counting
+      kind: text-contract
+      prompt: >-
+        Five samples came back. Fill in the normalised form each one should be counted as,
+        so that the tally reflects what was said rather than how it was typed.
+      lang: json
+      initial: |
+        {
+          "raw": ["42", "42.", "The answer is 42", " 4.2 ", "37"],
+          "normalised": ["42", "42", "The answer is 42", "42", "37"]
+        }
+      rules:
+        - message: This no longer parses. Check the quotes and commas inside the normalised list.
+          check: { op: parses, as: json }
+        - message: Leave the raw list alone. It is the record of what came back.
+          check: { op: length, path: raw, min: 5, max: 5 }
+        - message: Every sample gets a normalised form, including the ones that need no change. Five in, five out.
+          check: { op: length, path: normalised, min: 5, max: 5 }
+        - message: Sample three still carries its sentence. Strip the wrapper and keep the value.
+          check: { op: equals, path: normalised.2, value: "42" }
+        - message: Sample four is not the same answer as the others. Removing a decimal point to make it match is the normaliser deciding the vote.
+          check: { op: equals, path: normalised.3, value: "4.2" }
+        - message: Sample five is a genuine dissent and stays as it is.
+          check: { op: equals, path: normalised.4, value: "37" }
+        - message: Samples one and two are the same number written two ways, so both normalise to the same string.
+          check: { op: equals, path: normalised.1, value: "42" }
+      hints:
+        - Three of these five say the same thing. Two do not, and only one of the two is obvious.
+        - Trailing punctuation and a leading sentence are noise. A decimal point is not.
+        - A normaliser that is aggressive enough to merge every variant will merge answers that disagree.
+      reveal: >-
+        Every normalisation rule is a claim that two answers mean the same thing, and a
+        rule that is slightly too broad manufactures agreement out of nothing. Write the
+        rules that strip formatting, and leave anything that changes the value alone.
+      solution: |
+        {
+          "raw": ["42", "42.", "The answer is 42", " 4.2 ", "37"],
+          "normalised": ["42", "42", "42", "4.2", "37"]
+        }
+
+    - id: what-can-be-voted-on
+      kind: assign
+      prompt: >-
+        Voting needs answers that can be compared. Sort these outputs by whether a majority
+        over five samples means anything.
+      buckets:
+        - id: compare-directly
+          label: Compare the answers as they are
+        - id: compare-a-projection
+          label: Compare something derived from them
+        - id: no-vote
+          label: No comparison to make
+      items:
+        - id: priority-label
+          label: The priority label the agent assigned to a ticket
+          bucket: compare-directly
+          because: A small closed set of labels. Two samples either picked the same one or they did not.
+        - id: invoice-total
+          label: The invoice total the agent read off a scanned document
+          bucket: compare-directly
+          because: One number after normalisation, and five reads of the same document disagreeing is exactly what you want to hear about.
+        - id: refund-flag
+          label: Whether the email is a refund request, yes or no
+          bucket: compare-directly
+          because: Two possible answers, so the split is the confidence and there is nothing else to compute.
+        - id: sql-text
+          label: The SQL the agent wrote for a reporting question
+          bucket: compare-a-projection
+          because: Two correct queries can differ in every character. Run them and vote on the rows, because that is the thing the caller wanted.
+        - id: entity-list
+          label: The list of company names pulled out of a filing
+          bucket: compare-a-projection
+          because: Same names in a different order is agreement. Compare them as a set, and vote on each name's presence rather than on the list as a string.
+        - id: summary-prose
+          label: A three paragraph summary of a support thread
+          bucket: no-vote
+          because: Five good summaries share no substring worth counting. The mode over five paragraphs is whichever one got duplicated by accident.
+        - id: reply-wording
+          label: The wording of the reply that goes to the customer
+          bucket: no-vote
+          because: There is no correct wording to converge on, so agreement here would mean the sampler had stopped exploring rather than that the answer was right.
+      hints:
+        - Ask what equality would mean for each of these.
+        - Two of them have a right answer buried in them that is not the text itself.
+        - If two perfect outputs can share nothing in common, counting them is counting noise.
+      reveal: >-
+        Self-consistency needs a comparison function, and for half of what an agent produces
+        the comparison is on something downstream of the output rather than the output.
+        Where you cannot write that function, decompose into claims and check those instead.
+
+    - id: the-split-vote
+      kind: choice
+      prompt: >-
+        The vote on a refund eligibility question came back three to two. The API returns
+        one decision field and the caller auto-approves on eligible. What do you return?
+      context:
+        as: log
+        lines:
+          - 'sample 1  eligible'
+          - 'sample 2  not eligible'
+          - 'sample 3  eligible'
+          - 'sample 4  not eligible'
+          - 'sample 5  eligible'
+      options:
+        - id: majority-only
+          label: eligible, because three beats two.
+          note: The caller now auto-approves on a decision the model disagreed with itself about. The one thing the five samples bought you was thrown away at the last step.
+        - id: majority-logged
+          label: eligible, with the split written to the trace for later analysis.
+          note: Better for you and no better for the refund. A trace nobody reads before the money moves does not change what happened.
+        - id: escalate
+          label: undecided, with the counts attached, routed to a human queue.
+          correct: true
+          note: The split is the finding. Handing it on as a third outcome is the only option where the disagreement reaches something that can act on it.
+        - id: resample
+          label: Draw five more samples and take the majority of ten.
+          note: Ten samples of a genuinely ambiguous question give a tighter estimate of the same ambiguity. Worth doing when the split is near the boundary and you have the budget, but it is a delay rather than an answer.
+      hints:
+        - The decision field has two values and the run produced three outcomes.
+        - Ask which of these options changes what the caller does.
+        - Logging is for you. The caller is about to move money.
+      reveal: >-
+        A three to two vote returned as a decision costs five calls and delivers less than
+        one, because the extra four bought a confidence number that got dropped on the way
+        out. If the contract has no room for undecided, the contract is the thing to change.
 ---
 
 Self-consistency establishes confidence by sampling multiple independent reasoning paths for the same prompt and determining the majority consensus.

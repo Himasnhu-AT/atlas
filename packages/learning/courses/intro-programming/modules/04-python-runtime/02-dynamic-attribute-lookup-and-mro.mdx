@@ -7,6 +7,161 @@ estimatedMinutes: 25
 exercise:
   id: c3-linearization-mro
   timeboxMinutes: 30
+challenges:
+  goal: Follow an attribute lookup through the instance and class dictionaries, and read the order C3 gives a diamond.
+
+  steps:
+    - id: where-a-dot-looks
+      kind: order
+      prompt: >-
+        Put the four places obj.name is looked for in the order Python tries them.
+      items:
+        - { id: data-descriptor, label: "A data descriptor on the type or its bases, defining both __get__ and __set__" }
+        - { id: instance-dict, label: "The instance's own __dict__" }
+        - { id: non-data, label: "A non-data descriptor or plain attribute on the type or its bases" }
+        - { id: getattr, label: "__getattr__ on the type, or an AttributeError" }
+      solution: [data-descriptor, instance-dict, non-data, getattr]
+      because:
+        data-descriptor: A data descriptor has claimed both reading and writing. Letting an instance attribute shadow it would let a write land somewhere the descriptor never saw, so it is checked first on purpose.
+        instance-dict: Per-instance state beats anything on the class that has not claimed the write. This is what makes self.count shadow a class attribute of the same name.
+        non-data: Methods live here. A plain function is a non-data descriptor, which is why an instance attribute of the same name shadows a method without a word of complaint.
+        getattr: This is not part of the search. It is the hook that runs once the search has already failed, which is why a proxy pays nothing on attributes that exist.
+      hints:
+        - Two of the four are descriptors and they are not next to each other. Something ordinary sits between them.
+        - Ask which kinds of attribute an instance attribute is allowed to shadow and which it is not.
+        - The last one is not a lookup at all.
+      reveal: >-
+        This order is what makes property work. A property is a data descriptor, so it is found
+        first and self.x = value goes through its setter instead of quietly landing in the
+        instance dictionary next to it. A method is only a non-data descriptor, which is why
+        self.append = 3 shadows it and nothing warns you.
+
+    - id: the-default-everybody-shares
+      kind: spot
+      prompt: >-
+        Two Counter instances end up sharing a list that neither of them created. Click the line
+        that hands it to both of them.
+      lang: python
+      source: |
+        class Counter:
+            threshold = 100
+            seen = []
+
+            def __init__(self, count):
+                self.count = count
+
+            def record(self, item):
+                self.seen.append(item)
+                self.count += 1
+      targets: [2]
+      decoys:
+        '1': An immutable default on the class is fine. Nothing can change 100 in place, so an instance that assigns to threshold gets its own binding rather than disturbing anybody else's.
+        '5': Assigning in the initialiser puts count in the instance dictionary, which is where per-instance state belongs.
+        '8': Appending is what the method exists to do. Which list it appends to was decided by where seen was found, and that was decided elsewhere.
+        '9': count was already put in this instance's dictionary by the initialiser, so this reads and writes that instance's own value.
+      hints:
+        - Both class attributes are shared by every instance. Only one of them can be changed without rebinding a name.
+        - Appending to a list reached through self creates nothing in the instance dictionary. It changes the object the lookup found.
+        - One default is a number and the other is a list, and only one of the two survives being modified in place.
+      reveal: >-
+        A class attribute is one object shared by every instance, which is harmless while it
+        cannot be changed and a shared buffer the moment it can. self.seen.append walks the
+        lookup chain, finds the class's list and mutates it, so nothing is ever written into any
+        instance dictionary. self.count += 1 looks identical and is not, because it rebinds, and
+        rebinding through self always writes to the instance. Mutating against rebinding is the
+        whole bug.
+
+    - id: a-descriptor-that-stores-somewhere
+      kind: blanks
+      prompt: >-
+        Complete this descriptor. One of these blanks decides whether the stored value is per
+        instance or shared by the whole class.
+      lang: python
+      template: |
+        class TypedProperty:
+            def __init__(self, name, expected_type):
+                self.name = name
+                self.expected_type = expected_type
+
+            def __get__(self, instance, owner):
+                if instance is None:
+                    return {{1}}
+                return instance.__dict__.get(self.name)
+
+            def {{2}}(self, instance, value):
+                if not isinstance(value, self.expected_type):
+                    raise TypeError(self.name + " has the wrong type")
+                {{3}}[self.name] = value
+      blanks:
+        - n: 1
+          as: select
+          options: ["self", "None", "owner", "instance"]
+          accept: ["self"]
+          note: Reached through the class rather than an instance there is no object to read a value from, so the descriptor hands itself back. This is why Class.attr shows you the property instead of raising.
+        - n: 2
+          as: select
+          options: ["__set__", "__setattr__", "__setitem__", "set"]
+          accept: ["__set__"]
+          note: Defining this alongside __get__ is exactly what makes it a data descriptor, and being a data descriptor is what puts it ahead of the instance dictionary in the lookup order.
+        - n: 3
+          as: select
+          options: ["instance.__dict__", "self.__dict__", "owner.__dict__", "instance"]
+          accept: ["instance.__dict__"]
+          note: The descriptor is a class attribute, so there is exactly one of it however many instances exist. Storing on it would give every instance of the class the same single slot.
+      hints:
+        - The descriptor object is created once, when the class body runs, and every instance goes through that one object.
+        - Reaching the attribute on the class itself passes no instance, and there is still something useful to hand back.
+        - The pair of methods this class defines is what decides whether it wins against the instance dictionary or loses to it.
+      reveal: >-
+        Per-instance state has to be written into the instance, which is why every line here
+        that stores anything reaches through it. Defining __set__ is what promotes the
+        descriptor above the instance dictionary, and that promotion is also what makes the
+        storage work: without it the value written into the instance dictionary would shadow the
+        descriptor and __get__ would never run again.
+
+    - id: reading-the-diamond
+      kind: choice
+      prompt: >-
+        Which list is the method resolution order Python computes for F?
+      context:
+        as: code
+        lang: python
+        source: |
+          class O: pass
+          class A(O): pass
+          class B(O): pass
+          class C(O): pass
+          class D(A, B): pass
+          class E(B, C): pass
+          class F(D, E): pass
+      options:
+        - id: correct
+          label: "F, D, A, E, B, C, O"
+          correct: true
+          note: After F and D are taken, the first remaining head is A, and A appears in nobody's tail, so it goes next. B cannot follow it because B sits in the tail of E's linearization, so E is taken first.
+        - id: depth-first
+          label: "F, D, A, B, E, C, O"
+          note: This is the old depth-first answer, and it puts B before E while E inherits from B. A class can never precede one of its own bases, so this is not a linearization at all.
+        - id: bases-reversed
+          label: "F, E, B, C, D, A, O"
+          note: F declares its bases as D then E, and that order is itself a constraint. Nothing later in the hierarchy is allowed to swap them.
+        - id: consistent-but-wrong
+          label: "F, D, E, A, B, C, O"
+          note: >-
+            Every base's own order does survive here as a subsequence, so this really is a
+            consistent order. C3 is not merely consistent, it is deterministic. At each step it
+            takes the head of the first list that is a good head, and after D that head is A
+            rather than E.
+      hints:
+        - Two rules hold everywhere. A class comes before its bases, and a class's bases keep the order the class statement gave them.
+        - Once F and D are placed, look at what is left of D's own linearization and ask whether its head appears in the tail of anything else.
+        - One of the wrong answers breaks no rule and is still not the answer, because C3 takes the first good head rather than any good head.
+      reveal: >-
+        C3 produces one order rather than a set of acceptable ones, and that is the point.
+        Monotonicity means whatever held for D still holds for F, so no class further down the
+        tree can reorder a mixin's methods underneath it. When no good head exists at all,
+        Python refuses to build the class instead of choosing, which is the TypeError you get
+        from class Z(X, Y) after X(A, B) and Y(B, A).
 ---
 
 In compiled languages like C++, member variables and virtual methods are resolved using fixed byte offsets within a struct and vtable indices computed at compile time. In Python, object attributes and methods are resolved at runtime through hash tables and a deterministic inheritance linearization algorithm.
