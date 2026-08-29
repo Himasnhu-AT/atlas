@@ -7,6 +7,169 @@ estimatedMinutes: 60
 exercise:
   id: citation-verifier
   timeboxMinutes: 40
+challenges:
+  goal: Settle every fabricated quote for nothing, ask the judge only about what survives, and redact the failures in place.
+
+  steps:
+    - id: the-order-of-the-pass
+      kind: order
+      prompt: >-
+        Put the verification of one cited claim in order. Only one of these steps costs a
+        model call, and where it sits decides what the pass costs.
+      items:
+        - { id: normalise, label: Reduce the quote and the document to lowercase alphanumerics, keeping an offset per character }
+        - { id: locate, label: Look for the normalised quote inside the normalised document }
+        - { id: shortcircuit, label: Return NOT_IN_SOURCE when it is not there }
+        - { id: mapback, label: Map the match back to a span in the original text through the offsets }
+        - { id: judge, label: Ask whether that passage supports the claim sentence }
+        - { id: redact, label: Replace the sentences that did not survive }
+      solution: [normalise, locate, shortcircuit, mapback, judge, redact]
+      because:
+        normalise: Quotes come back with different capitalisation and whitespace from the source. Matching the raw bytes fails on formatting and calls a hallucination something that is really a stray space.
+        shortcircuit: The cheapest verdict in the pass, and it costs nothing. Every fabricated quote is settled here and never reaches a model.
+        mapback: The offsets are the only reason the normalisation is reversible. Without them you can tell that the quote is present and not point at where.
+        judge: The one model call, made once per claim whose quote is genuinely in its document. Everything above it exists to reduce how often this runs.
+        redact: Last, because it rewrites the brief and every earlier step is reading it.
+      hints:
+        - Two steps happen to the text before anything is looked up.
+        - There is a verdict that can be reached without asking anybody anything, and it belongs as early as it can be reached.
+        - The judge needs a passage to look at, and the passage is a span in the original document.
+      reveal: >-
+        The normalisation and the offset table are what let the cheap check be both lenient
+        and precise: lenient enough that a capital letter is not a fabrication, precise
+        enough to hand the judge the exact passage and to cut the exact sentence later.
+
+    - id: which-verdict
+      kind: assign
+      prompt: >-
+        Seven claims from one brief. Give each the verdict the pass would record.
+      buckets:
+        - id: supported
+          label: SUPPORTED
+        - id: unsupported
+          label: UNSUPPORTED
+        - id: not-in-source
+          label: NOT_IN_SOURCE
+      items:
+        - id: clean-match
+          label: The quote is in the document and the judge says the passage supports the sentence
+          bucket: supported
+          because: The only path to this verdict, and it costs one substring check and one judge call.
+        - id: whitespace-variant
+          label: The quote differs from the source by capitalisation and one extra space, and the judge supports it
+          bucket: supported
+          because: This is what the normalisation is for. Matching raw bytes would have called a real quote a fabrication and spent nothing finding out.
+        - id: contradicts
+          label: The quote is in the document and the passage says the opposite of the sentence
+          bucket: unsupported
+          because: Present and misused. The deterministic check cannot see this, which is exactly the case the judge is paying for.
+        - id: added-number
+          label: The quote is in the document and the sentence adds a figure the passage does not contain
+          bucket: unsupported
+          because: A citation attached to a claim it only partly covers. The extra number came from somewhere else, and somewhere else is not a source.
+        - id: malformed-verdict
+          label: The judge replied that it is probably right, though the passage is about the previous year
+          bucket: unsupported
+          because: Not one of the three allowed verdicts, so it defaults to the failing one. Anything else lets a parsing bug publish claims.
+        - id: invented-quote
+          label: The quote does not appear anywhere in the document
+          bucket: not-in-source
+          because: Settled before any call. This is the verdict that makes the whole pass affordable.
+        - id: wrong-document
+          label: The quote is a real sentence, taken word for word from a different document in the corpus
+          bucket: not-in-source
+          because: The quote is checked against the document the note named. Searching the whole corpus instead would confirm the quote and lose the fact that the citation points at the wrong place.
+      hints:
+        - Two of these verdicts require a judge and one of them cannot.
+        - A quote can be genuine and still be attached to the wrong claim, or to the wrong document.
+        - There is an answer here that is not one of the three allowed verdicts. Ask which way that has to fall.
+      reveal: >-
+        NOT_IN_SOURCE is about the quote and UNSUPPORTED is about the reasoning, which is
+        why they are separate counters rather than one failure rate. A run with rising
+        NOT_IN_SOURCE has a worker inventing quotes; a run with rising UNSUPPORTED has a
+        supervisor overreaching from real ones.
+
+    - id: what-the-pass-costs
+      kind: numeric
+      prompt: >-
+        The brief has 15 tagged sentences. Three of them carry two tags each and the rest
+        carry one. Five of the quotes involved are not in their documents. A judge call
+        costs 900 tokens and a substring check costs nothing. What does verification spend?
+      answer: 11700
+      tolerance: 0
+      unit: tokens
+      scaleHint: Out by a factor of ten is a decimal slip. The judge call price is per call and there are fewer calls than there are claims.
+      hints:
+        - A sentence with two tags is two claims, because each tag is a separate quote against a separate note.
+        - The claims whose quotes were never in the source cost nothing at all.
+        - Count the claims, subtract the ones settled for free, then multiply.
+      reveal: >-
+        The deterministic filter took five calls off the bill before the model saw anything,
+        and it also produced the more useful diagnostic of the two. Verification cost scales
+        with cited claims rather than with sub-questions, which is why a brief that cites
+        heavily is more expensive to check than one that cites well.
+
+    - id: write-the-report
+      kind: text-contract
+      prompt: >-
+        The verdicts are in. Fill in the report, and redact the brief so a reader can see
+        exactly what did not survive.
+      context:
+        as: log
+        lines:
+          - 'claim 1  SUPPORTED       The interconnection queue now runs to a median of five years [S1].'
+          - 'claim 2  SUPPORTED       Module prices fell 41 percent last year [S2].'
+          - 'claim 3  UNSUPPORTED     Installers passed on almost all of the decline [S3].'
+          - 'claim 4  NOT_IN_SOURCE   Grid battery additions tripled [S4].'
+          - 'no tags                  The notes do not cover permitting timelines.'
+      lang: json
+      initial: |
+        {
+          "supported": 4,
+          "unsupported": 0,
+          "not_in_source": 0,
+          "ok": true,
+          "prose": "The interconnection queue now runs to a median of five years [S1]. Module prices fell 41 percent last year [S2]. Installers passed on almost all of the decline [S3]. Grid battery additions tripled [S4]. The notes do not cover permitting timelines."
+        }
+      rules:
+        - message: This no longer parses. Check the quotes around the prose string.
+          check: { op: parses, as: json }
+        - message: Two claims were supported, not four. The counters are what the benchmark reads, so they have to match the verdicts rather than the hopes.
+          check: { op: equals, path: supported, value: 2 }
+        - message: One claim cited a real passage that does not say what the sentence says.
+          check: { op: equals, path: unsupported, value: 1 }
+        - message: And one quoted something that is not in its document at all. These stay separate because they mean different things about where the pipeline broke.
+          check: { op: equals, path: not_in_source, value: 1 }
+        - message: Two claims failed and one sentence carries no citation. ok is true only when every claim is supported and nothing is left uncited.
+          check: { op: equals, path: ok, value: false }
+        - message: The unsupported sentence is still in the prose. Redaction replaces it where it stood rather than adding a note beside it.
+          check: { op: notContains, path: prose, text: almost all of the decline }
+        - message: Put the verdict in the marker, so a reader can tell an overreach from an invented quote without opening the report.
+          check: { op: contains, path: prose, text: "[removed: UNSUPPORTED]" }
+        - message: The tripled figure is still there, and its quote was never in the document.
+          check: { op: notContains, path: prose, text: tripled }
+        - message: The same treatment for the one whose quote could not be found.
+          check: { op: contains, path: prose, text: "[removed: NOT_IN_SOURCE]" }
+        - message: The verified sentences stay exactly as written, tags and all. Redaction is surgical rather than a rewrite.
+          check: { op: contains, path: prose, text: "median of five years [S1]" }
+        - message: The uncited sentence is an honest statement of a gap rather than a failed claim, so it stays in the prose and is counted in the report.
+          check: { op: contains, path: prose, text: permitting timelines }
+      hints:
+        - Three counters, and between them they have to account for the four claims.
+        - Two sentences come out and two stay in, and the fifth sentence is in neither group.
+        - The marker names the verdict, because the two failures need different fixes.
+      reveal: >-
+        Redacting in place is what makes the failure legible: the reader sees a brief with
+        two holes in it at the exact points where the evidence ran out, rather than a
+        shorter brief that reads as though it were always that length.
+      solution: |
+        {
+          "supported": 2,
+          "unsupported": 1,
+          "not_in_source": 1,
+          "ok": false,
+          "prose": "The interconnection queue now runs to a median of five years [S1]. Module prices fell 41 percent last year [S2]. [removed: UNSUPPORTED] [removed: NOT_IN_SOURCE] The notes do not cover permitting timelines."
+        }
 ---
 
 A generated research brief may contain accurate-looking citations where the cited text does not
