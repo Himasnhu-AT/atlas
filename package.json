@@ -30,7 +30,8 @@
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "clean": "rm -rf apps/*/dist apps/web/.next packages/*/dist **/*.tsbuildinfo",
-    "test:runner": "pnpm --filter @atlas/learning test:runner"
+    "test:runner": "pnpm --filter @atlas/learning test:runner",
+    "content:course": "pnpm --filter @atlas/learning check --course"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
