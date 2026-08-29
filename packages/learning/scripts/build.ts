@@ -565,11 +565,15 @@ async function buildModule(
   if (files.length === 0) fail(at, 'no .mdx lessons')
 
   const lessons: LessonEntry[] = []
+  // The compiled lesson body, as written to `dist/lessons/<id>.json`. This
+  // shape is `CompiledLesson` in `src/schema.ts` minus the ids the writer
+  // attaches on the way out; keep the two in step.
   const compiled: {
     id: string
     html: string
     exerciseFiles?: Record<string, string>
     exerciseHash?: string
+    exerciseCases?: Record<string, ExerciseCase>
     interactive?: {
       type: string
       props: Record<string, any>
