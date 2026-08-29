@@ -1,5 +1,7 @@
 import Link from 'next/link'
 
+import type { CaseNote } from '@atlas/ui'
+
 import { BrowserExercise } from './browser-exercise'
 
 /**
@@ -13,11 +15,14 @@ export function ExerciseCallout({
   exerciseId,
   timeboxMinutes,
   files,
+  cases,
   browser,
 }: {
   exerciseId: string
   timeboxMinutes: number
   files?: Record<string, string>
+  /** What each test is checking, when this exercise has been mapped. */
+  cases?: Record<string, CaseNote>
   /**
    * What the content build decided about running this in a browser. Derived
    * from the exercise's own imports, so it cannot drift from the code.
@@ -48,7 +53,12 @@ export function ExerciseCallout({
       </p>
 
       {scaffold && files && browser?.runnable ? (
-        <BrowserExercise exerciseId={exerciseId} scaffold={scaffold} files={files} />
+        <BrowserExercise
+          exerciseId={exerciseId}
+          scaffold={scaffold}
+          files={files}
+          cases={cases}
+        />
       ) : scaffold ? (
         <details className="group mt-7">
           <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 text-caption text-accent-deep transition-colors duration-200 ease-paper hover:text-ink">

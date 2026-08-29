@@ -53,6 +53,12 @@ export interface PreparedExercise {
   reference: string
   testFile: string
   /**
+   * What each test is checking, when this exercise has been mapped. Carried on
+   * the prepared exercise so the results panel does not have to load the
+   * compiled lesson a second time.
+   */
+  cases?: Record<string, { condition: string; hints: string[]; concept?: string }>
+  /**
    * How the work on disk relates to the exercise that was just written over it.
    *
    * This replaced a `fresh` boolean. Two fields where `state === 'fresh'` and
@@ -156,6 +162,7 @@ export async function prepareExercise(ref: LessonRef): Promise<PreparedExercise>
     scaffold,
     reference: reference ?? '',
     testFile: spec.test,
+    cases: lesson?.exerciseCases,
     state,
   }
 }
