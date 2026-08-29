@@ -12,10 +12,12 @@
  * `/api/attempts` route accepts both, so where a student practised changes what
  * it felt like and nothing about what it was worth.
  *
- * The one difference is in how the numbers are arrived at. The desktop parses
- * unittest's text, because a subprocess is all it has. Here the result object is
- * in hand, so the counts are read off it. Parsing "Ran 22 tests" when the number
- * is sitting in `res.testsRun` would be inventing an opportunity to be wrong.
+ * There is no longer a difference in how the numbers are arrived at. Both
+ * graders run `packages/learning/runner/atlas_report.py`, which reads the
+ * unittest result object rather than its text. This worker fetches that file;
+ * the desktop compiles it in. That is what makes "grade in two places and mean
+ * the same thing in both" a fact about one file rather than a promise about
+ * two.
  */
 
 import { loadPyodide } from '/pyodide/pyodide.mjs'
@@ -29,7 +31,19 @@ let runtime = null
 async function boot() {
   if (runtime) return runtime
 
-  runtime = await loadPyodide({ indexURL: '/pyodide/' })
+  // Copied into `public/` by `scripts/copy-runner.mjs` at predev and prebuild,
+  // the same way the interpreter is, so there is one source for it and not a
+  // second copy to keep in step.
+  const [py, source] = await Promise.all([
+    loadPyodide({ indexURL: '/pyodide/' }),
+    fetch('/atlas_report.py').then((response) => {
+      if (!response.ok) throw new Error(`could not load the test runner (${response.status})`)
+      return response.text()
+    }),
+  ])
+
+  py.runPython(source)
+  runtime = py
   return runtime
 }
 
@@ -45,44 +59,6 @@ function mount(py, dir, files) {
   }
 }
 
-const RUNNER = `
-import sys, io, importlib, unittest, traceback
-
-def _run(directory):
-    if directory in sys.path:
-        sys.path.remove(directory)
-    sys.path.insert(0, directory)
-
-    # Every module the exercise owns, dropped so a second run sees the file the
-    # student just edited rather than the one already imported. Without this the
-    # first run is the only honest one.
-    for name in [n for n, m in list(sys.modules.items())
-                 if getattr(m, "__file__", None) and str(m.__file__).startswith(directory)]:
-        del sys.modules[name]
-
-    stream = io.StringIO()
-    stdout, sys.stdout = sys.stdout, stream
-    try:
-        suite = unittest.defaultTestLoader.loadTestsFromModule(importlib.import_module("test"))
-        result = unittest.TextTestRunner(stream=stream, verbosity=2).run(suite)
-        bad = len(result.failures) + len(result.errors)
-        return {
-            "ok": True,
-            "testsTotal": result.testsRun,
-            "testsPassed": result.testsRun - bad,
-            "output": stream.getvalue(),
-        }
-    except BaseException:
-        # An import-time error is the common one: a syntax error in the file the
-        # student is editing. It is not a test failure and must not be reported
-        # as though every test ran and failed.
-        return {"ok": False, "testsTotal": 0, "testsPassed": 0,
-                "output": stream.getvalue() + traceback.format_exc()}
-    finally:
-        sys.stdout = stdout
-        if directory in sys.path:
-            sys.path.remove(directory)
-`
 
 self.onmessage = async (event) => {
   const { id, files, solution } = event.data
@@ -96,24 +72,29 @@ self.onmessage = async (event) => {
     // desktop uses, because `test.py` imports from it.
     mount(py, dir, { ...files, 'solution.py': solution })
 
-    py.runPython(RUNNER)
-    const raw = py.globals.get('_run')(dir)
-    const result = raw.toJs({ dict_converter: Object.fromEntries })
+    const raw = py.globals.get('run')(dir)
+    const report = raw.toJs({ dict_converter: Object.fromEntries })
     raw.destroy()
 
-    const testsTotal = result.testsTotal
-    const testsPassed = result.testsPassed
-    const output = String(result.output ?? '')
+    const output = String(report.output ?? '')
+    delete report.output
 
     self.postMessage({
       id,
       ok: true,
       // A run that could not import is not a pass, however few tests failed.
-      passed: result.ok && testsTotal > 0 && testsPassed === testsTotal,
-      testsPassed,
-      testsTotal,
+      passed:
+        report.kind === 'tests' &&
+        report.testsTotal > 0 &&
+        report.testsPassed === report.testsTotal,
+      testsPassed: report.testsPassed,
+      testsTotal: report.testsTotal,
       durationMs: Date.now() - started,
       stdoutTail: output.slice(-4000),
+      // The structured half: which tests, and what each one said. This is what
+      // lets the page name the conditions the learner did not account for
+      // instead of printing four kilobytes of unittest at them.
+      outcome: report,
     })
   } catch (error) {
     self.postMessage({

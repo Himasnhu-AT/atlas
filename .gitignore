@@ -66,3 +66,6 @@ apps/web/public/pyodide/
 
 # private files
 .agents
+
+# Copied from packages/learning/runner by apps/web/scripts/copy-runner.mjs.
+apps/web/public/atlas_report.py

@@ -8,8 +8,8 @@
     "build": "next build",
     "start": "next start --port 5173",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "predev": "node scripts/copy-pyodide.mjs",
-    "prebuild": "node scripts/copy-pyodide.mjs"
+    "predev": "node scripts/copy-pyodide.mjs && node scripts/copy-runner.mjs",
+    "prebuild": "node scripts/copy-pyodide.mjs && node scripts/copy-runner.mjs"
   },
   "dependencies": {
     "@atlas/core": "workspace:*",
