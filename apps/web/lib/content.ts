@@ -1,3 +1,4 @@
+import type { CompiledChallengeSet } from '@atlas/core'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -50,6 +51,12 @@ export interface CompiledLesson {
   exerciseFiles?: Record<string, string>
   /** What each test is checking, keyed on `ClassName.test_method`. */
   exerciseCases?: Record<string, { condition: string; hints: string[]; concept?: string }>
+  /** Stage 1, normalised by the content build. */
+  stage1?: CompiledChallengeSet
+  /**
+   * The superseded single-widget spec. Still emitted, and no longer read here:
+   * the build lowers it into `stage1` so there is one path at render time.
+   */
   interactive?: {
     type: string
     props: Record<string, any>

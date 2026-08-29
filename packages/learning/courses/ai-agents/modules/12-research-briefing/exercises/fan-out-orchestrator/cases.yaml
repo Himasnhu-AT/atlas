@@ -1,0 +1,209 @@
+version: 1
+cases:
+  TestSearch.test_search_returns_k_documents:
+    condition: 'a request for two documents, then for four, from one corpus'
+    hints:
+      - 'Every document handed to a worker is prompt tokens, so the count is a real cost lever.'
+      - 'Returning everything makes the count meaningless.'
+      - 'Rank the whole corpus and slice to the requested number.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestSearch.test_search_ranks_the_matching_document_first:
+    condition: 'a sub question about solar prices against a corpus holding a solar document'
+    hints:
+      - 'The top result should be the document whose words overlap the query.'
+      - 'Comparing raw text works on this corpus and fails on any paraphrase.'
+      - 'Embed the query and each document and rank by the cosine similarity.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestSearch.test_search_is_deterministic:
+    condition: 'the same search run twice, which must rank identically'
+    hints:
+      - 'Two identical searches must rank identically, or two identical runs disagree.'
+      - 'Re-embedding the corpus per search also does the same arithmetic once per worker.'
+      - 'Embed the corpus once when the search is built and keep the vectors.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestSearch.test_search_breaks_ties_by_doc_id:
+    condition: 'two documents with identical text, declared with the later id first'
+    hints:
+      - 'Documents scoring the same must come back in a defined order.'
+      - 'Sorting on the score alone leaves ties in whatever order the corpus was built in.'
+      - 'Add the document id as the second sort key.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestPlan.test_plan_returns_the_scripted_sub_queries:
+    condition: 'a planner returning two independent sub questions'
+    hints:
+      - 'The plan arrives as a tool call, not as prose.'
+      - 'Reading the message content gives you nothing, because a tool call turn has none.'
+      - 'Parse the arguments of the tool call and read the list out of them.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestPlan.test_plan_truncates_to_the_cap:
+    condition: 'a planner returning five sub questions against a cap of three'
+    hints:
+      - 'The cap is a hard limit, because every extra sub question is a model call.'
+      - 'A planner asked nicely to produce three will occasionally produce five.'
+      - 'Slice the list to the cap after cleaning it.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestPlan.test_plan_removes_duplicates_and_keeps_order:
+    condition: 'a plan naming the same sub question twice'
+    hints:
+      - 'A repeated sub question is a worker paid for twice to read the same documents.'
+      - 'Collecting into a set removes the repeat and loses the order the planner chose.'
+      - 'Walk the list in order and skip anything already kept.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestPlan.test_plan_strips_blanks:
+    condition: 'a plan holding an empty string and one that is only spaces'
+    hints:
+      - 'A blank sub question becomes a worker prompt with nothing in it.'
+      - 'A truthiness check passes on a string of spaces.'
+      - 'Strip each entry and drop the ones with nothing left.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestPlan.test_plan_falls_back_to_the_question:
+    condition: 'a planner that returned no sub questions at all'
+    hints:
+      - 'An empty plan should still run one worker on the original question.'
+      - 'Returning nothing produces a run with no notes and no explanation.'
+      - 'Fall back to a single sub question that is the question itself.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestPlan.test_plan_charges_the_budget_when_given_one:
+    condition: 'a planning call made with a budget attached'
+    hints:
+      - 'The planning call is a model call and costs like any other.'
+      - 'Leaving it off the meter understates every run by one call.'
+      - 'Charge the response usage against the planning stage when a budget was supplied.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestBudget.test_charge_adds_to_the_total_and_the_stage:
+    condition: 'three charges across two stages that must be tracked both ways'
+    hints:
+      - 'The total answers what the run cost and the breakdown answers where it went.'
+      - 'A single number cannot tell you whether the planner or the workers are expensive.'
+      - 'Add to the running total and to the entry for that stage.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestBudget.test_charge_allows_spending_exactly_the_limit:
+    condition: 'a charge that brings the total to exactly the limit'
+    hints:
+      - 'The limit is a ceiling, not a wall one short.'
+      - 'A greater than or equal comparison refuses a run that fitted exactly.'
+      - 'Raise only when the total has gone strictly past the limit.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestBudget.test_charge_raises_when_the_limit_is_passed:
+    condition: 'a charge that overshoots the limit, whose spend must still be recorded'
+    hints:
+      - 'A meter that discards the reading it tripped on cannot tell you what the run actually cost.'
+      - 'Raising before recording loses the charge that caused the failure.'
+      - 'Record the spend first, then compare and raise.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestWorker.test_worker_sees_only_its_own_documents:
+    condition: 'two workers whose searches return disjoint sets of documents'
+    hints:
+      - 'A worker must never see another worker''s documents.'
+      - 'Isolation is the whole reason fanning out is worth its cost.'
+      - 'Render only the documents this sub question retrieved into the request.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestWorker.test_worker_message_carries_its_sub_query:
+    condition: 'a worker request that must say which question it is answering'
+    hints:
+      - 'A pile of documents with no question attached gives the model nothing to select for.'
+      - 'The original research question is not the sub question, and sending it defeats the split.'
+      - 'Put the sub question into the user message alongside the documents.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestWorker.test_worker_records_the_worker_name_and_sub_query:
+    condition: 'a note that has to say who produced it and in answer to what'
+    hints:
+      - 'A note read later has to be traceable back to the worker and the sub question that produced it.'
+      - 'A quote and a document id alone cannot be attributed.'
+      - 'Put the worker name and the sub question on every note you build.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestWorker.test_worker_drops_a_note_citing_an_unseen_document:
+    condition: 'a note citing a document this worker was never given'
+    hints:
+      - 'The worker only saw its own documents, so a citation to anything else was invented.'
+      - 'Inventions are cheaper to drop here than to chase later.'
+      - 'Keep the set of ids the worker was shown and discard notes citing anything outside it, preserving the order of the rest.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestWorker.test_worker_counts_what_it_dropped:
+    condition: 'a worker that discarded two fabricated notes'
+    hints:
+      - 'This function is the last place that knows a note was fabricated.'
+      - 'Discard the count with the note and no eval can ever report a fabrication rate.'
+      - 'Count the discards and return the count alongside the surviving notes.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestWorker.test_worker_charges_the_worker_stage:
+    condition: 'a worker call that must land on the worker line of the meter'
+    hints:
+      - 'The breakdown is only useful if each call is charged to the right stage.'
+      - 'Charging everything to one stage makes the split meaningless.'
+      - 'Charge the response usage against the worker stage.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestOrchestrate.test_orchestrate_returns_the_plan_and_the_notes:
+    condition: 'a two worker run whose notes must come back tagged with sequential worker names'
+    hints:
+      - 'One plan call plus one call per worker is the whole cost of the run.'
+      - 'The worker names have to be distinct so notes can be attributed afterwards.'
+      - 'Number the workers as you iterate the sub questions and collect their notes in order.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestOrchestrate.test_orchestrate_records_the_corpus_it_read:
+    condition: 'a result whose next stage will need to turn a document id into a title'
+    hints:
+      - 'A note holds a doc id and nothing else.'
+      - 'The search is a closure and deliberately hides the corpus it ranks, so nothing downstream can recover it.'
+      - 'Store the corpus on the result alongside the notes.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestOrchestrate.test_orchestrate_sums_what_the_workers_dropped:
+    condition: 'two workers that each discarded one fabricated note'
+    hints:
+      - 'One fabricated note per worker, and the run reports both.'
+      - 'This is the fabrication rate an eval reads later, and it exists only if you keep it.'
+      - 'Accumulate each worker''s discard count into a total on the result.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestOrchestrate.test_orchestrate_separates_plan_and_worker_spend:
+    condition: 'a run whose per stage figures must add up to the total'
+    hints:
+      - 'The total and the per stage figures must describe the same run.'
+      - 'Charging the total separately from the stages lets the two drift.'
+      - 'Derive both from the same charge, so one addition updates both.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestOrchestrate.test_orchestrate_keeps_the_notes_when_the_budget_runs_out:
+    condition: 'a budget that runs out partway through the second worker'
+    hints:
+      - 'Work already paid for is work already done.'
+      - 'Letting the exception through unchanged throws away the notes the first worker produced.'
+      - 'Catch the budget failure, attach the notes gathered so far, and re-raise.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestOrchestrate.test_fanning_out_costs_more_than_one_query:
+    condition: 'a four worker run measured against a one worker run'
+    hints:
+      - 'Four workers cost more than one, and the meter has to show it.'
+      - 'The number is not the point; noticing that coverage is bought with tokens is.'
+      - 'Charge every worker call so the total reflects the width of the fan out.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs
+
+  TestOrchestrate.test_orchestrate_respects_the_sub_query_cap:
+    condition: 'a planner returning five sub questions under a cap of two'
+    hints:
+      - 'The cap bounds the bill, and the planner does not enforce it on its own.'
+      - 'Relying on the planning default ignores what the caller asked for.'
+      - 'Pass the cap through to the planning call rather than applying it afterwards.'
+    concept: ai-research-briefing.fan-out-and-what-it-costs

@@ -1,0 +1,233 @@
+version: 1
+cases:
+  TestJsonSchemaFor.test_matches_the_expected_schema_exactly:
+    condition: 'a dataclass of four fields whose schema has to match down to the descriptions'
+    hints:
+      - 'The schema is derived from the class, so the two can never drift.'
+      - 'The field descriptions come from the metadata and are what tell the model what belongs there.'
+      - 'Walk the fields, map each annotation to a property, and add the description when one exists.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestJsonSchemaFor.test_required_follows_declaration_order:
+    condition: 'two fields with no default followed by two that have one'
+    hints:
+      - 'A field with a default or a default factory is never required.'
+      - 'Sorting the required names loses the order somebody chose when declaring the class.'
+      - 'Append to the required list as you walk the fields in declaration order.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestJsonSchemaFor.test_an_optional_annotation_without_a_default_is_still_required:
+    condition: 'a field annotated as a string or None that carries no default'
+    hints:
+      - 'The union contributes the schema for the non-null half and nothing else.'
+      - 'A field the model may answer with null is not a field it may leave out.'
+      - 'Decide requiredness from the default alone, never from the annotation.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestJsonSchemaFor.test_floats_and_bools_map_to_number_and_boolean:
+    condition: 'a float field and a bool field that need their own JSON type names'
+    hints:
+      - 'JSON names types with words and Python names them with classes.'
+      - 'A bool falling through to the integer branch would be described wrongly to the model.'
+      - 'Test for bool before int in the mapping, and map float to the number name.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestJsonSchemaFor.test_a_field_without_metadata_gets_no_description:
+    condition: 'a field declared with no description in its metadata'
+    hints:
+      - 'An empty description in the schema is worse than no key: it tells the model the field means nothing.'
+      - 'Reading the metadata with a default of empty string puts that key in anyway.'
+      - 'Add the description key only when the metadata actually carries one.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestJsonSchemaFor.test_an_unmappable_type_raises:
+    condition: 'a field annotated as a bare dict, which this mapping does not cover'
+    hints:
+      - 'Falling back to a string produces a schema that quietly lies about the class.'
+      - 'The model then sends a string and the validation fails with no explanation of why.'
+      - 'Raise TypeError naming the class, the field and the annotation.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_builds_the_object:
+    condition: 'a payload that satisfies every field of the target class'
+    hints:
+      - 'The point is to hand back a typed object, not a checked mapping.'
+      - 'Returning the payload leaves every caller reaching into a dict.'
+      - 'Construct the class from the validated values.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_defaults_fill_in_absent_optional_fields:
+    condition: 'a payload that leaves out both fields carrying defaults'
+    hints:
+      - 'The defaults live on the class, and that is the one place they should live.'
+      - 'Filling them in here duplicates them and lets the two copies drift.'
+      - 'Pass only the keys that were supplied and let the class apply the rest.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_every_problem_is_collected_into_one_message:
+    condition: 'a payload missing one field and getting another''s type wrong'
+    hints:
+      - 'One round trip per mistake is one round trip too many.'
+      - 'Raising on the first problem hides the second until the next retry.'
+      - 'Collect every problem and raise once with all of them.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_a_missing_required_field_is_reported_by_name:
+    condition: 'a payload that omitted a field with no default'
+    hints:
+      - 'The message goes back to the model, so it has to name what to add.'
+      - 'A message saying the payload was invalid leaves it guessing.'
+      - 'Report the field name alongside what was wrong with it.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_an_unknown_key_is_a_problem:
+    condition: 'a payload carrying a field the class never declared'
+    hints:
+      - 'An unknown keyword reaches the constructor as a TypeError, far from anything the model can act on.'
+      - 'Ignoring it silently accepts a model that answered a different shape.'
+      - 'Compare the payload keys against the declared fields and report the extras.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_a_bool_is_not_an_int:
+    condition: 'a severity of true where a whole number was declared'
+    hints:
+      - 'Bool subclasses int in Python, so this needs an explicit check.'
+      - 'Without it, true arrives as a severity of one and nothing complains.'
+      - 'Exclude bool in the integer branch, while still accepting it for a boolean field.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_an_int_is_acceptable_where_a_float_is_wanted:
+    condition: 'a whole number supplied for a field declared as a float'
+    hints:
+      - 'JSON has one number type, so a model that means 21.0 writes 21.'
+      - 'Rejecting it fails a payload that is perfectly well formed.'
+      - 'Accept an int for a float field and convert it, while still keeping bool out.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_null_is_allowed_for_an_optional_field:
+    condition: 'an explicit null in a field whose annotation permits it'
+    hints:
+      - 'A null is the honest answer to a question with no answer, and the annotation allows it here.'
+      - 'A None also has to skip the type check, since it is not a string.'
+      - 'Split the union first, and accept None when the non-null half was optional.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_an_optional_annotation_without_a_default_is_reported_missing:
+    condition: 'an empty payload against a field that permits null but has no default'
+    hints:
+      - 'The annotation allows None as a value, not the key''s absence.'
+      - 'Treating an optional annotation as an optional key lets the model skip the field entirely.'
+      - 'Decide missingness from the default and nothing else.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_the_same_field_accepts_an_explicit_null:
+    condition: 'the same field supplied with an explicit null rather than omitted'
+    hints:
+      - 'These are two different situations for the same field and both have to work.'
+      - 'A single check on the annotation cannot tell them apart.'
+      - 'Test key presence separately from the value''s type.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestValidateInto.test_a_list_with_a_bad_element_is_one_problem:
+    condition: 'a list of tags where one element is a number'
+    hints:
+      - 'The field is wrong once, not once per bad element.'
+      - 'Reporting per element floods the message on a long list.'
+      - 'Check the container and its elements together and report a single problem for the field.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestBuildToolSchema.test_types_come_from_the_hints:
+    condition: 'an ordinary tool with a required string parameter and an optional boolean one'
+    hints:
+      - 'With postponed evaluation the annotations are strings, so the raw attribute is not enough.'
+      - 'The docstring is the description and arrives indented from the source.'
+      - 'Resolve the type hints, map each one to a property, and require only the parameters with no default.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestBuildToolSchema.test_the_context_parameter_is_not_advertised:
+    condition: 'a tool whose first parameter is the framework''s run context'
+    hints:
+      - 'The context is the framework''s argument; the model must not see it.'
+      - 'Advertising it makes the model invent a value for something it cannot know.'
+      - 'Detect the context parameter and drop it before building the properties.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_a_valid_first_payload_returns_the_object:
+    condition: 'a first payload that validates straight away'
+    hints:
+      - 'The good case has to cost one call and no retries.'
+      - 'The result carries the object, the retry count and the conversation, so a caller can see all three.'
+      - 'Return as soon as the payload validates, with the retry count as it stands.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_the_final_output_tool_carries_the_schema:
+    condition: 'a request whose last offered tool has to be the typed output one'
+    hints:
+      - 'Structured output is a tool call whose parameters are your schema.'
+      - 'Describing the shape in the prompt instead leaves the provider unable to constrain the reply.'
+      - 'Append a synthetic tool whose parameters are the schema derived from the output type.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_ordinary_tools_are_offered_alongside_it:
+    condition: 'a run with a real tool as well as the typed output one'
+    hints:
+      - 'The model may need to look something up before it can fill in the answer.'
+      - 'Offering only the output tool forces it to guess.'
+      - 'Emit the real tool schemas first and the output tool last.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_a_bad_payload_is_retried:
+    condition: 'a first payload with a wrong type, followed by a good one'
+    hints:
+      - 'A model that got the shape wrong usually gets it right when told what was wrong.'
+      - 'Raising on the first failure throws away a run that was one message from working.'
+      - 'Count the failure, feed the error back, and go round the loop again.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_the_validation_error_goes_back_to_the_model:
+    condition: 'a retry whose last message must be the error the validation produced'
+    hints:
+      - 'The retry only works if the model reads the error; a log line will not do.'
+      - 'The failed call still needs an answer, or the next request is malformed.'
+      - 'Append the error text as the tool result for the call that produced the bad payload.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_a_context_tool_receives_the_deps:
+    condition: 'a tool declaring a run context parameter it needs the dependencies through'
+    hints:
+      - 'The model supplied only the visible arguments, so the context has to come from the runner.'
+      - 'Unpacking the arguments alone leaves the context parameter unfilled.'
+      - 'Detect the context parameter and pass a run context as the first argument.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_a_plain_tool_is_called_with_its_arguments_only:
+    condition: 'a tool with no context parameter, called while dependencies exist'
+    hints:
+      - 'Passing a context to a tool that did not ask for one is a TypeError.'
+      - 'The same call path has to serve both kinds of tool.'
+      - 'Branch on whether the tool declared a context before deciding what to pass.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_the_retries_run_out:
+    condition: 'three bad payloads against a budget of two retries'
+    hints:
+      - 'A budget of two retries allows three payloads in total, the first attempt included.'
+      - 'The caller needs the final problem, not a count of attempts.'
+      - 'Raise OutputValidationFailed carrying the last error text once the budget is spent.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_prose_instead_of_a_tool_call_fails:
+    condition: 'a model that answered in a sentence rather than calling the output tool'
+    hints:
+      - 'There is no payload to validate and no call to answer, so the retry mechanism has nothing to work with.'
+      - 'Parsing the sentence for something object shaped guesses at an answer nobody gave.'
+      - 'Check the finish reason and raise OutputValidationFailed when it is not a tool call.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop
+
+  TestRunTyped.test_the_history_holds_the_whole_exchange:
+    condition: 'a successful run whose history must still contain the rejected payload'
+    hints:
+      - 'The rejected payload and the error stay in the history, which is what stops the model repeating the mistake.'
+      - 'Rebuilding the messages for the retry throws that away and the model tries the same shape again.'
+      - 'Append to one message list throughout and return it on the result.'
+    concept: ai-handoffs-and-typed-output.typed-output-and-the-retry-loop

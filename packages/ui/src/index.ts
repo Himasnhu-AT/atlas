@@ -63,5 +63,11 @@ export type { RevealProps } from './components/Reveal'
 export { AppShell } from './components/AppShell'
 export type { AppShellProps } from './components/AppShell'
 
+/* ------------------------------------------------------------- challenges */
+export { ChallengeRunner } from './challenges/ChallengeRunner'
+export type { ChallengeRunnerProps, ChallengeAttempt } from './challenges/ChallengeRunner'
+export { KindRenderers } from './challenges/registry'
+export type { ChallengeRenderer, ChallengeRendererProps } from './challenges/protocol'
+
 /* ---------------------------------------------------------------- widgets */
 export * from './widgets'

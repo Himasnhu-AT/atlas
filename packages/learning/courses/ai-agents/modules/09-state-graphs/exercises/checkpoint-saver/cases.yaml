@@ -1,0 +1,249 @@
+version: 1
+cases:
+  TestCheckpointIds.test_string_order_is_chronological_order:
+    condition: 'counters spanning single, double and triple digits'
+    hints:
+      - 'Converting a counter to a string puts ten before two, so history comes back in an order that is almost right.'
+      - 'The ids are sorted as text everywhere they are used, so the text has to sort correctly.'
+      - 'Zero pad the counter to a fixed width.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointIds.test_ids_are_fixed_width:
+    condition: 'a counter of zero and one of nearly ten thousand'
+    hints:
+      - 'Variable width strings sort by their first character before their length.'
+      - 'A pad wide enough for four digits fails on the ten thousandth checkpoint.'
+      - 'Pad to a width that comfortably outlives any real thread.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointIds.test_ids_are_strings:
+    condition: 'an id used as a mapping key and compared as text'
+    hints:
+      - 'The id is stored in a config mapping and compared with other ids.'
+      - 'An integer sorts correctly and then fails every string comparison against a stored one.'
+      - 'Format the counter into a string rather than returning the number.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestSaverBasics.test_put_returns_the_config_it_wrote:
+    condition: 'a write whose caller needs the config to chain as the next parent'
+    hints:
+      - 'The caller has a thread id and the saver knows the checkpoint id, so only the saver can build the pair.'
+      - 'Returning nothing makes the caller reconstruct the config and get it slightly wrong.'
+      - 'Return a config carrying both the thread id and the checkpoint id.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestSaverBasics.test_get_tuple_on_an_unknown_thread_is_none:
+    condition: 'a thread that has never been run before'
+    hints:
+      - 'A thread that has never run is the ordinary first call, not an error.'
+      - 'Raising here would make every fresh run start with an exception handler.'
+      - 'Return None when the thread has nothing stored.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestSaverBasics.test_get_tuple_on_an_unknown_id_is_none:
+    condition: 'a real thread queried for a checkpoint id it does not hold'
+    hints:
+      - 'The thread exists and the checkpoint does not, which is different from the thread not existing.'
+      - 'Falling back to the newest checkpoint here would silently answer a different question.'
+      - 'Look the id up in the thread and return None when it is absent.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestSaverBasics.test_list_on_an_unknown_thread_is_empty:
+    condition: 'a history request for a thread with nothing in it'
+    hints:
+      - 'An empty history is the ordinary state of a new thread.'
+      - 'Returning None makes every caller guard the iteration.'
+      - 'Return an empty list when the thread is unknown.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_one_checkpoint_per_super_step:
+    condition: 'a three step run that must leave three checkpoints behind'
+    hints:
+      - 'The checkpoint goes in after every super-step, not once at the end.'
+      - 'Writing once at the end means a crash halfway through loses everything.'
+      - 'Write a checkpoint inside the loop, after each step completes.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_list_returns_newest_first:
+    condition: 'a history read by something that shows the most recent state first'
+    hints:
+      - 'Newest first is the order anything showing history wants.'
+      - 'A mapping iterated in insertion order gives the opposite.'
+      - 'Sort the stored ids in reverse before building the list.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_list_respects_the_limit:
+    condition: 'a history request asking for only the two most recent entries'
+    hints:
+      - 'A long running thread accumulates thousands of checkpoints and nobody wants all of them.'
+      - 'Slicing before sorting takes an arbitrary two rather than the newest two.'
+      - 'Sort first and then take the requested number from the front.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_get_tuple_defaults_to_the_newest:
+    condition: 'a config carrying a thread id and no checkpoint id'
+    hints:
+      - 'No id means wherever this thread got to, which is what resume asks for.'
+      - 'Returning the first stored entry gives the oldest state instead.'
+      - 'Take the largest id in the thread, which the zero padding makes the newest.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_the_first_checkpoint_has_no_parent:
+    condition: 'the very first checkpoint of a thread, which follows nothing'
+    hints:
+      - 'The parent chain has to start somewhere, and that somewhere has no parent.'
+      - 'Pointing it at itself would make the history a cycle.'
+      - 'Start the parent as absent and only set it after the first write.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_each_checkpoint_names_the_one_before_it:
+    condition: 'a chain of three checkpoints where each has to point back one step'
+    hints:
+      - 'The parent chain is what makes the history navigable and, after a fork, a tree.'
+      - 'Storing the thread id alone loses which checkpoint it came from.'
+      - 'Carry the config the previous write returned into the next one as its parent.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_checkpoints_do_not_alias_the_live_state:
+    condition: 'an early checkpoint that must still show the state as it was then'
+    hints:
+      - 'The values accessor hands back a new mapping holding the same list objects.'
+      - 'Without a copy every checkpoint in the thread shows the final state, which looks like a bug in the engine.'
+      - 'Deep copy the values on the way into the checkpoint.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_updated_channels_match_what_the_step_wrote:
+    condition: 'a checkpoint that has to record which channels its step touched'
+    hints:
+      - 'This is what a history view shows to say what changed at each point.'
+      - 'Recording every channel makes every step look like it wrote everything.'
+      - 'Copy the updated list off the step record into the checkpoint.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_the_format_version_is_recorded:
+    condition: 'a stored checkpoint that will outlive the code that wrote it'
+    hints:
+      - 'Checkpoints are read back weeks later by a newer version of the runtime.'
+      - 'Without a version stamp there is no way to migrate an old one.'
+      - 'Record the format version on every checkpoint.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestCheckpointWriting.test_versions_seen_is_carried_too:
+    condition: 'a checkpoint that has to say which nodes had read what'
+    hints:
+      - 'Without the seen versions a resumed run cannot tell which nodes are done.'
+      - 'It would re-run everything, which for a node that called a model is the expensive version of the bug.'
+      - 'Store a deep copy of the seen map alongside the values and versions.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestResume.test_the_crash_keeps_the_step_that_finished:
+    condition: 'a run where the first node succeeded and the second raised'
+    hints:
+      - 'The first node completed, so its super-step is durable and the failed one was never written.'
+      - 'Writing the checkpoint before the step runs would record work that never happened.'
+      - 'Write the checkpoint after the step completes, so a raise leaves nothing behind.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestResume.test_resuming_completes_the_run:
+    condition: 'a second run against the same thread after a crash'
+    hints:
+      - 'Resume is an ordinary run that happened to find state waiting for it.'
+      - 'Starting fresh throws away the step that already succeeded.'
+      - 'Look for the thread''s newest checkpoint and restore the state from it before running.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestResume.test_resuming_does_not_replay_finished_nodes:
+    condition: 'a resumed run where the first node must not be called a second time'
+    hints:
+      - 'The seen versions came back from the checkpoint, so the finished node is no longer eligible.'
+      - 'Restoring only the values and the versions leaves every node looking stale.'
+      - 'Restore the seen map alongside the values and versions.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestResume.test_resuming_runs_the_node_that_failed:
+    condition: 'a resumed run where the node that raised has to be tried again'
+    hints:
+      - 'It never completed, so it never recorded having read its trigger.'
+      - 'Marking nodes as seen before they run would skip exactly the one that failed.'
+      - 'Record the seen versions as part of the step, so a step that raised records nothing.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestResume.test_the_resumed_run_reports_only_its_own_steps:
+    condition: 'a resumed run whose result covers two steps while the thread holds three checkpoints'
+    hints:
+      - 'The result describes this invocation; the thread describes the whole history.'
+      - 'Starting the checkpoint counter at zero on a resume writes ids that already exist and rewrites the history.'
+      - 'Continue the numbering from what the thread already holds while reporting only the new steps.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestTimeTravel.test_an_explicit_id_returns_that_state:
+    condition: 'a config naming an older checkpoint by id'
+    hints:
+      - 'An explicit id is a request for that exact point, not for the latest.'
+      - 'Defaulting to the newest whenever an id is present makes time travel impossible.'
+      - 'Use the id from the config when one is given.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestTimeTravel.test_running_forward_from_it_reproduces_the_later_values:
+    condition: 'a run started from the oldest checkpoint of a finished thread'
+    hints:
+      - 'Replaying from a point is the same machinery as resuming, with a different starting checkpoint.'
+      - 'The restored seen map is what makes only the remaining nodes eligible.'
+      - 'Restore from the named checkpoint and let the scheduler work out what is left.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestTimeTravel.test_the_replay_appends_to_the_history:
+    condition: 'a replay over a thread that already holds three checkpoints'
+    hints:
+      - 'A replay writes new checkpoints rather than editing the old ones.'
+      - 'Overwriting the ids the replay passes through destroys the history it branched from.'
+      - 'Continue the counter from the number of checkpoints the thread already holds.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestFork.test_the_fork_starts_with_one_checkpoint:
+    condition: 'a new thread branched from a single point in an existing one'
+    hints:
+      - 'A fork copies one checkpoint, not the whole history behind it.'
+      - 'Copying every ancestor would duplicate the thread rather than branch it.'
+      - 'Write exactly one checkpoint into the new thread.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestFork.test_the_fork_points_back_at_where_it_came_from:
+    condition: 'a forked checkpoint whose parent lives in a different thread'
+    hints:
+      - 'A parent config across threads is what makes the history a tree rather than a set of unrelated lines.'
+      - 'Dropping the parent leaves no record of where the branch came from.'
+      - 'Set the parent to the source thread and the checkpoint id it was taken from.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestFork.test_the_returned_config_runs:
+    condition: 'a fork whose returned config has to be usable as a run config'
+    hints:
+      - 'The caller needs a config for the new thread, and only the fork knows the id it wrote.'
+      - 'Returning nothing makes them build the config by hand.'
+      - 'Return the config the write produced.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestFork.test_the_original_thread_is_untouched:
+    condition: 'a fork run to completion while the source thread must not change'
+    hints:
+      - 'Running the fork must not write into the thread it branched from, or add to its history.'
+      - 'Sharing the value objects means the fork''s writes appear in the source thread''s stored state.'
+      - 'Deep copy the values at the fork and key every write on the new thread id.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestFork.test_the_forks_ids_start_from_the_beginning:
+    condition: 'a new thread whose first checkpoint must be its own first'
+    hints:
+      - 'The new thread has its own numbering, independent of the one it branched from.'
+      - 'Carrying the source id over leaves gaps and makes the two threads look interleaved.'
+      - 'Give the copied checkpoint the first id of the new thread.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel
+
+  TestFork.test_two_threads_never_see_each_others_values:
+    condition: 'two threads run with different seed inputs'
+    hints:
+      - 'One thread''s history must never be readable through another thread''s config.'
+      - 'A flat mapping keyed only on the checkpoint id lets ids collide across threads.'
+      - 'Nest the storage by thread id so a lookup can only see one thread at a time.'
+    concept: ai-state-graphs.checkpoints-resume-and-time-travel

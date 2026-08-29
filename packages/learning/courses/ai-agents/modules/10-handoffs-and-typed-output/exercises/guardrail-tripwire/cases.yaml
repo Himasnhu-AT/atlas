@@ -1,0 +1,137 @@
+version: 1
+cases:
+  TestInputGuardrails.test_a_trip_costs_no_model_calls:
+    condition: 'a request refused before the model was ever asked'
+    hints:
+      - 'An input guardrail that runs after the model call has saved nothing.'
+      - 'That timing is the only reason an input check protects the bill rather than just the user.'
+      - 'Evaluate every input guardrail before the run is started.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestInputGuardrails.test_the_exception_carries_the_result_that_tripped:
+    condition: 'a trip whose caller needs to know which rule fired and why'
+    hints:
+      - 'The exception is the only thing crossing the boundary, so it has to carry the evidence.'
+      - 'A message alone leaves the caller parsing English to decide what to show the user.'
+      - 'Attach the guardrail result to the exception alongside the message.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestInputGuardrails.test_evaluation_stops_at_the_first_trip:
+    condition: 'three input guardrails where the middle one fires'
+    hints:
+      - 'The trail ends at the guardrail that tripped, and nothing after it runs.'
+      - 'Running the rest costs time on a request that is already refused.'
+      - 'Raise as soon as a result trips, with the trail collected so far attached.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestInputGuardrails.test_the_output_stage_is_skipped_when_the_input_trips:
+    condition: 'an input trip with output guardrails also configured'
+    hints:
+      - 'There is no output to check when the run never happened.'
+      - 'A structure that always runs both stages would call the output checks on nothing.'
+      - 'Let the raise from the input stage leave the function before the output stage is reached.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestInputGuardrails.test_the_guardrail_sees_the_user_input:
+    condition: 'an input check that has to be shown what the user actually said'
+    hints:
+      - 'An input guardrail is written against the request, not against the agent or the config.'
+      - 'Passing anything else makes every rule about content impossible to write.'
+      - 'Call each input guardrail with the user input as it arrived.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestOutputGuardrails.test_a_trip_happens_after_exactly_one_call:
+    condition: 'a reply carrying a card number, refused after the model answered'
+    hints:
+      - 'An output guardrail can only run once the model has answered, which is why it protects the user and not the bill.'
+      - 'The stage has to be recorded, because the two kinds of trip need different responses.'
+      - 'Run the output checks after the run returns and label the trip as the output stage.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestOutputGuardrails.test_the_guardrail_sees_the_final_output:
+    condition: 'an output check that has to be shown the answer rather than the whole run'
+    hints:
+      - 'The rule is written against what the user would see.'
+      - 'Passing the run result object makes every rule reach into it the same way.'
+      - 'Call each output guardrail with the final output text.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestCleanRuns.test_every_check_is_recorded_in_declared_order:
+    condition: 'two input checks and one output check that all pass'
+    hints:
+      - 'The trail is what an operator reads to see what was actually enforced.'
+      - 'Recording only the failures leaves a clean run looking unchecked.'
+      - 'Append every result to one list, in the order the stages and the guardrails run.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestCleanRuns.test_the_run_result_comes_through_untouched:
+    condition: 'a clean run with no guardrails configured at all'
+    hints:
+      - 'Guardrails wrap the run, they do not replace it.'
+      - 'Rebuilding the result loses fields and drifts as the runner changes.'
+      - 'Put the run result on the wrapper unchanged, with an empty trail.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestBrokenGuardrails.test_a_raising_guardrail_is_not_a_tripwire:
+    condition: 'a guardrail that raises because its own code is broken'
+    hints:
+      - 'A bug in a check is not a refusal, and reporting it as one blames the user for your regex.'
+      - 'Catching it and treating it as a trip also hides the bug forever.'
+      - 'Let the exception travel out unchanged.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestBrokenGuardrails.test_an_undecorated_guardrail_is_a_type_error:
+    condition: 'a plain function passed as a guardrail without the decorator'
+    hints:
+      - 'A bare boolean has no name and no reason, so the trail cannot record it.'
+      - 'Treating a falsy return as a pass silently accepts a check that reports nothing.'
+      - 'Check the returned type and raise TypeError naming what to do about it.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestTheDecorator.test_true_means_tripped:
+    condition: 'a guardrail written as a plain predicate returning true'
+    hints:
+      - 'Most rules are one boolean expression, and making them build a result object is friction.'
+      - 'The convention is that true means stop.'
+      - 'Wrap a boolean return into a result whose tripwire flag is that boolean.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestTheDecorator.test_false_means_passed:
+    condition: 'the same predicate returning false on acceptable input'
+    hints:
+      - 'The direction has to be consistent, or half the rules read backwards.'
+      - 'A pass still produces a result, because the trail records it.'
+      - 'Build a result with the flag unset rather than returning nothing.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestTheDecorator.test_the_declared_name_labels_the_result:
+    condition: 'a guardrail returning a result whose name field it left blank'
+    hints:
+      - 'The trail is labelled consistently only if the name comes from one place.'
+      - 'Leaving the function''s own name in place gives two rules the same label when both are called check.'
+      - 'Overwrite the name with the declared one while keeping the reason the function wrote.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestTheDecorator.test_the_function_stays_callable_and_keeps_its_name:
+    condition: 'a decorated guardrail called directly in a test'
+    hints:
+      - 'A guardrail is testable on its own, without a run around it.'
+      - 'A naive wrapper loses the function name, which then shows up in every traceback as the wrapper.'
+      - 'Copy the wrapped function''s identity onto the wrapper.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestTheDecorator.test_the_name_is_recorded_on_the_function:
+    condition: 'a decorated guardrail whose declared name has to be readable from outside'
+    hints:
+      - 'Something enumerating the configured guardrails needs their names without calling them.'
+      - 'The name is otherwise trapped inside the closure.'
+      - 'Set the declared name as an attribute on the wrapper.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run
+
+  TestTheException.test_the_message_names_the_stage_and_the_guardrail:
+    condition: 'an exception message read six weeks later in a stack trace'
+    hints:
+      - 'The message is what a stack trace shows, long after the run.'
+      - 'Naming only the exception class sends the reader back to the code to find out what tripped.'
+      - 'Build the message from the stage, the guardrail name and the reason it gave.'
+    concept: ai-handoffs-and-typed-output.guardrails-that-can-stop-a-run

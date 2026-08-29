@@ -1,0 +1,265 @@
+version: 1
+cases:
+  TestOutcomeAssertions.test_output_contains_passes:
+    condition: 'an answer that carries the fragment being looked for'
+    hints:
+      - 'An assertion reports problems and stays quiet otherwise.'
+      - 'Returning an empty string on success reads as a reason to anything checking for one.'
+      - 'Return None when the fragment is present.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestOutcomeAssertions.test_output_contains_reports_what_it_saw:
+    condition: 'an answer off by one digit from the fragment expected'
+    hints:
+      - 'The reason is the bug report, and it is read away from the run.'
+      - 'A reason saying the check failed sends somebody back to rerun the case.'
+      - 'Put the actual output into the returned reason.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestOutcomeAssertions.test_output_contains_names_itself:
+    condition: 'an assertion whose name appears in the suite failure list'
+    hints:
+      - 'The failure pairs name the case and the check, and the check name is all the reader gets.'
+      - 'A generic name leaves five assertions on one case indistinguishable.'
+      - 'Build the name from the fragment the assertion was constructed with.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestOutcomeAssertions.test_stopped_with_passes:
+    condition: 'a run that stopped for exactly the reason expected'
+    hints:
+      - 'Why a run stopped is as much part of its behaviour as what it said.'
+      - 'A run that hit its budget and one that answered can produce the same empty output.'
+      - 'Compare the recorded stop reason and return None when it matches.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestOutcomeAssertions.test_stopped_with_reports_the_actual_reason:
+    condition: 'a run that ended on a provider error when an answer was expected'
+    hints:
+      - 'Knowing the stop reason was wrong is not knowing what it was.'
+      - 'The difference between a budget stop and an error stop decides what to fix.'
+      - 'Put the observed stop reason into the returned string.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_called_finds_the_tool:
+    condition: 'a run that used the required tool alongside another one'
+    hints:
+      - 'The tool has to appear somewhere in the steps, not necessarily first.'
+      - 'Checking only the first step fails a run that did something sensible before it.'
+      - 'Search the whole step list for a step naming that tool.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_called_reports_what_was_called_instead:
+    condition: 'a run that reached for a different tool than the one required'
+    hints:
+      - 'Knowing the tool was not called leaves you guessing what the agent did instead.'
+      - 'The list of tools actually used is usually enough to see the mistake at a glance.'
+      - 'Put the tools that were called into the reason.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_a_failed_call_still_counts_as_called:
+    condition: 'a step recording a tool that raised when it ran'
+    hints:
+      - 'The question is whether the agent reached for the tool, not whether the tool worked.'
+      - 'Filtering on the success flag makes this assertion fail on a broken backend rather than a broken agent.'
+      - 'Match on the tool name alone, whatever the step''s outcome was.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_never_called_passes_when_absent:
+    condition: 'a run that stayed away from the forbidden tool'
+    hints:
+      - 'This assertion is the inverse of the others: absence is the pass.'
+      - 'Getting the direction wrong passes every destructive run and fails every safe one.'
+      - 'Return None when no step names the tool.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_never_called_counts_the_calls:
+    condition: 'a run that reached for the forbidden tool twice'
+    hints:
+      - 'Once by accident and twice in a loop are different bugs with different fixes.'
+      - 'A reason saying it was called leaves that distinction invisible.'
+      - 'Count the offending steps and put the number into the reason.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_called_in_order_allows_other_tools_between:
+    condition: 'the required tools in the right order with unrelated calls in between'
+    hints:
+      - 'This is a subsequence, not a contiguous run.'
+      - 'A suite that fails on harmless variation gets switched off.'
+      - 'Walk the steps once with a cursor into the wanted list, advancing only on a match.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_called_in_order_fails_when_reversed:
+    condition: 'both required tools present but in the opposite order'
+    hints:
+      - 'Checking only that both were called misses the ordering entirely.'
+      - 'The reason names the tool that was never reached, which is the second one because the walk stopped on it.'
+      - 'Report the wanted tool at the cursor position when the walk ends short.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_called_in_order_fails_when_one_is_missing:
+    condition: 'a run that made the first required call and never the second'
+    hints:
+      - 'Running out of steps before running out of wanted tools is a failure.'
+      - 'A cursor that never reaches the end of the list is the signal.'
+      - 'Compare the cursor against the length of the wanted list after the walk.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_at_most_steps_is_inclusive:
+    condition: 'a run of exactly the number of steps the limit allows'
+    hints:
+      - 'At most two means two is allowed.'
+      - 'A strict comparison makes the limit mean one fewer than it says.'
+      - 'Pass when the step count is less than or equal to the limit.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestTrajectoryAssertions.test_at_most_steps_reports_the_count:
+    condition: 'a run of three steps against a limit of one'
+    hints:
+      - 'Three against a limit of one is a different problem from two against one.'
+      - 'The reason is read without the trajectory beside it.'
+      - 'Put the observed step count into the reason.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_a_clean_case_passes:
+    condition: 'a scripted run that satisfies all five of its assertions'
+    hints:
+      - 'A case passes only when nothing was reported against it.'
+      - 'The failure list is empty rather than absent, so the caller does not have to guard it.'
+      - 'Collect the reasons and derive the verdict from whether any were collected.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_the_trajectory_comes_back_with_the_result:
+    condition: 'a result whose reader wants to see what the agent actually did'
+    hints:
+      - 'A verdict without the trajectory leaves you rerunning the case to see what happened.'
+      - 'The trajectory is also what a new assertion would be written against.'
+      - 'Attach the trajectory to the result alongside the verdict.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_a_destructive_call_fails_the_case:
+    condition: 'a run that answered correctly and issued a refund on the way'
+    hints:
+      - 'The answer was right, so no outcome assertion would ever notice.'
+      - 'This is what the trajectory assertions are for.'
+      - 'Grade the steps as well as the output, and fail the case when a forbidden tool was reached.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_every_assertion_runs_after_the_first_failure:
+    condition: 'a run that breaks two of its assertions at once'
+    hints:
+      - 'The first run of a broken change should tell you everything it broke.'
+      - 'Returning on the first failure means one fix and one rerun per problem.'
+      - 'Run every assertion and collect all the reasons.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_a_failing_assertion_carries_a_reason:
+    condition: 'a failure pair whose second half must not be empty'
+    hints:
+      - 'The name says which check failed and the reason says what it saw.'
+      - 'Recording only the name gives a report that names the check and nothing about the run.'
+      - 'Store both the assertion name and the reason it returned.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_running_the_same_case_twice_gives_the_same_answer:
+    condition: 'the same case run twice in a row'
+    hints:
+      - 'A shared client carries its cursor from the previous case, so the suite passes in one order and fails in another.'
+      - 'A case must not be consumed by running it.'
+      - 'Build a fresh client from the case script inside the run.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_a_provider_failure_is_a_trajectory_not_an_exception:
+    condition: 'a case whose script is a provider outage'
+    hints:
+      - 'How the agent behaves when the provider is down is behaviour worth asserting on.'
+      - 'Letting the exception escape takes the whole suite down with one case.'
+      - 'Let the agent record the failure as a stop reason and grade the trajectory as usual.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestRunCase.test_a_runaway_loop_stops_on_budget:
+    condition: 'a case whose script never answers, under a step budget of two'
+    hints:
+      - 'A looping agent is behaviour to assert on, not a hang in the test suite.'
+      - 'The case carries its own budget, which is not always the default.'
+      - 'Pass the case''s budget through to the agent rather than relying on the default.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_pass_rate:
+    condition: 'three cases of which two pass'
+    hints:
+      - 'The rate is the fraction of cases with no failures, not of assertions that passed.'
+      - 'Counting assertions makes a case with five checks weigh five times a case with one.'
+      - 'Count the passing cases and divide by the number of cases.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_an_empty_suite_is_zero_not_an_error:
+    condition: 'a suite with no cases in it'
+    hints:
+      - 'A runner pointed at the wrong list finds nothing, and that must not look like success.'
+      - 'Dividing by the case count raises here, and defaulting to one is worse.'
+      - 'Return a rate of zero when there are no results.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_failures_are_case_and_assertion_pairs:
+    condition: 'two failing cases whose report must name both the case and the check'
+    hints:
+      - 'A pair names the case and the check; a pass rate names neither.'
+      - 'The order also has to be stable, or two runs cannot be diffed.'
+      - 'Collect a pair per failing assertion across every case and sort them.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_duplicate_case_names_are_rejected:
+    condition: 'two cases registered under one name'
+    hints:
+      - 'The baseline is keyed by name, so a duplicate quietly loses a case.'
+      - 'The loss is invisible: the suite still reports a rate and one case never counts.'
+      - 'Check the names before running anything and raise ValueError.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_baseline_is_per_case:
+    condition: 'a baseline that has to record each case separately rather than as a rate'
+    hints:
+      - 'A single number cannot tell you which case broke.'
+      - 'The gate compares case by case, so the baseline has to be keyed the same way.'
+      - 'Map each case name to whether it passed.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_an_unchanged_suite_passes_the_gate:
+    condition: 'a run identical to its baseline, above the floor'
+    hints:
+      - 'Nothing regressed and the rate clears the floor, so there is nothing to block.'
+      - 'A gate that fails on a failing case that was already failing blocks every change forever.'
+      - 'Compare against the baseline rather than against perfection.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_a_regression_fails_even_when_the_rate_went_up:
+    condition: 'two cases fixed and one broken, with the overall rate higher'
+    hints:
+      - 'Two fixed and one broken raises the rate and is still a regression, and the broken one is what somebody hit last week.'
+      - 'The report has to name both the regressed case and the fixed ones.'
+      - 'Fail on any regression regardless of the rate, and name the regressed cases in the reason.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_a_low_rate_fails_the_gate_with_no_regression:
+    condition: 'a rate below the floor with nothing having regressed'
+    hints:
+      - 'Nothing regressed, so this failed on the floor alone.'
+      - 'The two conditions are reported separately because they need different fixes.'
+      - 'Leave the regression list empty and let the reason say which condition failed.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_a_new_failing_case_is_not_a_regression:
+    condition: 'a failing case that has no entry in the baseline at all'
+    hints:
+      - 'A case missing from the baseline is new, so it cannot have regressed.'
+      - 'Counting a new case as a regression is how a suite stops growing.'
+      - 'Require a baseline entry that passed before calling a failure a regression.'
+    concept: ai-multi-agent-and-production.evaluating-agents
+
+  TestSuiteAndGate.test_the_gate_carries_the_rate:
+    condition: 'a gate result whose reader wants the rate without rerunning the suite'
+    hints:
+      - 'The gate decision and the number behind it are read together, usually in a CI log.'
+      - 'Recomputing the rate elsewhere is how the two drift apart.'
+      - 'Copy the suite rate onto the gate result.'
+    concept: ai-multi-agent-and-production.evaluating-agents

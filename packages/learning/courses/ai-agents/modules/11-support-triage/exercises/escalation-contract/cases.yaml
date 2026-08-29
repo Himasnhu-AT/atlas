@@ -1,0 +1,225 @@
+version: 1
+cases:
+  TestWantsHuman.test_matches_a_plain_request:
+    condition: 'a customer asking outright to speak to a human'
+    hints:
+      - 'This is the clearest form of the request and it has to be caught.'
+      - 'A model call to classify it costs money on a decision a word list settles.'
+      - 'Search the message for the phrases that mean somebody wants a person.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestWantsHuman.test_matches_the_multi_word_phrases:
+    condition: 'requests phrased as a real person, someone else, or a representative'
+    hints:
+      - 'Nobody says the same word twice, and each of these means the same thing.'
+      - 'A single keyword misses most of the ways people actually ask.'
+      - 'Keep a list of phrases and match any of them, not just single words.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestWantsHuman.test_is_case_insensitive:
+    condition: 'a request typed in capitals'
+    hints:
+      - 'People shout when they are frustrated, which is exactly when they ask for a person.'
+      - 'Matching the raw text misses every capitalised request.'
+      - 'Fold the message before searching it.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestWantsHuman.test_ignores_a_user_agent_string:
+    condition: 'a pasted log line mentioning a user agent'
+    hints:
+      - 'A pasted log line is not a request for a person.'
+      - 'Word boundaries alone will not save you here, because user agent is two whole words.'
+      - 'Mask the phrases that merely contain a trigger word before matching.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestWantsHuman.test_needs_a_whole_word:
+    condition: 'a question about humanities funding'
+    hints:
+      - 'The trigger word sits inside a longer word that means something else entirely.'
+      - 'A plain substring search escalates a question about funding.'
+      - 'Anchor each phrase on word boundaries.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestWantsHuman.test_an_ordinary_question_is_not_a_request:
+    condition: 'a customer describing a problem with their reset link'
+    hints:
+      - 'Most messages are ordinary questions and must not trip the handover path.'
+      - 'A broad phrase list escalates conversations the agent could have answered.'
+      - 'Keep the phrase list narrow enough that ordinary support language passes.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestSummarise.test_quotes_the_first_customer_message:
+    condition: 'a transcript whose opening message is the thing a human reads first'
+    hints:
+      - 'The person taking over wants to know what was originally asked.'
+      - 'Quoting the latest message shows them the frustration and not the problem.'
+      - 'Take the first message with the customer role.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestSummarise.test_counts_the_exchanges:
+    condition: 'a transcript with two customer messages and one agent reply'
+    hints:
+      - 'How long this has been going on tells the human how much patience is left.'
+      - 'Counting every entry counts the agent''s replies too.'
+      - 'Count only the customer turns.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestSummarise.test_is_one_line:
+    condition: 'an opening message containing newlines, such as a pasted stack trace'
+    hints:
+      - 'A summary that wraps is not a summary.'
+      - 'A pasted stack trace would otherwise become a forty line summary.'
+      - 'Collapse every run of whitespace into single spaces, and truncate a long opening.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestSummarise.test_survives_an_empty_transcript:
+    condition: 'a summary of a conversation with no messages in it'
+    hints:
+      - 'This happens when the handover is configured to skip the pushback entirely.'
+      - 'Reading the first customer message out of an empty list raises.'
+      - 'Return a short line saying there is nothing yet rather than an empty string.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestOrdinaryTurns.test_an_answered_question_is_recorded:
+    condition: 'a grounded reply that cites an article'
+    hints:
+      - 'The session accumulates what was tried and what was cited so a handoff can report them.'
+      - 'Recording only the final state loses everything the agent already said.'
+      - 'Append the reply to the attempted list and add its citations to the cited list.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestOrdinaryTurns.test_an_ungrounded_reply_is_not_sent_to_the_customer:
+    condition: 'a model reply that cites nothing at all'
+    hints:
+      - 'A reply grounded in nothing does not go to the customer.'
+      - 'The draft is still recorded, so a human can see what was nearly sent.'
+      - 'Record the draft and send the safe out of scope line instead.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestOrdinaryTurns.test_an_out_of_scope_question_costs_no_model_call:
+    condition: 'a question about conference sponsorship, which nothing in the corpus covers'
+    hints:
+      - 'Retrieval found nothing, so there is no context to answer from.'
+      - 'Calling the model anyway buys a paragraph assembled from nothing.'
+      - 'Return the out of scope line before the call when retrieval is empty.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestOrdinaryTurns.test_the_transcript_records_both_sides:
+    condition: 'one exchange whose transcript must hold the question and the reply'
+    hints:
+      - 'The log a human reads is the conversation, not half of it.'
+      - 'Recording only the customer leaves the human unable to see what was already said.'
+      - 'Append the customer turn on the way in and the agent turn on the way out.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestPushback.test_the_first_request_pushes_back:
+    condition: 'a first request for a person, which the contract says to answer once more'
+    hints:
+      - 'A pushback is not a handoff, so nothing escalates and no payload is built.'
+      - 'The request still has to be counted, or the second one never triggers.'
+      - 'Increment the request count and push back while it is within the allowance.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestPushback.test_the_pushback_offers_the_article_for_the_last_real_question:
+    condition: 'a pushback after a question about an expired reset link'
+    hints:
+      - 'Retrieving on the words of the request itself finds nothing useful.'
+      - 'The customer''s question is still the question, so offer the article for it.'
+      - 'Look back through the transcript for the last customer message that was not a request for a person.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestPushback.test_a_pushback_with_no_match_still_offers_a_way_forward:
+    condition: 'a first request for a person with no earlier question to retrieve on'
+    hints:
+      - 'Retrieval comes back empty, and the pushback still has to say something useful.'
+      - 'A pushback needs no model call, so a fallback line costs nothing.'
+      - 'Fall back to a plain pushback naming the human queue.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestPushback.test_the_pushback_counts_as_something_attempted:
+    condition: 'a pushback that belongs in the list a human will read'
+    hints:
+      - 'The human needs to know the customer was already asked to try once more.'
+      - 'Recording only the answers leaves the pushback invisible.'
+      - 'Append the pushback text to the attempted list like any other reply.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_second_request_escalates:
+    condition: 'a second request for a person after the pushback was already spent'
+    hints:
+      - 'Asking twice is the contract: one attempt to help, then a person.'
+      - 'Escalating without a payload is the bug this whole exercise is about.'
+      - 'Build the handoff and set the escalated flag before returning.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_handoff_lists_everything_attempted:
+    condition: 'a handoff after one answer and one pushback'
+    hints:
+      - 'The answer and the pushback both count, so the human does not repeat them.'
+      - 'A payload listing only the answers hides the fact that the customer was already stalled once.'
+      - 'Copy the whole attempted list, in order, into the handoff.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_handoff_carries_the_cited_articles_without_duplicates:
+    condition: 'a session that cited the same article on two separate turns'
+    hints:
+      - 'The same article cited twice is one article the human should read.'
+      - 'Appending on every citation gives them a list of repeats.'
+      - 'Add an id to the session list only when it is not already there.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_handoff_summary_quotes_the_opening_message:
+    condition: 'a handoff whose summary must lead with the original problem'
+    hints:
+      - 'The person taking over reads this before anything else.'
+      - 'Summarising the request for a person tells them nothing about the problem.'
+      - 'Build the summary from the whole transcript rather than from the latest turn.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_handoff_counts_the_customer_turns:
+    condition: 'a session where the customer sent three messages'
+    hints:
+      - 'Three messages from the customer, whatever the agent said back.'
+      - 'Counting the whole transcript doubles the number.'
+      - 'Count only the entries with the customer role.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_handoff_is_a_snapshot:
+    condition: 'a session that keeps recording after the handoff was built'
+    hints:
+      - 'Aliasing the lists would let the payload keep changing after it was handed over.'
+      - 'That is a bug nobody finds by reading, because the code looks correct.'
+      - 'Copy the lists into the handoff rather than storing references to them.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_a_session_that_never_asks_never_escalates:
+    condition: 'four ordinary questions in a row with no request for a person'
+    hints:
+      - 'Length is not a reason to escalate. Only asking is.'
+      - 'A turn count that triggers a handover hands over conversations that were going fine.'
+      - 'Gate the escalation on the request count alone.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_model_is_never_called_after_escalation:
+    condition: 'another message arriving after the conversation was handed over'
+    hints:
+      - 'A person owns this conversation now, so stop talking over them.'
+      - 'The model call would also be pure cost on a thread nobody is reading.'
+      - 'Check the escalated flag at the top of the turn and return before any work.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_the_same_handoff_comes_back_every_time:
+    condition: 'a later turn on an already escalated session'
+    hints:
+      - 'One escalation, one payload. Rebuilding it invents a second ticket.'
+      - 'A freshly built payload would also carry a different turn count each time.'
+      - 'Store the handoff on the session and return that same object.'
+    concept: ai-support-triage.when-to-hand-over
+
+  TestEscalation.test_zero_pushbacks_escalates_on_the_first_request:
+    condition: 'a session configured to allow no pushback at all'
+    hints:
+      - 'Some queues want an immediate handover, and the allowance is what expresses that.'
+      - 'A hardcoded single pushback ignores the configuration.'
+      - 'Compare the request count against the configured allowance, and let an empty attempted list say honestly that nothing was tried.'
+    concept: ai-support-triage.when-to-hand-over
