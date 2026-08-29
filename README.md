@@ -63,8 +63,27 @@ Four, and the platform assumes there will be more.
 |---|---|---|---|---|---|
 | AI agent engineering | 13 | 54 | 42 | 55 | Python 3.10+ |
 | Data engineering | 5 | 17 | 13 | 13.5 | Python 3.10+ |
-| Quantitative trading | 7 | 26 | 20 | 21 | Python 3.10+ |
+| Quantitative trading | 7 | 27 | 23 | 21 | Python 3.10+ |
 | Introduction to programming | 6 | 24 | 23 | 17.5 | Python 3.10+ |
+
+### How a lesson works
+
+Three stages, and the first is where a lesson starts.
+
+**Play.** Three or four hands-on challenges, authored as data rather than as code. Fix a
+model reply until it satisfies a contract, drive a state machine to a goal inside a retry
+budget, put a pipeline's stages in the order they have to happen in, click the line in a
+backtest that peeks at the future. Each one checks immediately and offers a hint only after
+a failed attempt, so help is earned rather than handed over.
+
+**Read.** The prose, covering edge cases, tradeoffs and what breaks in production. Optional
+for the learner, and served in full to anything that crawls the page.
+
+**Code.** The graded exercise, run on a real interpreter on the desktop and on CPython
+compiled to WebAssembly in the browser. Both call the same runner, so a verdict means the
+same thing either way. When a test fails, the learner is told which condition they did not
+account for rather than being shown a page of unittest output: every one of the 1775 tests
+in the catalogue carries an authored plain-English description of the case it covers.
 
 None need anything installed beyond an interpreter. The AI course runs against `mockllm`;
 the data course uses standard library file and database tools; the quant course uses
