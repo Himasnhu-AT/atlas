@@ -168,7 +168,7 @@ function remarkWidgets(where: string) {
         }
         node.type = 'html'
         const propsJson = JSON.stringify(validation.data).replace(/"/g, '&quot;')
-        node.value = `<div data-widget="${widgetType}" data-widget-props="${propsJson}" class="atlas-widget-mount my-6"></div>`
+        node.value = `<div data-widget="${widgetType}" data-widget-props="${propsJson}" class="atlas-widget-mount"></div>`
       }
       for (const child of node.children ?? []) walk(child)
     }
