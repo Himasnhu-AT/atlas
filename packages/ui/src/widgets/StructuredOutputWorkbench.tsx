@@ -121,7 +121,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
       {/* SCREEN 0: THE HOOK / HERO COVER                                     */}
       {/* =================================================================== */}
       {currentStep === 0 && (
-        <div className="grid gap-8 lg:grid-cols-12 py-4 animate-in fade-in duration-300 items-center">
+        <div className="grid gap-8 lg:grid-cols-12 py-4 animate-fade-in items-center">
           <div className="lg:col-span-7 space-y-4">
             <p className="text-eyebrow font-mono uppercase text-accent font-semibold">
               Interactive Hands-On Exploration
@@ -136,7 +136,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
             <div className="pt-2">
               <button
                 onClick={() => setCurrentStep(1)}
-                className="inline-flex min-h-11 items-center justify-center rounded-field bg-accent px-8 text-caption font-semibold text-white shadow-sm hover:bg-accent-deep active:scale-98 transition-all cursor-pointer"
+                className="inline-flex min-h-11 items-center justify-center rounded-field bg-accent px-8 text-caption font-semibold text-white shadow-sm hover:bg-accent-deep transition-all cursor-pointer"
               >
                 Start Challenge 1 &rarr;
               </button>
@@ -169,7 +169,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
       {/* SCREEN 1: CHALLENGE 1 - EXTRACT CLEAN JSON (2-COLUMN GRID)          */}
       {/* =================================================================== */}
       {currentStep === 1 && (
-        <div className="grid gap-8 lg:grid-cols-12 py-2 animate-in fade-in duration-300">
+        <div className="grid gap-8 lg:grid-cols-12 py-2 animate-fade-in">
           {/* Left Column: Challenge Description & Guidelines */}
           <div className="lg:col-span-5 space-y-4">
             <div>
@@ -191,7 +191,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
             </div>
 
             {step1Hint && (
-              <div className="rounded-lg border border-fail/30 bg-fail/5 p-4 text-caption font-mono text-fail animate-in fade-in">
+              <div className="rounded-lg border border-fail/30 bg-fail/5 p-4 text-caption font-mono text-fail animate-fade-in">
                 {step1Hint}
               </div>
             )}
@@ -228,12 +228,12 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
               {!step1Passed ? (
                 <button
                   onClick={handleCheckStep1}
-                  className="inline-flex min-h-11 items-center justify-center rounded-field bg-accent px-8 text-caption font-semibold text-white shadow-sm hover:bg-accent-deep active:scale-98 transition-all cursor-pointer"
+                  className="inline-flex min-h-11 items-center justify-center rounded-field bg-accent px-8 text-caption font-semibold text-white shadow-sm hover:bg-accent-deep transition-all cursor-pointer"
                 >
                   Check Extraction Answer
                 </button>
               ) : (
-                <div className="flex flex-wrap items-center gap-4 animate-in fade-in">
+                <div className="flex flex-wrap items-center gap-4 animate-fade-in">
                   <span className="rounded-full bg-pass/10 px-4 py-2 text-caption font-semibold text-pass">
                     ✓ Clean JSON Object Isolated!
                   </span>
@@ -254,7 +254,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
       {/* SCREEN 2: CHALLENGE 2 - SCHEMA REPAIR (2-COLUMN GRID)               */}
       {/* =================================================================== */}
       {currentStep === 2 && (
-        <div className="grid gap-8 lg:grid-cols-12 py-2 animate-in fade-in duration-300">
+        <div className="grid gap-8 lg:grid-cols-12 py-2 animate-fade-in">
           {/* Left Column: Declared Schema Contract & Rules */}
           <div className="lg:col-span-5 space-y-4">
             <div>
@@ -280,7 +280,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
             </div>
 
             {step2Hint && (
-              <div className="rounded-lg border border-fail/30 bg-fail/5 p-4 text-caption font-mono text-fail animate-in fade-in">
+              <div className="rounded-lg border border-fail/30 bg-fail/5 p-4 text-caption font-mono text-fail animate-fade-in">
                 {step2Hint}
               </div>
             )}
@@ -306,12 +306,12 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
               {!step2Passed ? (
                 <button
                   onClick={handleCheckStep2}
-                  className="inline-flex min-h-11 items-center justify-center rounded-field bg-accent px-8 text-caption font-semibold text-white shadow-sm hover:bg-accent-deep active:scale-98 transition-all cursor-pointer"
+                  className="inline-flex min-h-11 items-center justify-center rounded-field bg-accent px-8 text-caption font-semibold text-white shadow-sm hover:bg-accent-deep transition-all cursor-pointer"
                 >
                   Check Schema Validation
                 </button>
               ) : (
-                <div className="flex flex-wrap items-center gap-4 animate-in fade-in">
+                <div className="flex flex-wrap items-center gap-4 animate-fade-in">
                   <span className="rounded-full bg-pass/10 px-4 py-2 text-caption font-semibold text-pass">
                     ✓ Invariants Verified: Types &amp; Enums Safe!
                   </span>
@@ -332,7 +332,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
       {/* SCREEN 3: CHALLENGE 3 - THE RETRY PROMPT (2-COLUMN GRID)            */}
       {/* =================================================================== */}
       {currentStep === 3 && (
-        <div className="grid gap-8 lg:grid-cols-12 py-2 animate-in fade-in duration-300">
+        <div className="grid gap-8 lg:grid-cols-12 py-2 animate-fade-in">
           {/* Left Column: Feedback Concept & Hints */}
           <div className="lg:col-span-5 space-y-4">
             <div>
@@ -347,7 +347,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
             </p>
 
             {step3Hint && (
-              <div className="rounded-lg border border-fail/30 bg-fail/5 p-4 text-caption font-mono text-fail animate-in fade-in">
+              <div className="rounded-lg border border-fail/30 bg-fail/5 p-4 text-caption font-mono text-fail animate-fade-in">
                 {step3Hint}
               </div>
             )}
@@ -392,7 +392,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
             </button>
 
             {step3Passed && (
-              <div className="pt-4 flex items-center justify-between animate-in fade-in">
+              <div className="pt-4 flex items-center justify-between animate-fade-in">
                 <span className="rounded-full bg-pass/10 px-4 py-2 text-caption font-semibold text-pass">
                   ✓ Model Self-Corrected on Turn 2!
                 </span>
@@ -412,7 +412,7 @@ export function StructuredOutputWorkbench({ onGoToCode, onGoToRead }: Structured
       {/* SCREEN 4: COMPLETION - 2 CHOICES: WRITE CODE OR READ OPTIONAL       */}
       {/* =================================================================== */}
       {currentStep === 4 && (
-        <div className="flex flex-col items-center text-center py-6 sm:py-8 animate-in fade-in duration-300">
+        <div className="flex flex-col items-center text-center py-6 sm:py-8 animate-fade-in">
           <div className="rounded-full bg-pass/10 p-3 text-pass font-bold text-lg mb-2">
             🎉 Visual Intuition Mastered!
           </div>

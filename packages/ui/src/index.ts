@@ -54,6 +54,9 @@ export type { ModuleCardProps } from './components/ModuleCard'
 export { LessonSidebar } from './components/LessonSidebar'
 export type { LessonSidebarProps } from './components/LessonSidebar'
 
+export { Reveal } from './components/Reveal'
+export type { RevealProps } from './components/Reveal'
+
 export { AppShell } from './components/AppShell'
 export type { AppShellProps } from './components/AppShell'
 
