@@ -1,0 +1,137 @@
+version: 1
+cases:
+  TestWatermarkStorage.test_an_unloaded_source_has_no_watermark:
+    condition: 'a source that has never been loaded, so no mark has ever been written for it'
+    hints:
+      - 'None means load everything, which is right for a first run. A zero or an empty string would need a second rule to say the same thing.'
+      - 'The lookup finds no row, and that is the ordinary first-run outcome rather than an error.'
+      - 'Return None when the query comes back with no row, instead of raising or seeding a default.'
+    concept: de-pipelines.watermarks
+
+  TestWatermarkStorage.test_reads_back_what_was_written:
+    condition: 'a mark stored by one run and read by the next one'
+    hints:
+      - 'The mark is the only thing connecting two runs, and it has to survive in the same place the rows do.'
+      - 'A table with the source name as its key is enough.'
+      - 'Store the value against the name and read it back by that name, committing so the next connection sees it.'
+    concept: de-pipelines.watermarks
+
+  TestWatermarkStorage.test_watermarks_are_named_separately:
+    condition: 'a refunds source asking for its own mark after only orders was loaded'
+    hints:
+      - 'Two sources move at different speeds, and one mark for both makes the slower one skip rows forever.'
+      - 'The name is a key, not a label on a single shared value.'
+      - 'Key the watermarks table by name so an unknown name finds nothing.'
+    concept: de-pipelines.watermarks
+
+  TestRowsToProcess.test_a_first_run_takes_everything:
+    condition: 'a first run with no mark to filter against'
+    hints:
+      - 'There is no boundary yet, so nothing has been loaded and nothing can be skipped.'
+      - 'A None watermark is a different branch, not a value to compare against.'
+      - 'Return the rows unfiltered when the watermark is None, keeping the timestamp check.'
+    concept: de-pipelines.watermarks
+
+  TestRowsToProcess.test_uses_a_closed_boundary:
+    condition: 'a row whose timestamp equals the watermark exactly'
+    hints:
+      - 'A strict greater-than skips a row sharing the boundary timestamp, and no later run ever picks it up.'
+      - 'Overlap is cheap because the write is an upsert. A gap is permanent.'
+      - 'Compare with greater-than-or-equal so the boundary row comes through again rather than being lost.'
+    concept: de-pipelines.watermarks
+
+  TestRowsToProcess.test_keeps_the_original_order:
+    condition: 'rows that have to reach the writer in the order the source sent them'
+    hints:
+      - 'Reordering rows changes which correction lands last, and the last one wins in an upsert.'
+      - 'Filtering is not sorting.'
+      - 'Build the result by walking the input in order and keeping what passes, without sorting it.'
+    concept: de-pipelines.watermarks
+
+  TestRowsToProcess.test_skips_rows_with_no_timestamp:
+    condition: 'a row with no placed_at, which nothing can be compared against'
+    hints:
+      - 'A row with no timestamp cannot be placed relative to the mark, so including it would load the same row on every run forever.'
+      - 'This check is needed on the first-run path too, where there is no comparison at all.'
+      - 'Skip a row whose timestamp field is missing, in both branches.'
+    concept: de-pipelines.watermarks
+
+  TestRowsToProcess.test_nothing_after_the_watermark_is_nothing:
+    condition: 'a mark set past every row in the source'
+    hints:
+      - 'A quiet day is normal, and it produces no rows rather than an error.'
+      - 'The comprehension keeps nothing and that is the answer.'
+      - 'Return the empty list the filter produced rather than falling back to the full input.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_writes_the_rows_and_moves_the_mark:
+    condition: 'three rows whose newest timestamp is 2026-03-06'
+    hints:
+      - 'The mark has to describe what was written, so it comes from the rows rather than from the clock.'
+      - 'Using now() as the mark loses rows whenever the source is behind the loader.'
+      - 'Take the highest timestamp in the batch and store that as the new mark.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_running_the_same_input_twice_changes_nothing:
+    condition: 'the same batch loaded a second time after a retry'
+    hints:
+      - 'The state after N runs of the same input has to match the state after one. That is the whole promise of a re-runnable load.'
+      - 'The rows are keyed, so a second write of the same key can update in place rather than adding a row.'
+      - 'Upsert on the key and take the highest timestamp again, which lands on the same mark.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_the_boundary_row_is_not_lost_across_runs:
+    condition: 'two runs across a batch where day one and day two share a timestamp'
+    hints:
+      - 'Every order has to be present after both runs, including the one sitting exactly on the mark.'
+      - 'The closed boundary reloads that row, and the upsert makes reloading it harmless.'
+      - 'The inclusive filter and the upsert together are what close the gap; either one alone leaves it open.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_an_upsert_corrects_rather_than_duplicating:
+    condition: 'order 1 arriving pending and then arriving again shipped'
+    hints:
+      - 'A correction from upstream has to land. Ignoring the second copy keeps the stale status forever.'
+      - 'A conflict on the key is an update here, not something to skip.'
+      - 'On a key conflict, set every column other than the key from the incoming row.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_an_empty_run_does_not_move_the_mark:
+    condition: 'a run where the source sent no rows at all'
+    hints:
+      - 'An empty run is not evidence that time has passed. Advancing the mark here would skip whatever arrives late.'
+      - 'There is no highest timestamp to take, because there are no timestamps.'
+      - 'Return the current mark unchanged and write nothing when the batch is empty.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_the_mark_never_goes_backwards:
+    condition: 'a late arriving row dated 2026-03-01 after the mark already reached 2026-03-07'
+    hints:
+      - 'Moving the mark back means every row between the two dates gets reloaded on the next run, and a correction already applied gets overwritten by the older copy.'
+      - 'The batch high water mark is a candidate, not the answer.'
+      - 'Take the larger of the batch high water mark and the mark already stored.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_a_full_timestamp_watermark_keeps_its_precision:
+    condition: 'rows marked 2026-03-07T01:00:00Z and 2026-03-07T02:00:00Z on the same day'
+    hints:
+      - 'A timestamp mark must not be rounded to a date; that would make a same-day correction look older than it is and drop it.'
+      - 'The stored mark keeps whatever precision the source sent, minus the zone, which is normalised away.'
+      - 'Parse the timestamp, convert it to UTC, drop the offset, and store the full ISO form rather than the date part.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_mixed_timezones_are_compared_instant_by_instant:
+    condition: 'one row stamped 01:00 UTC and another stamped 02:00 at a five and a half hour offset'
+    hints:
+      - 'Comparing mixed-offset timestamps as strings can include a row that actually precedes the watermark. 02:00+05:30 is earlier than 01:00Z, and the text says otherwise.'
+      - 'The comparison has to be between instants, which means both sides in the same zone first.'
+      - 'Parse each timestamp, convert it to UTC and strip the offset before comparing, so the ordering is by instant rather than by characters.'
+    concept: de-pipelines.watermarks
+
+  TestLoadIncrement.test_a_failed_write_leaves_the_mark_where_it_was:
+    condition: 'a batch whose second row violates a constraint after the first has been written'
+    hints:
+      - 'A mark ahead of the data means no later run goes back for those rows. The hole is permanent and silent.'
+      - 'The rows and the mark that describes them are one claim, so they have to succeed or fail together.'
+      - 'Write both inside a single transaction and roll it back before re-raising, so neither the rows nor the mark survive the failure.'
+    concept: de-pipelines.watermarks

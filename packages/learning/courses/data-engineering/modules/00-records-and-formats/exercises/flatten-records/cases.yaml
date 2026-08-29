@@ -1,0 +1,201 @@
+version: 1
+cases:
+  TestFlatten.test_flattens_one_level:
+    condition: 'a document with one nested customer object beside a scalar'
+    hints:
+      - 'The nested keys have to arrive as columns, and a column name has to say which object it came from.'
+      - 'The path down to a value is what names it, joined with the separator.'
+      - 'When a value is a dict, descend into it carrying the path so far; when it is anything else, record it under the joined path.'
+    concept: de-records.shapes-that-nest
+
+  TestFlatten.test_flattens_several_levels:
+    condition: 'an object nested three deep, with the value only at the bottom'
+    hints:
+      - 'A single pass over the top level leaves the inner dict sitting in the output as a dict.'
+      - 'Whatever handles one level of nesting has to be able to run again on what it finds.'
+      - 'Call the same walk on the child rather than inlining a second loop, so depth is not capped at whatever you wrote out by hand.'
+    concept: de-records.shapes-that-nest
+
+  TestFlatten.test_leaves_a_list_alone:
+    condition: 'an items array on an order that has two items'
+    hints:
+      - 'Flattening the list into items.0.sku makes the column names depend on how many items an order had, so two orders get two schemas.'
+      - 'A list is a different problem from a nested object, and explode is what solves it.'
+      - 'Descend only into dicts. Anything else, list included, is stored as it stands.'
+    concept: de-records.shapes-that-nest
+
+  TestFlatten.test_keeps_scalars_and_their_types:
+    condition: 'a total of 1499.00 and an order id that arrived as a JSON number'
+    hints:
+      - 'The reason to take JSON over CSV is that the types survive. Stringifying on the way out throws that away.'
+      - 'Flattening changes the shape of the document, not the values in it.'
+      - 'Store the child value unmodified. No str() call belongs anywhere in this function.'
+    concept: de-records.shapes-that-nest
+
+  TestFlatten.test_an_empty_document_is_empty:
+    condition: 'a payload that arrived as an empty object'
+    hints:
+      - 'An empty document is a legitimate response, not a failure.'
+      - 'The loop runs zero times and there is nothing to prefix.'
+      - 'Return the accumulator you started with rather than raising or returning None.'
+    concept: de-records.shapes-that-nest
+
+  TestFlatten.test_an_empty_nested_dict_contributes_nothing:
+    condition: 'a nested object with no keys inside it'
+    hints:
+      - 'There is no leaf under it, so there is no column it could produce. A key named b on its own would be a column with no value.'
+      - 'Columns come from leaves, not from the dicts on the way down.'
+      - 'Descending into an empty dict writes nothing, which is the behaviour you want. Do not add a special case that records the branch itself.'
+    concept: de-records.shapes-that-nest
+
+  TestFlatten.test_honours_a_different_separator:
+    condition: 'a caller asking for a double underscore between path segments'
+    hints:
+      - 'A dot is illegal in a column name in some warehouses, so the separator has to be the caller''s choice.'
+      - 'The separator appears where the path segments are joined, and nowhere else.'
+      - 'Thread the separator argument down through the recursion rather than hard coding a dot in the join.'
+    concept: de-records.shapes-that-nest
+
+  TestFlatten.test_none_is_a_value_not_a_gap:
+    condition: 'a field whose value is an explicit null'
+    hints:
+      - 'A null says the source knew the answer was nothing. A missing key says the source never mentioned the field. Dropping the null collapses the two.'
+      - 'The test for whether to descend is about dicts, not about truthiness.'
+      - 'Record None as the value for its path rather than skipping the key when the value is falsy.'
+    concept: de-records.shapes-that-nest
+
+  TestExplode.test_one_row_per_element:
+    condition: 'an order carrying two items in its array'
+    hints:
+      - 'The array is the reason the document does not fit in one row. Two items means two rows.'
+      - 'The number of rows is the length of the list, not one.'
+      - 'Loop the elements and append a row for each rather than merging them into a single row.'
+    concept: de-records.shapes-that-nest
+
+  TestExplode.test_each_row_carries_the_parent:
+    condition: 'an item row that still has to say which order and which customer it belongs to'
+    hints:
+      - 'A row holding only sku and quantity cannot be joined back to anything. The order id has to ride along.'
+      - 'The parent fields are the same on every row, and they arrive flattened rather than as nested dicts.'
+      - 'Flatten the document without its list field once, then start each row from a copy of that and layer the element on top.'
+    concept: de-records.shapes-that-nest
+
+  TestExplode.test_the_list_field_is_gone:
+    condition: 'the items array itself, after its elements have become rows'
+    hints:
+      - 'Leaving the array on every row stores the whole list twice, and downstream code then has two disagreeing sources for the same items.'
+      - 'The list has already been spent producing the rows.'
+      - 'Build the parent from every key except the list field, so no row ever sees it.'
+    concept: de-records.shapes-that-nest
+
+  TestExplode.test_an_empty_list_makes_no_rows:
+    condition: 'an order whose items array came back empty'
+    hints:
+      - 'An order with no items produced no item rows, and inventing one puts a row in the table for something that does not exist.'
+      - 'The parent row is not the fallback here. This function makes item rows or it makes none.'
+      - 'Return an empty list when the array has no elements, before building the parent at all.'
+    concept: de-records.shapes-that-nest
+
+  TestExplode.test_a_missing_field_makes_no_rows:
+    condition: 'a document that never carried the named array at all'
+    hints:
+      - 'An older payload version with the field absent must not take the run down.'
+      - 'Absent and empty land in the same place here, so they can share a branch.'
+      - 'Fetch the field with a default, check that what came back is a list, and return an empty list when it is not.'
+    concept: de-records.shapes-that-nest
+
+  TestExplode.test_the_element_wins_a_collision:
+    condition: 'a sku on the parent and a sku on the item, both claiming the same column'
+    hints:
+      - 'One of the two has to win, and picking the parent means every item row reports the wrong sku.'
+      - 'The element is the more specific claim about the row being built.'
+      - 'Layer the element onto the copied parent rather than the other way round, so the element overwrites.'
+    concept: de-records.shapes-that-nest
+
+  TestDoubleCounted.test_finds_the_classic_explode_bug:
+    condition: 'a total of 1499 repeated across two exploded rows for one order'
+    hints:
+      - 'Summing the column after an explode gives 2998 for an order worth 1499. The number looks plausible, which is what makes this bug survive review.'
+      - 'Two sums are needed: one that adds every row, and one that counts each key once.'
+      - 'Add every readable value into the naive total, and separately keep the first value seen per key and sum those.'
+    concept: de-records.shapes-that-nest
+
+  TestDoubleCounted.test_reports_nothing_when_keys_are_unique:
+    condition: 'two rows with different ids, where no key appears twice'
+    hints:
+      - 'A clean grain has to report a clean grain. The two sums agree and there is nothing to name.'
+      - 'A key seen once is not repeated, so it does not belong in the report.'
+      - 'List only the keys whose count is above one, which leaves an empty list here.'
+    concept: de-records.shapes-that-nest
+
+  TestDoubleCounted.test_reads_numbers_written_as_strings:
+    condition: 'a total that arrived as the text "5.5" rather than a number'
+    hints:
+      - 'A CSV extract has no types, so every amount reaches this check as a string.'
+      - 'Refusing anything that is not already a float would report every row as unreadable and both sums as zero.'
+      - 'Try converting a string to a float and use the result when the conversion works.'
+    concept: de-records.shapes-that-nest
+
+  TestDoubleCounted.test_skips_values_it_cannot_read:
+    condition: 'a total written as "n/a" beside one that is a real number'
+    hints:
+      - 'A value nobody can read is not evidence that the value was nothing. Counting it as zero quietly understates the total.'
+      - 'The conversion has to fail without taking the whole report down.'
+      - 'Catch the failed conversion, return nothing for that value, and skip the row instead of adding a zero.'
+    concept: de-records.shapes-that-nest
+
+  TestDoubleCounted.test_skips_a_row_with_no_key:
+    condition: 'a row with no id field, and another whose id is null'
+    hints:
+      - 'An unkeyed row cannot be deduplicated, so it cannot be counted in a sum that claims one value per key.'
+      - 'Both an absent key and a key holding None leave you with nothing to group by.'
+      - 'Skip the row when the fetched key is None, which covers the absent case too if you fetch with a default.'
+    concept: de-records.shapes-that-nest
+
+  TestDoubleCounted.test_sorts_the_repeated_keys:
+    condition: 'repeated keys b and a, met in that order'
+    hints:
+      - 'A report that shuffles between runs cannot be diffed, and diffing yesterday against today is most of what this report is for.'
+      - 'Insertion order is whatever the file happened to be in.'
+      - 'Sort the repeated keys before returning them.'
+    concept: de-records.shapes-that-nest
+
+  TestDoubleCounted.test_empty_input_is_zeroes:
+    condition: 'no rows at all to check'
+    hints:
+      - 'A run that loaded nothing still has to produce a report rather than raise.'
+      - 'Both sums start at zero and nothing adds to them.'
+      - 'Return the same dict shape with an empty key list and two zeroes, rather than returning early with None.'
+    concept: de-records.shapes-that-nest
+
+  TestSchemaOf.test_counts_each_field:
+    condition: 'two rows where the second is missing a field the first has'
+    hints:
+      - 'Rows from an API rarely all carry the same keys, and the counts are how you see which ones are optional in practice.'
+      - 'The answer is per field, not per row: how many rows mentioned it.'
+      - 'Walk every row, and for each key it has, add one to that key''s tally.'
+    concept: de-records.shapes-that-nest
+
+  TestSchemaOf.test_counts_a_field_that_is_present_and_none:
+    condition: 'a field carrying null on one row and a value on the next'
+    hints:
+      - 'Present and null is not the same as absent, and this is the cheapest place to keep the difference.'
+      - 'Iterating the keys answers presence. Reading the values would answer something else.'
+      - 'Loop over the row''s keys without inspecting the values, so a null counts like any other entry.'
+    concept: de-records.shapes-that-nest
+
+  TestSchemaOf.test_ignores_an_absent_field:
+    condition: 'a second row that is an empty document'
+    hints:
+      - 'A row that never mentioned the field says nothing about it, so it must not lift the count.'
+      - 'An empty dict contributes no keys.'
+      - 'Count only the keys each row actually has, rather than seeding every row against the union of all keys.'
+    concept: de-records.shapes-that-nest
+
+  TestSchemaOf.test_empty_rows_give_an_empty_schema:
+    condition: 'a batch that arrived with no rows in it'
+    hints:
+      - 'An empty batch has no schema to report, which is different from failing to report one.'
+      - 'The outer loop runs zero times.'
+      - 'Return the empty tally you started with instead of raising or returning None.'
+    concept: de-records.shapes-that-nest

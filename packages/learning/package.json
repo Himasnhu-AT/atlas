@@ -21,6 +21,7 @@
     "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
+    "@atlas/core": "workspace:*",
     "@shikijs/rehype": "^4.4.3",
     "gray-matter": "^4.0.3",
     "rehype-autolink-headings": "^7.1.0",

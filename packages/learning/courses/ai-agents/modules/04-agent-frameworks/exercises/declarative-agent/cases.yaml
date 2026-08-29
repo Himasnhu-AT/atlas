@@ -1,0 +1,185 @@
+version: 1
+cases:
+  TestSpecFromDict.test_reads_a_full_spec:
+    condition: 'a mapping carrying every field a spec can have'
+    hints:
+      - 'The spec is data on the way in and a frozen value on the way out.'
+      - 'The tool list has to become something that cannot be edited after the fact, and keep the order it was written in.'
+      - 'Convert the tool names to a tuple and build the spec from the four fields.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestSpecFromDict.test_fills_in_the_defaults:
+    condition: 'a spec that names only the agent and its instructions'
+    hints:
+      - 'An agent with no tools is a legitimate agent, and the budget has a sensible default.'
+      - 'Requiring every key makes the shortest useful spec the longest one to write.'
+      - 'Read the optional keys with defaults of an empty tuple and the standard budget.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestSpecFromDict.test_names_a_missing_key:
+    condition: 'a spec with a name but no instructions'
+    hints:
+      - 'A required key that is absent has to be reported by name, or the author is left comparing files.'
+      - 'Reading it with a default hides the omission and produces an agent with no instructions.'
+      - 'Check each required key is present and raise SpecError naming the one that is missing.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestSpecFromDict.test_rejects_an_unknown_key:
+    condition: 'a spec that writes prompt where it meant system'
+    hints:
+      - 'An ignored key silently produces an agent with no instructions and a confusing transcript.'
+      - 'This is the failure worth catching first, before anything else about the spec is checked.'
+      - 'Compare the keys against the ones a spec accepts and raise SpecError on anything left over.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestSpecFromDict.test_rejects_a_wrongly_typed_tools_list:
+    condition: 'a single tool name written as a bare string rather than a list'
+    hints:
+      - 'A string is iterable, so this silently becomes a list of single characters.'
+      - 'The agent then names six tools that do not exist and fails much later.'
+      - 'Check the value is a list or tuple, and that every entry in it is a string.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestSpecFromDict.test_rejects_a_boolean_budget:
+    condition: 'a step budget written as true rather than a number'
+    hints:
+      - 'In Python a bool is a subclass of int, so a plain type check lets true through as a budget of one.'
+      - 'A budget of one from a config file typo is an agent that never gets to use a tool.'
+      - 'Exclude bool explicitly before checking for an integer.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestSpecFromDict.test_rejects_something_that_is_not_a_mapping:
+    condition: 'a list where a mapping of spec fields was expected'
+    hints:
+      - 'A file can parse into anything, and a list is a common shape to get by mistake.'
+      - 'Looking a key up on a list raises a TypeError that says nothing about specs.'
+      - 'Check the type first and raise SpecError naming what a spec should look like.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestValidateSpec.test_a_good_spec_passes:
+    condition: 'a spec whose tools all exist and whose fields are all sensible'
+    hints:
+      - 'Validation reports problems by raising, so a good spec produces nothing.'
+      - 'Returning a value here would make callers wonder what to do with it.'
+      - 'Fall off the end of the checks without returning anything.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestValidateSpec.test_names_an_unknown_tool:
+    condition: 'a spec naming a tool the registry has never heard of'
+    hints:
+      - 'The mismatch is between a file somebody wrote and code somebody else registered.'
+      - 'Discovering it at the first model call means a bill and a confusing transcript.'
+      - 'Check each named tool against the registry and raise SpecError naming the one that is missing.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestValidateSpec.test_suggests_a_close_name:
+    condition: 'a spec asking for refunds when the registry offers refund'
+    hints:
+      - 'Naming the tool that does not exist leaves the author grepping the codebase for the one that does.'
+      - 'The near miss is what turns this into a five second fix.'
+      - 'Ask the standard library for the closest registered name and put it in the message when there is one.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestValidateSpec.test_rejects_a_duplicate_tool:
+    condition: 'the same tool name listed twice in one spec'
+    hints:
+      - 'A repeated name means the model is offered the same schema twice, which is confusing rather than helpful.'
+      - 'It also usually means a merge went wrong in the file.'
+      - 'Track the names you have seen while walking the list and raise SpecError on the second occurrence.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestValidateSpec.test_rejects_a_blank_prompt:
+    condition: 'a system prompt holding only whitespace'
+    hints:
+      - 'An agent with no instructions is a model with tools attached.'
+      - 'A truthiness check passes here, because a string of spaces is not empty.'
+      - 'Strip the prompt before testing it and raise SpecError when nothing is left.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestValidateSpec.test_rejects_a_budget_outside_the_ceiling:
+    condition: 'a budget of zero, and a budget of five thousand'
+    hints:
+      - 'Zero means the agent never runs, and an enormous number means nobody notices it looping.'
+      - 'A lower bound alone leaves the runaway case unguarded.'
+      - 'Require the budget to sit between one and a fixed ceiling and raise SpecError otherwise.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestBuildAgent.test_the_agent_runs:
+    condition: 'a validated spec that has to become a working agent with its own name'
+    hints:
+      - 'Every field on the spec maps to something the agent needs: the prompt, the budget, the name for traces.'
+      - 'Dropping the name leaves every trace saying the same thing.'
+      - 'Pass the prompt, the budget and the name from the spec into the agent you construct.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestBuildAgent.test_the_agent_sees_only_the_tools_it_named:
+    condition: 'a registry holding three tools against a spec that names two of them'
+    hints:
+      - 'Handing over the whole registry makes the tools list documentation rather than a boundary.'
+      - 'The order the spec wrote them in is the order the model sees them in.'
+      - 'Build a registry holding only the named tools, in the order the spec named them.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestBuildAgent.test_a_bad_spec_fails_before_any_model_call:
+    condition: 'a spec naming a missing tool, where the client must not be touched'
+    hints:
+      - 'A spec that cannot run should cost an exception, not a model call.'
+      - 'Validating lazily inside the run means the failure arrives after a bill and a wait.'
+      - 'Run the validation at the top of the build, before anything else happens.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestBuildAgent.test_one_registry_builds_several_agents:
+    condition: 'two agents built from one registry, which must be left unchanged'
+    hints:
+      - 'The registry is shared, and narrowing it in place would remove tools the next agent needs.'
+      - 'Each agent gets its own view, not a mutated version of the original.'
+      - 'Build a new registry for the subset and leave the source registry alone.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestDiffSpecs.test_identical_specs_differ_by_nothing:
+    condition: 'two specs with the same values in every field'
+    hints:
+      - 'A diff of nothing is an empty list, not a line saying nothing changed.'
+      - 'A line per field would drown the real changes in noise.'
+      - 'Append a line only when a field actually differs.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestDiffSpecs.test_reports_a_renamed_agent:
+    condition: 'a spec whose agent name changed and nothing else'
+    hints:
+      - 'A rename changes what every trace and log line calls this agent.'
+      - 'The line has to show both values, because knowing something changed is not knowing to what.'
+      - 'Emit a line carrying the old name and the new one when they differ.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestDiffSpecs.test_reports_added_and_removed_tools:
+    condition: 'a spec that gained one tool and lost another'
+    hints:
+      - 'Adding and removing are different kinds of change and each gets its own line.'
+      - 'A single line saying the tools changed leaves the reviewer diffing the lists themselves.'
+      - 'Compute the two set differences and report each on its own line in a stable order.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestDiffSpecs.test_reports_a_reorder:
+    condition: 'the same two tools listed in the opposite order'
+    hints:
+      - 'The order is the order the model sees the tools in, so a reorder is a real change.'
+      - 'Comparing the tools as sets makes this look like no change at all.'
+      - 'When nothing was added or removed but the sequences differ, say so.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestDiffSpecs.test_the_prompt_gets_one_word:
+    condition: 'a system prompt with one word added to it'
+    hints:
+      - 'A prompt wants a text diff, and pretending a one line summary can be one helps nobody.'
+      - 'Quoting both prompts in the diff makes the output unreadable for a real prompt.'
+      - 'Emit a single line saying the prompt changed, without either value.'
+    concept: ai-agent-frameworks.when-to-adopt-one
+
+  TestDiffSpecs.test_lines_come_out_in_a_fixed_order:
+    condition: 'a spec where every field changed at once'
+    hints:
+      - 'A diff that reorders itself between runs is a diff nobody can review.'
+      - 'Anything derived from set iteration makes the order depend on hashing.'
+      - 'Check the fields in a fixed sequence and sort the tool names inside each line.'
+    concept: ai-agent-frameworks.when-to-adopt-one

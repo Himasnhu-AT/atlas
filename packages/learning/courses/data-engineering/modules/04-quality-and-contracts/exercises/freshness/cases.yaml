@@ -1,0 +1,193 @@
+version: 1
+cases:
+  TestNewestRow.test_finds_the_most_recent:
+    condition: 'three rows dated out of order, where the newest is not the last one inserted'
+    hints:
+      - 'Rows arrive in whatever order the source sent them, so the last row in the table is not the latest one.'
+      - 'The database can find the maximum without pulling every row back.'
+      - 'Select the maximum of the timestamp column and return the single value that comes back.'
+    concept: de-contracts.freshness
+
+  TestNewestRow.test_an_empty_table_has_none:
+    condition: 'a table with no rows in it at all'
+    hints:
+      - 'An empty table is a different alarm from a stale one, and returning a fake old date would merge the two.'
+      - 'The aggregate still returns a row here, and the value in it is null.'
+      - 'Return None when the returned value is null, rather than assuming a row means a timestamp.'
+    concept: de-contracts.freshness
+
+  TestAgeInHours.test_measures_hours:
+    condition: 'a timestamp six hours before the moment being measured from'
+    hints:
+      - 'Hours are the unit every freshness threshold is written in, so the answer is a float rather than a timedelta.'
+      - 'Both sides have to be parsed before they can be subtracted, and the trailing Z is not what fromisoformat expects on older versions.'
+      - 'Convert the Z suffix to an explicit offset, parse both, and divide the difference in seconds by 3600.'
+    concept: de-contracts.freshness
+
+  TestAgeInHours.test_reads_a_bare_date_as_the_start_of_the_day:
+    condition: 'a timestamp of 2026-03-06 with no time on it, measured from noon that day'
+    hints:
+      - 'A freshness check should never round towards probably fine. Midnight at the start of the day is the conservative reading.'
+      - 'Parsing a bare date gives midnight already, so this needs no special case.'
+      - 'Let the date parse to the start of the day rather than filling in the current time or the end of the day.'
+    concept: de-contracts.freshness
+
+  TestAgeInHours.test_none_has_no_age:
+    condition: 'a timestamp of None, from a table with nothing in it'
+    hints:
+      - 'There is no age to report, and returning a large number would be inventing one.'
+      - 'The caller can tell the difference between no data and old data only if this function can.'
+      - 'Return None for a missing timestamp rather than a sentinel like zero or infinity.'
+    concept: de-contracts.freshness
+
+  TestAgeInHours.test_a_future_timestamp_is_negative:
+    condition: 'a row stamped six hours ahead of the moment being measured from'
+    hints:
+      - 'Clock skew is real, and clamping it hides the thing worth knowing. A negative age is a message about the source''s clock.'
+      - 'The subtraction produces the negative on its own.'
+      - 'Return the difference as it comes out, without a max against zero.'
+    concept: de-contracts.freshness
+
+  TestIsStale.test_recent_data_is_not_stale:
+    condition: 'data one hour old against a limit of twenty-four'
+    hints:
+      - 'The ordinary case has to be quiet.'
+      - 'The age is already computed; this only compares it.'
+      - 'Return whether the age exceeds the limit rather than recomputing anything.'
+    concept: de-contracts.freshness
+
+  TestIsStale.test_old_data_is_stale:
+    condition: 'data five days old against a limit of twenty-four hours'
+    hints:
+      - 'This is the alarm the check exists to raise.'
+      - 'The comparison is on the hours, so the units have to match the limit.'
+      - 'Compare the computed age directly against max_age_hours.'
+    concept: de-contracts.freshness
+
+  TestIsStale.test_exactly_at_the_limit_is_not_stale:
+    condition: 'data exactly twenty-four hours old against a twenty-four hour limit'
+    hints:
+      - 'A daily feed lands on its limit constantly, and a strict comparison pages somebody every day it is a second slow.'
+      - 'The boundary belongs on the passing side.'
+      - 'Report stale only when the age is strictly greater than the limit.'
+    concept: de-contracts.freshness
+
+  TestIsStale.test_no_data_is_stale:
+    condition: 'a table with no rows, so there is no timestamp to age'
+    hints:
+      - 'The alternative is treating no data at all as fresh, which is how an empty table goes unnoticed for a week.'
+      - 'The age comes back as None, which cannot be compared against the limit.'
+      - 'Handle the None age as its own case and return True before the comparison.'
+    concept: de-contracts.freshness
+
+  TestBusinessHours.test_counts_a_plain_weekday_gap:
+    condition: 'six hours on a Friday morning, entirely within the working week'
+    hints:
+      - 'On a weekday the business hours and the wall hours are the same number.'
+      - 'The walk still runs; it just never meets a day it skips.'
+      - 'Accumulate the elapsed time for each step whose day is a weekday.'
+    concept: de-contracts.freshness
+
+  TestBusinessHours.test_skips_the_weekend:
+    condition: 'Friday noon to Monday noon, which is seventy-two wall hours'
+    hints:
+      - 'The most common false alarm here is a Monday morning page for a feed that has never run at the weekend.'
+      - 'Twelve hours on Friday afternoon and twelve on Monday morning, with nothing in between.'
+      - 'Step through the interval and add only the portions falling on a weekday.'
+    concept: de-contracts.freshness
+
+  TestBusinessHours.test_a_whole_weekend_counts_nothing:
+    condition: 'Saturday midnight to Monday midnight, with no weekday in the interval'
+    hints:
+      - 'Forty-eight wall hours and no working time at all.'
+      - 'Every step lands on a day that contributes nothing.'
+      - 'Let the accumulator stay at zero rather than special-casing an all-weekend interval.'
+    concept: de-contracts.freshness
+
+  TestBusinessHours.test_an_end_before_the_start_is_zero:
+    condition: 'an end instant earlier than the start, from a future-dated timestamp'
+    hints:
+      - 'A clock-skewed row can put the end before the start, and a loop written to step forward would never terminate.'
+      - 'There is no interval to measure, so there is no work to do.'
+      - 'Return zero when the end is at or before the start, before the loop begins.'
+    concept: de-contracts.freshness
+
+  TestBusinessHours.test_the_same_instant_is_zero:
+    condition: 'a start and an end that are the same moment'
+    hints:
+      - 'No time has passed, so no business hours have passed.'
+      - 'This is the boundary of the same guard the backwards interval needs.'
+      - 'Treat equal instants as an empty interval by testing for at-or-before rather than strictly before.'
+    concept: de-contracts.freshness
+
+  TestBusinessHours.test_handles_a_partial_hour:
+    condition: 'a thirty minute gap that never crosses an hour boundary'
+    hints:
+      - 'Rounding to whole hours turns half an hour into zero or one, and both are wrong.'
+      - 'The step has to stop at the end instant when the end comes before the next boundary.'
+      - 'Take the earlier of the next hour boundary and the end as each step''s stopping point, and add the real elapsed fraction.'
+    concept: de-contracts.freshness
+
+  TestBusinessHours.test_a_weekday_start_on_saturday_is_zero:
+    condition: 'Saturday at 23:00 through to Monday at 09:00'
+    hints:
+      - 'Only the Monday portion belongs in business hours, so the answer is nine and not thirty-four.'
+      - 'Judging the whole interval by the day it started on would give zero here.'
+      - 'Decide weekday or weekend per step rather than once for the interval.'
+    concept: de-contracts.freshness
+
+  TestVerdict.test_everything_fine:
+    condition: 'a job that ran an hour ago and data two hours old'
+    hints:
+      - 'Both halves are healthy, and the verdict has to name that state rather than only saying nothing is wrong.'
+      - 'The two ages are judged against two separate limits.'
+      - 'Compute both flags and return the fresh state when both hold.'
+    concept: de-contracts.freshness
+
+  TestVerdict.test_the_job_ran_and_the_source_stopped:
+    condition: 'a job that ran an hour ago over data that is five days old'
+    hints:
+      - 'The pipeline is fine and the source is not, which is a different person from the one stale would send you to.'
+      - 'A job succeeding on nothing looks exactly like a job succeeding, which is why the run age alone is not enough.'
+      - 'Return the source stopped state when the run is recent and the data is not.'
+    concept: de-contracts.freshness
+
+  TestVerdict.test_the_job_stopped_and_the_data_has_not_aged_out_yet:
+    condition: 'a job last seen five days ago over data that is still inside its forty-eight hour limit'
+    hints:
+      - 'Data thresholds are usually looser than run thresholds, so the job stops before the table looks wrong. This is the early warning.'
+      - 'The data being fine is not evidence the pipeline is.'
+      - 'Return the not running state when the data is fresh and the run is not.'
+    concept: de-contracts.freshness
+
+  TestVerdict.test_both_stopped:
+    condition: 'a job last seen a month ago over data of the same age'
+    hints:
+      - 'Everything has been quiet for a month, which is the state nobody wants to discover from a customer.'
+      - 'This is the case where neither flag holds.'
+      - 'Return the stalled state as the fall-through when both checks fail.'
+    concept: de-contracts.freshness
+
+  TestVerdict.test_a_job_that_never_ran_is_not_running:
+    condition: 'a last run of None, from a job with no history at all'
+    hints:
+      - 'A job that never ran is not running, and the reported age has to stay None rather than becoming zero.'
+      - 'A None age cannot satisfy the recency test, and comparing it against the limit would raise.'
+      - 'Treat a None age as not recent, and put the None straight into the report.'
+    concept: de-contracts.freshness
+
+  TestVerdict.test_an_empty_table_with_a_healthy_job_is_source_stopped:
+    condition: 'a healthy job over a table with no rows in it'
+    hints:
+      - 'The job is running and finding nothing, which is the source''s problem rather than the pipeline''s.'
+      - 'The missing data age lands in the same branch as an old one.'
+      - 'Treat a None data age as not fresh, which puts this case in the source stopped state with the age still reported as None.'
+    concept: de-contracts.freshness
+
+  TestVerdict.test_reports_both_ages:
+    condition: 'a verdict somebody will read to decide how urgent this is'
+    hints:
+      - 'A state on its own does not say whether the feed is an hour late or a week late.'
+      - 'Both ages were already computed to reach the verdict.'
+      - 'Include the run age and the data age in the returned dict alongside the state and the two flags.'
+    concept: de-contracts.freshness

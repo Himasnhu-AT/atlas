@@ -1,0 +1,129 @@
+version: 1
+cases:
+  TestJoinedCount.test_counts_what_the_join_kept_and_lost:
+    condition: 'seven orders where three of them have no matching customer row'
+    hints:
+      - 'Nothing raised, the result is a perfectly good table, and a total computed from it is wrong by three orders.'
+      - 'Two counts are needed: the orders as they stand, and the rows that survive the join.'
+      - 'Count the orders table on its own, count the inner join separately, and report both alongside the difference.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestJoinedCount.test_lost_is_the_difference:
+    condition: 'a report whose three numbers have to be consistent with each other'
+    hints:
+      - 'A lost count that does not follow from the other two is a number nobody can check.'
+      - 'Lost is arithmetic, not a third query.'
+      - 'Subtract the joined count from the orders count rather than counting the unmatched rows a third time.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestJoinedCount.test_a_clean_join_loses_nothing:
+    condition: 'one order and the one customer row it matches'
+    hints:
+      - 'The audit has to report zero on a clean join rather than always finding something.'
+      - 'Both counts come out the same, so the difference is zero without a special case.'
+      - 'Let the subtraction produce the zero rather than branching on whether anything matched.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestUnmatched.test_finds_every_unmatched_order:
+    condition: 'orders 1002, 1008 and 1010, none of which the inner join keeps'
+    hints:
+      - 'An inner join throws these away silently. To see them you have to ask for them.'
+      - 'A left join keeps every order and leaves the customer side null when nothing matched.'
+      - 'Left join the customers and filter to the rows where the customer side came back null.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestUnmatched.test_is_sorted:
+    condition: 'a report somebody will compare against yesterday''s run'
+    hints:
+      - 'Row order out of a join is whatever the planner chose, and it changes when an index does.'
+      - 'The database can do the ordering as part of the same query.'
+      - 'Order the results by order_id rather than sorting in Python or leaving it to the plan.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestUnmatched.test_a_blank_customer_is_missing:
+    condition: 'order 1008, which has no customer value at all'
+    hints:
+      - 'This one never had an email, so there was nothing to look up. That is an upstream problem, not a matching problem.'
+      - 'A null and an empty string are the same gap here, and both have to reach this branch.'
+      - 'Treat a customer that is empty after trimming as missing, before checking it against the reference table.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestUnmatched.test_a_spelling_difference_is_a_normalising_problem:
+    condition: 'a customer of " Grace@Example.com " against a reference row of grace@example.com'
+    hints:
+      - 'The two systems agree and the strings do not, and the fix belongs at the coercion layer rather than in every query.'
+      - 'The order fails the join but the person is in the reference table, and only a trimmed lower case comparison sees that.'
+      - 'Pull the reference emails trimmed and lower cased into a set, and call the order normalising when its cleaned value is in that set.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestUnmatched.test_a_real_value_that_matches_nothing_is_unknown:
+    condition: 'an order for nobody@example.com, an address the reference table has never seen'
+    hints:
+      - 'This is the one that needs the other team. Nothing you can do to the string will make it match.'
+      - 'It survives both earlier tests: not blank, and not in the normalised set.'
+      - 'Use unknown as the fall-through reason after the missing and normalising checks.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestUnmatched.test_keeps_the_offending_value:
+    condition: 'the customer string exactly as it sat in the orders table, spaces and capitals included'
+    hints:
+      - 'Reporting the cleaned value hides the thing that has to be fixed. The padding is the evidence.'
+      - 'The normalised copy is for the comparison, not for the report.'
+      - 'Put the raw value into the result and keep the cleaned one as a local.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestMultiplyingKeys.test_a_unique_reference_table_multiplies_nothing:
+    condition: 'a customers table where each email appears once'
+    hints:
+      - 'A reference table with a unique key adds columns to a join without adding rows, which is what makes it a reference table.'
+      - 'There is nothing to report, so the answer is an empty list rather than nothing.'
+      - 'Return the empty result of the query without a special case.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestMultiplyingKeys.test_finds_a_duplicated_reference_row:
+    condition: 'ada@example.com appearing twice in the customers table with two countries'
+    hints:
+      - 'Every one of Ada''s orders now comes out of the join twice, along with its total. The revenue number goes up and nothing errors.'
+      - 'The duplicate is in the reference table, so it can be found without touching the orders at all.'
+      - 'Group the customers by email and keep the groups holding more than one row.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestMultiplyingKeys.test_sorts_the_keys:
+    condition: 'two duplicated emails that must not come back in insertion order'
+    hints:
+      - 'The same complaint as every other report here: an unordered list cannot be diffed.'
+      - 'The grouping query can order its own output.'
+      - 'Add an order by on the email to the grouped query.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestMultiplyingKeys.test_a_duplicate_really_does_multiply_the_join:
+    condition: 'the same orders joined against a customers table with one row duplicated'
+    hints:
+      - 'This is the check that the warning is about something real: the join genuinely returns more rows than before.'
+      - 'Nothing new is needed here if the count query counts the join rather than the orders.'
+      - 'Count the joined rows themselves, so the duplicate reference row shows up as extra rows.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestJoinIsSafe.test_reports_unsafe_when_rows_were_lost:
+    condition: 'three orders that fell out of the join, with no duplicated reference rows'
+    hints:
+      - 'Losing rows is enough to fail the check on its own, without any multiplication.'
+      - 'Both halves of the audit already exist. This function combines them.'
+      - 'Call the count and the duplicate check, and treat a non-zero loss as unsafe.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestJoinIsSafe.test_reports_unsafe_when_the_join_multiplies:
+    condition: 'one order against two customer rows for the same email, so the join produced more rows than it was given'
+    hints:
+      - 'The join produced more rows than it was given, so the lost count comes out negative rather than zero.'
+      - 'A test on the loss alone would pass this, because there was no shortfall.'
+      - 'Require both a loss of exactly zero and an empty multiplied list before calling the join safe.'
+    concept: de-storage.the-rows-a-join-loses
+
+  TestJoinIsSafe.test_reports_safe_only_when_nothing_moved:
+    condition: 'one order, one matching customer, and nothing duplicated on either side'
+    hints:
+      - 'The safe verdict has to be reachable, or the audit is just an alarm that is always on.'
+      - 'Both conditions hold here, and the report still carries the numbers behind the verdict.'
+      - 'Return the loss and the multiplied list alongside the flag, so the verdict can be checked rather than trusted.'
+    concept: de-storage.the-rows-a-join-loses

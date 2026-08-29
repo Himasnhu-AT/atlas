@@ -218,6 +218,9 @@ importers:
 
   packages/learning:
     dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
       '@shikijs/rehype':
         specifier: ^4.4.3
         version: 4.4.3

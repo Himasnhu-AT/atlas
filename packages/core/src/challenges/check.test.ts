@@ -21,7 +21,9 @@ import {
   type TuneChallenge,
 } from './index'
 
-const base = { hints: ['a'], reveal: 'r' } as const
+// Not `as const`: that makes `hints` a readonly tuple, which does not satisfy
+// the mutable `string[]` the schema infers.
+const base: { hints: string[]; reveal: string } = { hints: ['a'], reveal: 'r' }
 
 /* --------------------------------------------------------- text contract */
 

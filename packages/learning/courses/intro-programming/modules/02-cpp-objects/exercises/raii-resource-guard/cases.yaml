@@ -1,0 +1,97 @@
+version: 1
+cases:
+  TestScopeExit.test_lifo_execution_order:
+    condition: 'three cleanups registered in order, which have to unwind in the reverse of it'
+    hints:
+      - 'Cleanup runs opposite to acquisition, because a resource taken later may depend on one taken earlier still being alive.'
+      - 'The last action registered is the first one undone.'
+      - 'Take actions off the end of the list rather than walking it from the front.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestScopeExit.test_dismiss_prevents_execution:
+    condition: 'a guard dismissed before the scope ends, because the work is being kept'
+    hints:
+      - 'Dismissing is how a guard is told the rollback is no longer wanted, since the operation it protected succeeded.'
+      - 'Dismissing is not running the actions quietly. Nothing gets called at all.'
+      - 'Drop the registered actions without invoking any of them, so a later execute finds nothing left to do.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestScopeExit.test_execute_clears_callbacks:
+    condition: 'a guard whose actions are run, and then run a second time'
+    hints:
+      - 'A cleanup that runs twice closes the same handle twice, which is the double release this pattern exists to prevent.'
+      - 'Running the actions has to consume them, not merely walk over them.'
+      - 'Remove each action as it is called, so the second pass has an empty list to work through.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestScopeExit.test_type_error_on_non_callable:
+    condition: 'a string registered where a cleanup action was expected'
+    hints:
+      - 'A value that cannot be called only fails at scope exit, which is a long way from where the mistake was written.'
+      - 'Rejecting it at registration puts the error next to the bad argument.'
+      - 'Raise TypeError from register when the argument cannot be called.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_normal_completion_commits:
+    condition: 'a block that reaches its end without raising anything'
+    hints:
+      - 'The point of the guard is that the caller writes no cleanup call at all. Leaving the block is what settles the transaction.'
+      - 'A clean exit means committing, and the rollback path must not fire as well.'
+      - 'On exit, when no exception was handed in and the transaction is still open, commit.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_exception_triggers_rollback_and_propagates:
+    condition: 'a division by zero raised part way through the block'
+    hints:
+      - 'The failure has to roll back and still reach the caller. Swallowing it would hide the bug behind a tidy rollback.'
+      - 'The exit hook is told what was raised, and returning a true value from it suppresses the exception.'
+      - 'Roll back when an exception type was passed in, and return False so it keeps travelling up.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_manual_commit_inside_block:
+    condition: 'a commit called by hand while the block is still running'
+    hints:
+      - 'After an explicit commit the scope exit must not commit again, or the callback fires twice.'
+      - 'The guard has to remember that it has been settled, whichever route settled it.'
+      - 'Set the completed flag on commit and have the exit hook do nothing when it is already set.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_manual_rollback_inside_block:
+    condition: 'a rollback called by hand, after which the block still exits cleanly'
+    hints:
+      - 'The block ends with no exception, so a guard that only inspects the exception would commit over a rollback that already happened.'
+      - 'An explicit rollback settles the transaction just as a commit does.'
+      - 'Have the exit hook consult the completed flag before it decides to commit.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_double_commit_raises_runtime_error:
+    condition: 'a commit on a transaction that has already been committed'
+    hints:
+      - 'A settled transaction has nothing left to commit, and running the callback again would duplicate its effect.'
+      - 'The flag has to be tested before it is set and before the callback runs.'
+      - 'Raise RuntimeError when the transaction is already complete.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_double_rollback_raises_runtime_error:
+    condition: 'a rollback on a transaction that has already been rolled back'
+    hints:
+      - 'Undoing an already undone transaction is not a harmless repeat, it is a bug in the caller.'
+      - 'Rollback needs the same guard commit does, against the same flag.'
+      - 'Raise RuntimeError when the transaction is already complete.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_commit_after_rollback_raises:
+    condition: 'a commit attempted on a transaction that was rolled back'
+    hints:
+      - 'One flag covers both outcomes. There is no separate committed state and rolled back state to consult.'
+      - 'Committing what was rolled back would reapply changes that had already been undone.'
+      - 'Both paths set and test the same completed flag, so either one blocks the other.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization
+
+  TestTransactionGuard.test_none_callbacks_supported:
+    condition: 'a guard built with neither a commit nor a rollback callback'
+    hints:
+      - 'The callbacks are optional, so the guard has to work as a state machine on its own.'
+      - 'Calling None on the way out of the block is the failure to avoid here.'
+      - 'Check that a callback is present before invoking it, and settle the transaction either way.'
+    concept: intro-cpp-objects.resource-acquisition-is-initialization

@@ -1,0 +1,41 @@
+version: 1
+cases:
+  TestDeflatedSharpe.test_single_trial_strong_sharpe:
+    condition: 'a Sharpe of 2.0 from a single trial, with no search to correct for'
+    hints:
+      - 'One trial is not a search. Nothing was picked out of a pile, so the bar to clear is zero rather than some small positive number.'
+      - 'With the benchmark at zero the deflated figure is the ordinary probability that the true Sharpe is above zero, given the standard error of the estimate.'
+      - 'Special case a trial count of one to a benchmark of exactly 0.0, since the order statistic formula divides by the trial count.'
+    concept: quant-validation.deflated-sharpe
+
+  TestDeflatedSharpe.test_data_mined_sharpe_deflation:
+    condition: 'a Sharpe of 2.0 arrived at after a thousand variations were tried'
+    hints:
+      - 'The best of a thousand worthless strategies clears a Sharpe above 3.2 on a year of data by luck alone, so a 2.0 that took a thousand attempts is below what noise would have produced.'
+      - 'The trial count enters through the benchmark that gets subtracted from the observed Sharpe, not through the standard error.'
+      - 'Take the observed Sharpe less the expected maximum before dividing by the standard error, which drives the z negative here and the probability under 0.05.'
+    concept: quant-validation.deflated-sharpe
+
+  TestDeflatedSharpe.test_benchmark_and_probability_are_deterministic:
+    condition: 'a thousand trial benchmark compared for exact equality against the closed form'
+    hints:
+      - 'This one asserts equality on a float, so there is no room at all. A benchmark read off a table to four decimals, or built from a rounded Euler-Mascheroni constant, will miss.'
+      - 'The expected maximum blends two normal quantiles: one at 1 - 1/N and one at 1 - 1/(N e), weighted by one minus gamma and by gamma.'
+      - 'Take both quantiles from the inverse cdf of a standard NormalDist and combine them in that order, so the arithmetic lands on the same bits the test computes.'
+    concept: quant-validation.deflated-sharpe
+
+  TestDeflatedSharpe.test_rejects_invalid_inputs:
+    condition: 'a trial count of zero and a sample of only two return observations'
+    hints:
+      - 'Zero trials describes a search that never happened, and the quantile at 1 - 1/0 does not exist to be evaluated.'
+      - 'The standard error divides by the sample length less one, and two observations do not describe a return distribution well enough to deflate anything.'
+      - 'Raise ValueError when the trial count is under one or the sample length is under three, before any quantile is evaluated.'
+    concept: quant-validation.deflated-sharpe
+
+  TestDeflatedSharpe.test_non_normal_moments_change_standard_error:
+    condition: 'a negative Sharpe on a left skewed series with a kurtosis of 6 rather than 3'
+    hints:
+      - 'The higher moments belong in the standard error, not in the Sharpe. Leaving them out gives a left skewed fat tailed series the same denominator as a normal one.'
+      - 'Negative skew and fat tails both make an estimated Sharpe less trustworthy, and the variance term is where they enter: a term in the skew times the Sharpe, and one in the kurtosis times the Sharpe squared.'
+      - 'Build the variance term as one, less skewness times sharpe, plus a quarter of kurtosis minus one times sharpe squared, divide it by the sample length less one, and take the square root.'
+    concept: quant-validation.deflated-sharpe

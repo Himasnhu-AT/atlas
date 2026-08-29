@@ -1,3 +1,4 @@
+import { ChallengeSet, CompiledChallengeSet } from '@atlas/core'
 import { z } from 'zod'
 
 /**
@@ -154,7 +155,21 @@ export const LessonFrontmatter = z.object({
   order: z.number().int().nonnegative(),
   estimatedMinutes: z.number().int().positive().max(600),
   exercise: ExerciseSpec.optional(),
+  /**
+   * @deprecated Superseded by `challenges`, which is a sequence rather than a
+   * single widget. The build lowers a lesson still using this into a sequence
+   * of one so it keeps rendering, and counts it in the coverage line it prints.
+   * Removed once that count reaches zero.
+   */
   interactive: InteractiveSpec.optional(),
+  /**
+   * Stage 1: three or four hands-on challenges, in order.
+   *
+   * This is where a lesson is meant to start. Reading is stage 2 and optional;
+   * it is kept because it is what a search engine is served, not because it is
+   * how anybody is expected to learn here.
+   */
+  challenges: ChallengeSet.optional(),
 })
 export type LessonFrontmatter = z.infer<typeof LessonFrontmatter>
 
@@ -256,9 +271,18 @@ export const CompiledLesson = z.object({
   /** Files copied into the student's workspace, keyed by filename. */
   exerciseFiles: z.record(z.string(), z.string()).optional(),
   /**
-   * Stage 1, as authored. Declared here at last: the build has always written
-   * this field and this schema has never mentioned it, so both apps read an
-   * undeclared key off the compiled artifact.
+   * Stage 1, normalised.
+   *
+   * An authored `challenges:` passes through. A lesson still on the deprecated
+   * `interactive:` spec is lowered into a sequence of one, which is why the
+   * compiled form allows a single step where the authoring form demands three.
+   */
+  stage1: CompiledChallengeSet.optional(),
+  /**
+   * The superseded single-widget spec, still emitted so a client that has not
+   * been updated keeps working. Declared here at last: the build has always
+   * written this field and this schema never mentioned it, so both apps have
+   * been reading an undeclared key off the compiled artifact.
    */
   interactive: InteractiveSpec.optional(),
   /**

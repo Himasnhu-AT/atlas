@@ -1,0 +1,57 @@
+version: 1
+cases:
+  TestDynamicArray.test_initial_state:
+    condition: 'a freshly built array, once with a capacity given and once with the default'
+    hints:
+      - 'Capacity is how many slots the buffer has. Size is how many of them hold an element, and that starts at zero.'
+      - 'The buffer is allocated up front at the requested capacity, empty but already there.'
+      - 'Allocate the slots, remember the capacity, and report a size of 0.'
+    concept: intro-c-data-structures.dynamic-arrays-and-buffers
+
+  TestDynamicArray.test_push_back_and_get:
+    condition: 'a push arriving when every slot in the buffer is already occupied'
+    hints:
+      - 'There is no room left, so the element cannot just be written past the end of the buffer.'
+      - 'Growing by one slot each time makes every push a reallocation. Doubling is what makes the cost amortise to constant.'
+      - 'When the size has caught up with the capacity, allocate twice as many slots, copy the live elements across, then write.'
+    concept: intro-c-data-structures.dynamic-arrays-and-buffers
+
+  TestDynamicArray.test_pop_back:
+    condition: 'a pop from an empty array, both before the first push and after everything is gone'
+    hints:
+      - 'An empty array has no last element, and answering None would be indistinguishable from a stored None.'
+      - 'Removing does not shrink the buffer. Only the count of live elements moves.'
+      - 'Raise IndexError when the size is 0, otherwise step the size down and return the element that has just fallen outside it.'
+    concept: intro-c-data-structures.dynamic-arrays-and-buffers
+
+  TestDynamicArray.test_get_set_bounds:
+    condition: 'an index of -1, and indices inside the allocated buffer but past the last element'
+    hints:
+      - 'Index 2 sits in an allocated slot but beyond the last live element, so what it holds means nothing.'
+      - 'Bounds are checked against the size, not against the capacity.'
+      - 'Raise IndexError from get and from set alike when the index is below 0 or not below the size.'
+    concept: intro-c-data-structures.dynamic-arrays-and-buffers
+
+  TestDynamicArray.test_insert_middle_and_shift:
+    condition: 'an insert into the middle, one at the head, and one at the index just past the last element'
+    hints:
+      - 'An index equal to the size is legal for an insert and means appending, which is not true for a read.'
+      - 'Everything from the insertion point onward moves one slot right, and the copying has to start at the far end or each element overwrites the next.'
+      - 'Grow first when the buffer is full, copy backward from the last element down to the insertion point, then write the value in.'
+    concept: intro-c-data-structures.dynamic-arrays-and-buffers
+
+  TestDynamicArray.test_remove_at:
+    condition: 'a removal from the middle, then from the head, then from the last position'
+    hints:
+      - 'Contiguous storage cannot be left with a hole in it, so everything after the removed element shifts one slot left.'
+      - 'The leftward copy has to run forward, from the removed index up, or one element gets smeared over the rest.'
+      - 'Take the element out, shift the tail down a slot, drop the size by one, and clear the slot now beyond the end.'
+    concept: intro-c-data-structures.dynamic-arrays-and-buffers
+
+  TestDynamicArray.test_shrink_to_fit:
+    condition: 'five elements sitting in sixteen slots, and an array holding nothing at all'
+    hints:
+      - 'The unused slots are memory the array is still holding, and only a smaller allocation gives them back.'
+      - 'An empty array cannot go down to no slots, or the next push has nothing to double.'
+      - 'Reallocate to the size, or to 1 when the array is empty, carrying the live elements across.'
+    concept: intro-c-data-structures.dynamic-arrays-and-buffers

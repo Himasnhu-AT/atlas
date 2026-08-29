@@ -1,0 +1,9 @@
+version: 1
+cases:
+  TestEventBacktester.test_buy_and_hold_backtest:
+    condition: 'a target weight of 1.0 on the first tick and no signal on the two that follow'
+    hints:
+      - 'A weight is not a quantity. Turning 1.0 into a position takes the equity as it stands and the price of the tick you are standing on.'
+      - 'The curve gets a row for every market event, whether or not the strategy acted, and that row is written after any fill has already been applied to the ledger.'
+      - 'Mark positions at the midpoint of the current quote, size the order as target quantity minus what is already held, and let a tick that returns no signals fall straight through to appending its row.'
+    concept: quant-backtesting.building-the-backtester

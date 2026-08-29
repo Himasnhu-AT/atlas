@@ -1,0 +1,225 @@
+version: 1
+cases:
+  TestDecompose.test_splits_on_sentences:
+    condition: 'a draft of two sentences that have to become two separate claims'
+    hints:
+      - 'A verdict on a whole paragraph is one answer to several questions.'
+      - 'Sentences are the coarsest split that still gives one assertion each.'
+      - 'Split the draft on the sentence boundary before anything else.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestDecompose.test_splits_a_conjunction_into_two_claims:
+    condition: 'one sentence joining a shipping date and a sales figure with a conjunction'
+    hints:
+      - 'One verdict on a joined sentence is a single answer to something that could be half right.'
+      - 'The two halves are checked against different facts and can disagree.'
+      - 'Split each sentence again on the conjunction before building claims.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestDecompose.test_drops_a_fragment_too_short_to_be_a_claim:
+    condition: 'a one word sentence sitting in front of a real assertion'
+    hints:
+      - 'A word like yes asserts nothing that can be checked, and asking about it wastes a call.'
+      - 'The verification answer for it would then be reconciled against nothing.'
+      - 'Skip fragments shorter than a minimum length.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestDecompose.test_marks_a_judgement_as_not_checkable:
+    condition: 'a sentence calling the results a significant improvement'
+    hints:
+      - 'Running an opinion through a fact check produces a confident sounding verdict on a matter of taste.'
+      - 'A judgement is recognisable by the words it uses rather than by its grammar.'
+      - 'Test the claim against a list of judgement words and mark it as not checkable when one appears.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestDecompose.test_keeps_a_judgement_rather_than_dropping_it:
+    condition: 'an opinion that is not checkable and still belongs in the answer'
+    hints:
+      - 'Not checkable is not the same as not wanted.'
+      - 'Dropping it here silently rewrites the draft to remove every assessment in it.'
+      - 'Keep the claim in the list with the flag unset rather than filtering it out.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestDecompose.test_marks_a_fact_as_checkable:
+    condition: 'a plain statement of when something shipped'
+    hints:
+      - 'The flag has to distinguish, so an ordinary fact must come back checkable.'
+      - 'Marking everything as unverifiable makes the whole pass do nothing.'
+      - 'Set the flag when none of the judgement words appear.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestDecompose.test_strips_trailing_full_stops:
+    condition: 'a claim carrying the full stop that ended its sentence'
+    hints:
+      - 'The claim text is reassembled into a sentence later, so a trailing stop doubles up.'
+      - 'It also lands in the question sent to the model, mid sentence.'
+      - 'Strip the punctuation and whitespace off each claim as it is built.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestDecompose.test_empty_input_gives_nothing:
+    condition: 'an empty draft with no sentences in it'
+    hints:
+      - 'An empty draft happens whenever an earlier step produced nothing.'
+      - 'Splitting an empty string still yields one piece, which must not become a claim.'
+      - 'The minimum length check already removes it, so nothing else is needed.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestVerifyIndependence.test_a_verification_call_carries_its_claim_and_no_others:
+    condition: 'two claims verified separately, where neither request may mention the other'
+    hints:
+      - 'The claim under test has to be in the prompt, or there is no question to ask.'
+      - 'What must not be there is the rest of the draft, which is what would make the check agree with the answer it is checking.'
+      - 'Build each question from one claim and send it on its own.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestVerifyIndependence.test_sends_only_the_question:
+    condition: 'a request that must be a system instruction and the question and nothing more'
+    hints:
+      - 'A check is worth what it did not read.'
+      - 'Any extra context is another chance for the draft to influence the answer.'
+      - 'Send two messages: a short instruction and the question itself.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestVerifyIndependence.test_calls_the_model_once:
+    condition: 'a single verification that must cost one call'
+    hints:
+      - 'Verification already costs one call per claim, so anything extra multiplies through the draft.'
+      - 'Asking twice and comparing does not make an independent check more independent.'
+      - 'Make the call and return the answer.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestVerifyIndependence.test_question_for_mentions_the_claim:
+    condition: 'a question built around a claim, which has to contain it'
+    hints:
+      - 'A question that does not name the claim asks about nothing in particular.'
+      - 'The claim goes in as it is, without being rewritten into something else.'
+      - 'Wrap the claim text in a fixed question form.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestReconcile.test_agreement_is_supported:
+    condition: 'an answer that repeats the substance of the claim in its own words'
+    hints:
+      - 'The answer will not be worded identically, so an equality check finds nothing.'
+      - 'What matters is whether the meaningful words of the claim appear in the answer.'
+      - 'Require every significant word of the claim to be present before reporting support.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestReconcile.test_disagreement_is_contradicted:
+    condition: 'an answer naming a different month from the one the claim gave'
+    hints:
+      - 'The answer knew the fact and gave a different one, which is evidence against the claim.'
+      - 'Reporting this as merely unsupported leaves a wrong claim in the answer.'
+      - 'Fall through to contradicted when the claim''s words are not all present and the answer did know.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestReconcile.test_not_knowing_is_unsupported_not_contradicted:
+    condition: 'an answer saying it has no record of the thing being asked about'
+    hints:
+      - 'The claim may be perfectly true and simply outside what the verification could reach.'
+      - 'Treating ignorance as a contradiction deletes true claims.'
+      - 'Detect the markers of not knowing and report unsupported.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestReconcile.test_the_unknown_check_runs_first:
+    condition: 'an answer that admits ignorance and then guesses a different month'
+    hints:
+      - 'The order of the checks decides which reading wins on a hedged answer.'
+      - 'Testing for word overlap first reads the guess as a contradiction.'
+      - 'Check for the not knowing markers before comparing any words.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestReconcile.test_is_case_insensitive:
+    condition: 'a claim written in capitals against an answer written in lower case'
+    hints:
+      - 'Neither side controls the other''s capitalisation.'
+      - 'A case sensitive comparison reports a contradiction on two identical statements.'
+      - 'Fold both sides before comparing.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestReconcile.test_ignores_short_words:
+    condition: 'a claim padded with words like it and was that the answer never repeats'
+    hints:
+      - 'Requiring every word means a terse answer contradicts a wordy claim.'
+      - 'Short function words carry no fact and appear or not for reasons of style.'
+      - 'Compare only the words above a length threshold.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_keeps_a_supported_claim:
+    condition: 'a claim the verification confirmed'
+    hints:
+      - 'A supported claim goes into the answer unchanged, with no annotation.'
+      - 'The counts and the final text are built in the same pass over the claims.'
+      - 'Add the claim text to the kept list and increment the supported count.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_drops_a_contradicted_claim:
+    condition: 'a claim the verification directly disagreed with'
+    hints:
+      - 'A contradicted claim is the one thing this pass exists to remove.'
+      - 'Keeping it with a note leaves the wrong fact in the answer where a reader will use it.'
+      - 'Leave it out of the kept list entirely while still counting it.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_marks_an_unsupported_claim_rather_than_deleting_it:
+    condition: 'a claim the verification could not confirm either way'
+    hints:
+      - 'Deleting it silently loses good content, and keeping it silently keeps a claim you failed to check.'
+      - 'The reader needs to see which parts were checked and which were not.'
+      - 'Keep the claim with a visible marker appended.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_a_judgement_costs_no_model_call:
+    condition: 'a draft made entirely of an opinion, with no client script behind it'
+    hints:
+      - 'There is nothing to verify, so a call would ask a factual question about a matter of taste.'
+      - 'It also costs money on every opinion in every draft.'
+      - 'Skip the verification when the claim is not checkable and count it separately.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_a_judgement_survives_into_the_final_answer:
+    condition: 'an unchecked opinion that still has to appear in the output'
+    hints:
+      - 'Skipped is not the same as rejected.'
+      - 'Dropping the skipped claims strips every assessment out of the answer.'
+      - 'Add the skipped claim to the kept list unmarked.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_one_call_per_checkable_claim:
+    condition: 'a two claim draft that must cost exactly two calls'
+    hints:
+      - 'Verifying the claims together in one call is what independence was supposed to prevent.'
+      - 'Verifying each one twice doubles the cost for no extra confidence.'
+      - 'Call once per checkable claim inside the loop.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_counts_add_up_to_the_claims:
+    condition: 'a mixed draft whose verdict counts have to total the number of claims'
+    hints:
+      - 'Every claim gets exactly one verdict, and the counts are the report of that.'
+      - 'Counting only some outcomes makes the report silently miss claims.'
+      - 'Increment exactly one counter per claim, including the skipped ones.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_every_claim_carries_a_verdict:
+    condition: 'a draft mixing a fact and an opinion, where both records need a verdict field'
+    hints:
+      - 'A caller reading the claims should not have to know which ones were skipped to know how to read them.'
+      - 'Omitting the field on a skipped claim makes every reader guard the lookup.'
+      - 'Record a verdict on every claim, using the skipped label for the ones not checked.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_a_mixed_draft_keeps_only_what_survived:
+    condition: 'a draft where one claim was confirmed and the other was contradicted'
+    hints:
+      - 'The final answer is rebuilt from what survived, not edited in place.'
+      - 'Returning the original draft with a note attached leaves the wrong claim in the text.'
+      - 'Join the kept claims back into sentences and return that.'
+    concept: ai-self-correction.chain-of-verification
+
+  TestRunVerification.test_an_empty_draft_produces_an_empty_answer:
+    condition: 'a draft with nothing in it to decompose'
+    hints:
+      - 'No claims means nothing kept, and joining nothing has to produce nothing.'
+      - 'Joining an empty list and appending a full stop leaves a lone punctuation mark.'
+      - 'Return the empty string when nothing survived rather than assembling a sentence.'
+    concept: ai-self-correction.chain-of-verification

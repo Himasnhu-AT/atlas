@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestFactorRebalancer.test_six_asset_universe_top_two:
+    condition: 'six scored names where only the top two and the bottom two carry weight'
+    hints:
+      - 'The long book and the short book each carry half the gross exposure, so a name in the top two gets 0.25 rather than 0.5.'
+      - 'The middle of the ranking does not disappear from the answer. It comes back with a weight of zero, because the caller rebalances against every name it holds.'
+      - 'Sort by score, spread half the gross evenly across the top n and half across the bottom n as negatives, and seed every symbol in the universe at zero first.'
+    concept: quant-stat-arb.cross-sectional-factors
+
+  TestFactorRebalancer.test_invalid_top_n:
+    condition: 'a top_n of two against a universe of three names, and a top_n of zero'
+    hints:
+      - 'Two longs and two shorts need four distinct names. A universe of three can only supply them by putting one name on both sides of the book.'
+      - 'A top_n of zero fails for a different reason: it asks for a book with no positions in it, and the per-name weight divides by zero.'
+      - 'Raise ValueError when top_n is not positive or when twice top_n exceeds the size of the universe, before anything is sorted.'
+    concept: quant-stat-arb.cross-sectional-factors

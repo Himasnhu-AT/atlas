@@ -1,0 +1,97 @@
+version: 1
+cases:
+  TestMakeCounter.test_default_counter:
+    condition: 'a counter called three times, whose value has to survive between the calls'
+    hints:
+      - 'A plain local inside the inner function would be rebuilt on every call. What persists is the cell the closure captured from the factory.'
+      - 'The first call hands back the starting value, so the step is applied after the value is taken rather than before.'
+      - 'Declare the captured name nonlocal, take the value to return, then advance it.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestMakeCounter.test_custom_start_and_step:
+    condition: 'a start of 100 and a step of 5 handed to the factory'
+    hints:
+      - 'The factory''s parameters are captured too, not only the running value.'
+      - 'The first call still returns the start exactly as given.'
+      - 'Read the step out of the enclosing scope on every call rather than assuming it is 1.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestMakeCounter.test_negative_step:
+    condition: 'a step of -3, so the counter runs downward'
+    hints:
+      - 'Nothing says a counter counts up. The step is added, whatever its sign.'
+      - 'Subtracting is adding a negative, so no branch on the sign is needed.'
+      - 'Add the captured step as it stands, with no absolute value and no comparison against zero.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestMakeCounter.test_independent_closure_instances:
+    condition: 'two counters built separately and interleaved, neither seeing the other''s state'
+    hints:
+      - 'Each call to the factory creates a fresh cell. State kept on the factory itself would be shared by everything it produces.'
+      - 'The two counters capture their own value and their own step.'
+      - 'Hold the state as a local of the factory, captured by the inner function, rather than as a global or a mutable default argument.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestMemoize.test_caches_calls_and_tracks_info:
+    condition: 'the same arguments passed positionally, then passed again by keyword'
+    hints:
+      - 'add(2, 3) and add(a=2, b=3) run the same function on the same values and still land on two different cache keys here.'
+      - 'The wrapper has to keep the name and docstring of the function it wraps, or anything introspecting it sees the wrapper instead.'
+      - 'Build the key from the positional tuple together with the keyword items sorted, and copy the wrapped function''s metadata onto the wrapper.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestMemoize.test_eviction_when_max_size_exceeded:
+    condition: 'a third distinct call arriving at a cache that already holds its two entries'
+    hints:
+      - 'A cache with no bound is a memory leak wearing a useful name. Something has to leave when the third entry arrives.'
+      - 'The entry that goes is the one that went in first, and asking for it again afterwards counts as a miss.'
+      - 'When the cache is full and the key is new, drop the oldest entry before inserting. A dict hands you that as its first key.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestMemoize.test_cache_clear:
+    condition: 'a cache emptied after it has already recorded a hit and a miss'
+    hints:
+      - 'Dropping the entries is not the whole job. The counters describe the cache and have to go back to zero with it.'
+      - 'The size limit is configuration rather than state, so it survives the clear.'
+      - 'Empty the entries and reset both counters to 0, leaving the maximum size alone.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestRetry.test_succeeds_on_first_try:
+    condition: 'a call that returns without raising, which must not be made again'
+    hints:
+      - 'A successful call costs one attempt. The loop is not there to run the function a set number of times.'
+      - 'The return has to leave the loop at once rather than falling through into another pass.'
+      - 'Return the result from inside the try block, so nothing after it runs.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestRetry.test_succeeds_after_retries:
+    condition: 'two failures followed by a call that works on the third attempt'
+    hints:
+      - 'A failure is not the end of the call. The exception is caught and another attempt follows.'
+      - 'The budget counts calls in total, the first one included, so three attempts means at most three calls.'
+      - 'Loop up to the budget, catching the exception on each pass, and return the moment a call comes back.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestRetry.test_fails_exhausted_retries_raises_last_exception:
+    condition: 'three failures against a budget of three, where the last error is the one reported'
+    hints:
+      - 'Once the budget is spent the failure has to reach the caller. Swallowing it returns None out of a call that never worked.'
+      - 'The first error is stale by the time the loop ends, and what the caller wants is the most recent one.'
+      - 'Overwrite a stored exception on each failure, then raise the stored one once the loop is done.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestRetry.test_invalid_max_attempts_raises_value_error:
+    condition: 'a budget of zero attempts, which cannot call anything at all'
+    hints:
+      - 'A loop of zero passes would return None without the function ever running.'
+      - 'This is the caller misconfiguring the decorator, so it fails where the decorator is built rather than where the function is called.'
+      - 'Check the budget in the factory, before any decorator is returned, and raise ValueError.'
+    concept: intro-python-runtime.closures-scopes-and-decorators
+
+  TestRetry.test_exponential_backoff_sleep_called:
+    condition: 'two failures with a backoff factor set, so the wait doubles between them'
+    hints:
+      - 'Retrying at once hammers whatever has just failed. The wait grows with each failure.'
+      - 'Nothing follows the final attempt, so there is no wait after it. Two failures out of three attempts means two sleeps.'
+      - 'Wait for the factor times two to the power of the failures so far, and call it through time.sleep so a patched module function is what runs.'
+    concept: intro-python-runtime.closures-scopes-and-decorators

@@ -1,0 +1,65 @@
+version: 1
+cases:
+  TestVTableDispatchEngine.test_single_class_method_invocation:
+    condition: 'a class with no base, whose instance carries fields and a pointer to its table'
+    hints:
+      - 'The object holds its fields and a pointer to the table. The methods themselves are not copied into every instance.'
+      - 'Dispatch goes through that table pointer, and the instance is handed to the resolved function as its first argument.'
+      - 'Look the name up in the table the vptr refers to, then call it with the instance ahead of the caller''s arguments.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables
+
+  TestVTableDispatchEngine.test_inheritance_and_fallback_to_base_method:
+    condition: 'a method called on a derived class that defines none of its own'
+    hints:
+      - 'The derived table is empty, so a lookup that stops there finds nothing and the call fails.'
+      - 'A table knows its base, and a miss walks up that link rather than giving up.'
+      - 'When the name is not in this table, ask the parent table for it before reporting failure.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables
+
+  TestVTableDispatchEngine.test_method_overriding:
+    condition: 'a derived class that defines a method the base already defines'
+    hints:
+      - 'The nearest definition wins. Reaching the base version means the search began in the wrong place.'
+      - 'An instance of the base still gets the base version, so an override belongs to one table rather than to the name.'
+      - 'Search this table before the parent, and take the first match found.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables
+
+  TestVTableDispatchEngine.test_multi_level_inheritance:
+    condition: 'a method defined two levels up, called through a class that adds nothing'
+    hints:
+      - 'One step up the chain is not enough. The definition may sit several classes above.'
+      - 'Each table knows only its immediate base, so the walk continues until it reaches a table with none.'
+      - 'Have the parent run the same search against its own parent, so the walk recurses to the top of the hierarchy.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables
+
+  TestVTableDispatchEngine.test_missing_method_raises_attribute_error:
+    condition: 'a method name that no table in the chain defines'
+    hints:
+      - 'Answering None here turns a missing method into a call on None somewhere further away.'
+      - 'The failure belongs at the top of the chain, where there is no parent left to ask.'
+      - 'Raise AttributeError once the walk reaches a table with no parent and still no match.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables
+
+  TestVTableDispatchEngine.test_field_mutation_via_method:
+    condition: 'a method that writes a field, whose effect has to be visible on the instance afterwards'
+    hints:
+      - 'The method has to be handed the object itself rather than a copy of its fields, or the write lands somewhere nobody can see.'
+      - 'Fields live in the instance while methods live in the table, which is why the instance travels into the call.'
+      - 'Pass the instance as the first argument, so the function writes into the same field dictionary the caller reads back.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables
+
+  TestVTableDispatchEngine.test_polymorphic_collection_dispatch:
+    condition: 'one call site walking a mixed list of instances that share a base class'
+    hints:
+      - 'The call site names a method, not a class. What runs is decided by the table each instance points at.'
+      - 'The shared base defines nothing here, so each derived table supplies its own version.'
+      - 'Resolve the method from the instance''s own vptr on every call, never from anything known about the list.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables
+
+  TestVTableDispatchEngine.test_method_with_multiple_arguments:
+    condition: 'a method taking three arguments on top of the instance itself'
+    hints:
+      - 'The instance is not the only argument. Whatever the caller passed has to arrive as well, in order.'
+      - 'The extra arguments are collected at the call and forwarded, not listed out one by one.'
+      - 'Take them as a variadic tuple and unpack them after the instance when calling the resolved function.'
+    concept: intro-cpp-generics.virtual-functions-and-vtables

@@ -1,0 +1,225 @@
+version: 1
+cases:
+  TestCounting.test_empty_text_is_free:
+    condition: 'an empty string, and a string holding only spaces and a newline'
+    hints:
+      - 'Whitespace alone is not text, so it costs nothing rather than one token.'
+      - 'A floor of one applied before checking for words charges for a blank message.'
+      - 'Split first, and return zero when the split produced no words at all.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestCounting.test_cost_scales_with_word_count:
+    condition: 'three words, then ten, where the estimate has to track the count'
+    hints:
+      - 'Tokens are not words. English runs at roughly one and a third tokens per word.'
+      - 'Multiply the word count by that ratio rather than returning the word count itself.'
+      - 'Round the product to the nearest whole number and return it.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestCounting.test_a_single_word_costs_at_least_one:
+    condition: 'one word, whose scaled estimate rounds down below a whole token'
+    hints:
+      - 'A word that exists costs something. Rounding must not take it to zero.'
+      - 'Rounding a small product can land under one even though there is real text there.'
+      - 'Take the larger of one and the rounded estimate, but only after the empty case has already returned.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestCounting.test_a_message_pays_the_role_overhead:
+    condition: 'a message whose cost is more than the words it carries'
+    hints:
+      - 'The wire format wraps every message in a role and separators, and those are billed too.'
+      - 'The overhead is per message, not per conversation, so it is added inside this function.'
+      - 'Add the fixed per message overhead to the estimate of the content.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestCounting.test_a_message_with_no_content_still_costs_the_overhead:
+    condition: 'an assistant message with no content key, and one whose content is None'
+    hints:
+      - 'A turn that only calls a tool has no text, and it is still a message on the wire.'
+      - 'A default of empty string on the lookup does not help when the key is present and holds None.'
+      - 'Substitute an empty string for a missing or null content, then add the overhead as usual.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestCounting.test_a_conversation_is_the_sum_of_its_messages:
+    condition: 'a three turn conversation whose total must match its parts'
+    hints:
+      - 'The conversation cost is not a fresh estimate over the concatenated text.'
+      - 'Each message pays its own overhead, so counting the joined text undercounts.'
+      - 'Sum the per message cost across the list rather than estimating the whole thing at once.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestCounting.test_an_empty_conversation_costs_nothing:
+    condition: 'a conversation before any message has been added to it'
+    hints:
+      - 'No messages means no overhead to pay.'
+      - 'Summing over an empty list gives zero without any special case.'
+      - 'Avoid seeding the total with an overhead that only a real message should incur.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_headroom_subtracts_both_the_history_and_the_reserve:
+    condition: 'a window that has to cover the history and still leave room for the reply'
+    hints:
+      - 'The window holds both halves. Filling it with prompt leaves nothing for the answer.'
+      - 'Two things come out of the window: what the conversation already costs, and what the reply is reserved.'
+      - 'Subtract the reserve and the conversation cost from the window and return what is left.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_headroom_goes_negative_on_an_overrun:
+    condition: 'a history far larger than the window it has to fit in'
+    hints:
+      - 'An overrun has a size, and clamping to zero throws that size away.'
+      - 'The caller decides between dropping one message and summarising an hour, and the difference is the number.'
+      - 'Return the arithmetic result as it is, without a lower bound of zero.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_headroom_rejects_an_impossible_configuration:
+    condition: 'a window of zero, a negative reserve, and a reserve equal to the whole window'
+    hints:
+      - 'These are the caller getting the configuration wrong, not the conversation being too long.'
+      - 'A reserve that swallows the whole window leaves no room for a prompt, which no amount of trimming fixes.'
+      - 'Check all three before touching the messages and raise ValueError naming the value you were given.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_a_loop_of_no_steps_costs_nothing:
+    condition: 'a loop configured to run zero steps, which makes no calls'
+    hints:
+      - 'No calls means no prompt tokens, whatever the base prompt costs.'
+      - 'The base prompt is only billed when it is actually sent.'
+      - 'Multiplying the base by the step count already gives zero here, so no special case is wanted.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_one_step_sends_only_the_base_prompt:
+    condition: 'a single step, which has no earlier steps to resend'
+    hints:
+      - 'The first call carries the base prompt and nothing else.'
+      - 'The growth term has to be zero when there is only one step, not one step worth of additions.'
+      - 'Step n resends what steps before it added, and for the first step there are none.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_each_step_resends_everything_before_it:
+    condition: 'four steps, where every call carries the base plus what earlier steps added'
+    hints:
+      - 'Nothing is remembered between calls, so each step re-sends the whole transcript so far.'
+      - 'The base is paid on every step, and on top of that step n carries n minus one steps worth of additions.'
+      - 'Sum the additions across the steps and add the base multiplied by the step count.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_cost_grows_quadratically_in_the_step_count:
+    condition: 'twenty steps against ten, where the cost must more than quadruple'
+    hints:
+      - 'A per step multiplication gives linear growth, and this cost is not linear.'
+      - 'Each step resends everything before it, which is a running sum rather than a constant.'
+      - 'The additions across n steps come to a triangular number, so use the closed form rather than a loop that adds a constant.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestBudgetArithmetic.test_loop_cost_rejects_negative_arguments:
+    condition: 'a negative base prompt size, and a negative step count'
+    hints:
+      - 'Negative tokens and negative steps do not describe anything, and the formula happily returns a number for them.'
+      - 'A quiet negative cost here is worse than a crash, because it lands in a budget report.'
+      - 'Validate every argument before computing and raise ValueError.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_returns_everything_when_it_fits:
+    condition: 'a short conversation well inside a generous budget'
+    hints:
+      - 'Trimming is only for conversations that overflow. This one does not.'
+      - 'Nothing may be reordered or dropped when the whole thing fits.'
+      - 'Walking backwards and keeping everything that fits already returns the full list here.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_handles_an_empty_conversation:
+    condition: 'a message list with nothing in it to trim'
+    hints:
+      - 'There is no first message to inspect for a system role.'
+      - 'Reading index zero of an empty list raises before any trimming happens.'
+      - 'Return an empty list at the top before looking at any element.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_keeps_the_system_message_first:
+    condition: 'a system prompt buried under twenty filler turns and a tight budget'
+    hints:
+      - 'The system prompt is the instructions. Dropping it changes what the model is.'
+      - 'It also has to stay at the front, because a system message in the middle is not a system prompt.'
+      - 'Pull it out before the backwards walk and put it back at the head of the result.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_always_keeps_the_latest_user_message:
+    condition: 'fifty filler turns sitting between the budget and the question being asked'
+    hints:
+      - 'Trimming away the question leaves the model answering something nobody asked.'
+      - 'The newest user turn is what the whole call is for, so it is not a candidate for dropping.'
+      - 'Find the last user turn, charge its cost up front, and exclude it from the messages the walk may drop.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_drops_the_oldest_first:
+    condition: 'three turns where only the recent ones fit in the budget'
+    hints:
+      - 'Recent turns carry the thread of the conversation. Old ones are the cheapest thing to lose.'
+      - 'Filling forwards from the start keeps the wrong end and drops the question.'
+      - 'Walk the list from the newest end towards the oldest, keeping what fits as you go.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_stops_rather_than_skipping_past_a_message_that_does_not_fit:
+    condition: 'a long turn that does not fit, with a small older one behind it that would'
+    hints:
+      - 'Skipping the oversized turn and taking the older one leaves a hole in the middle of the transcript.'
+      - 'The model cannot see that something was removed. It reads the two remaining turns as consecutive.'
+      - 'Break out of the backwards walk on the first message that does not fit rather than continuing past it.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_preserves_original_order:
+    condition: 'a conversation kept whole, which must come back in the order it went in'
+    hints:
+      - 'Collecting messages while walking backwards builds the list in reverse.'
+      - 'A conversation read out of order is a different conversation.'
+      - 'Track which positions you kept and rebuild the result in ascending index order.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_respects_the_budget:
+    condition: 'forty filler turns against a budget that only a handful of them fit inside'
+    hints:
+      - 'The budget is a ceiling on the whole result, system message and pinned question included.'
+      - 'Checking each message alone rather than the running total lets the sum drift over.'
+      - 'Carry a running total that already includes the pinned messages, and test each candidate against it before keeping it.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_returns_the_pinned_messages_even_when_they_overflow:
+    condition: 'a system prompt and a question that together exceed the budget on their own'
+    hints:
+      - 'The budget cannot always be met. Returning nothing means answering nothing.'
+      - 'The pinned messages are charged before the walk begins, and the walk simply keeps nothing.'
+      - 'Do not drop a pinned message because the total went over. Going over with the question intact is the better failure.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_does_not_mutate_the_input:
+    condition: 'a caller''s list that must look the same after the call as before it'
+    hints:
+      - 'The caller still holds the full history and will keep appending to it.'
+      - 'Popping or slicing in place destroys the record of the conversation.'
+      - 'Build a new list from the messages you decided to keep and leave the argument untouched.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_returns_the_original_message_objects:
+    condition: 'a result whose entries must be the same objects, not copies of them'
+    hints:
+      - 'Fewer messages, not different ones. There is no reason to rebuild each one.'
+      - 'Copying each message costs memory and breaks identity checks the caller may rely on.'
+      - 'Select from the original list by index rather than constructing new dicts.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_works_without_a_system_message:
+    condition: 'a conversation that opens straight into a user turn'
+    hints:
+      - 'Not every conversation has a system prompt, and the first message is then ordinary.'
+      - 'Treating index zero as the system message unconditionally pins a turn that should be droppable.'
+      - 'Check the role of the first message before setting it aside, and keep the whole list in play when it is not a system turn.'
+    concept: ai-llm-fundamentals.tokens-and-context
+
+  TestTrimToBudget.test_a_conversation_with_no_user_message_still_trims:
+    condition: 'a system prompt followed by ten assistant notes and no user turn at all'
+    hints:
+      - 'There is no question to pin here, so the search for the last user turn finds nothing.'
+      - 'A missing index has to stay missing rather than defaulting to the last message.'
+      - 'Leave the pinned set empty when no user turn exists, and let the backwards walk fill the budget on its own.'
+    concept: ai-llm-fundamentals.tokens-and-context

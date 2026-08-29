@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestAlmgrenChriss.test_risk_neutral_twap_limit:
+    condition: 'a risk aversion of exactly zero, working 1000 shares over four intervals'
+    hints:
+      - 'With no aversion to price risk there is nothing to trade off against impact, so the schedule is a straight line and the numbers are exact: 1000, 750, 500, 250, 0.'
+      - 'kappa is built from lambda over eta, so at a lambda of zero the hyperbolic form collapses and its sinh terms turn into zero over zero.'
+      - 'Branch on lambda being at or near zero and return the linear schedule directly, as N plus one points falling from the full inventory to exactly zero.'
+    concept: quant-risk.optimal-liquidation
+
+  TestAlmgrenChriss.test_risk_averse_front_loading:
+    condition: 'a risk aversion of one, which must leave under 750 shares on the book after one interval'
+    hints:
+      - 'A trader who fears the price moving sells early and pays more impact for it, so the inventory curve bends below the straight line rather than above it.'
+      - 'The trajectory is a ratio of sinh at the time still remaining to sinh over the whole horizon, so it is time left that goes in the numerator, not time already spent.'
+      - 'Take kappa as the square root of lambda times sigma squared over eta, evaluate that ratio at T minus k tau for each of the N plus one steps, and pin the last point at exactly zero.'
+    concept: quant-risk.optimal-liquidation
