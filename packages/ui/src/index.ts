@@ -54,6 +54,9 @@ export type { ModuleCardProps } from './components/ModuleCard'
 export { LessonSidebar } from './components/LessonSidebar'
 export type { LessonSidebarProps } from './components/LessonSidebar'
 
+export { TestResults } from './components/TestResults'
+export type { TestResultsProps, CaseNote } from './components/TestResults'
+
 export { Reveal } from './components/Reveal'
 export type { RevealProps } from './components/Reveal'
 

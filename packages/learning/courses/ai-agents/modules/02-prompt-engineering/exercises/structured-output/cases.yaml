@@ -1,0 +1,297 @@
+version: 1
+cases:
+  TestExtraction.test_finds_a_bare_object:
+    condition: 'text that is the object and nothing else'
+    hints:
+      - 'The plainest input still has to work: no prose around it, the whole string is the object.'
+      - 'The scan starts at the first opening brace and ends at the brace that brings the depth back to zero, which here is the final character.'
+      - 'Return the slice running from the first brace through its matching brace inclusive, braces and all.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_ignores_surrounding_prose:
+    condition: 'an object with chatty text before it and a sign off after'
+    hints:
+      - 'A model rarely sends only JSON. The object sits somewhere inside a sentence.'
+      - 'Locate where the object begins rather than assuming index zero, then read forward from there.'
+      - 'Take the index of the first opening brace and slice from there to its match. Everything before that index is discarded.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_handles_nested_objects:
+    condition: 'an object whose fields hold further objects'
+    hints:
+      - 'The first closing brace you meet does not end the object when another object opened inside it.'
+      - 'Count depth as you go: an opening brace adds one, a closing brace subtracts one.'
+      - 'Return only when that count comes back to zero. That brace closes the outermost object, not the innermost.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_ignores_braces_inside_strings:
+    condition: 'a closing brace that appears inside a string literal'
+    hints:
+      - 'Not every closing brace in the text ends the object. A brace inside a string is text, not structure.'
+      - 'Walk the characters one at a time and keep track of whether you are currently inside a string.'
+      - 'Hold a flag that flips on each unescaped quote, and adjust the depth count only while that flag is off.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_ignores_escaped_quotes:
+    condition: 'a quote escaped with a backslash inside a string value'
+    hints:
+      - 'A \" does not end the string, so the brace sitting after it is still inside one.'
+      - 'A backslash claims whatever character comes next, so that character cannot be read as a quote.'
+      - 'Keep a second flag for "the previous character was a backslash". When it is set, take the current character as literal and clear the flag instead of testing it.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_raises_when_there_is_no_brace:
+    condition: 'a reply with no opening brace anywhere in it'
+    hints:
+      - 'A refusal or an apology contains no object, and handing back empty text hides that from the caller.'
+      - 'str.find returns -1 when the character is absent. That is a failure, not a starting position.'
+      - 'Raise ExtractionError before scanning anything, because there is no place for the scan to start.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_raises_when_the_object_never_closes:
+    condition: 'an object that opens and then runs off the end of the text'
+    hints:
+      - 'Falling off the end with the depth still above zero is a failure, not a match.'
+      - 'The reply was probably truncated, which is worth naming in the message so the caller knows what happened.'
+      - 'After the loop finishes without the depth reaching zero, raise ExtractionError rather than returning what you scanned so far.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_plain_json:
+    condition: 'a clean reply that parses as it stands, with nothing to strip'
+    hints:
+      - 'The common case should cost nothing: try parsing the whole string before anything clever.'
+      - 'json.loads on the stripped text handles this one. The character scan exists for the replies it cannot.'
+      - 'Order the strategies cheapest first and return on the first that yields a dict.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_surrounding_whitespace:
+    condition: 'blank lines and spaces padding an otherwise clean object'
+    hints:
+      - 'Two leading newlines are enough to break a check that looks at the first character.'
+      - 'json.loads tolerates whitespace around a document, but any prefix test you write yourself will not.'
+      - 'Strip the text once at the top and work from the stripped copy from then on.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_fenced_with_a_language_tag:
+    condition: 'an object inside a triple backtick block tagged as json'
+    hints:
+      - 'The word json on the opening line is markdown, not part of the document.'
+      - 'Drop the whole opening line, whatever tag it carries, and drop the closing fence too.'
+      - 'Split off everything up to the first newline, then cut the remainder back at the last run of backticks.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_fenced_without_a_language_tag:
+    condition: 'a triple backtick block with no language named after the ticks'
+    hints:
+      - 'The opening line may be bare backticks, so there is no tag to remove.'
+      - 'Remove the first line as a line rather than removing a fixed number of characters.'
+      - 'Cut at the first newline and keep what follows, which works whether or not a tag was written.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_wrapped_in_prose:
+    condition: 'an object introduced by a sentence and followed by a sign off'
+    hints:
+      - 'Neither a straight parse nor a fence strip helps here. The object has to be found.'
+      - 'This is the reply the character scan exists for, so the earlier strategies have to fall through to it.'
+      - 'Once the cheap strategies fail, run the brace scan over the raw text and parse the substring it returns.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_rejects_a_json_array:
+    condition: 'a reply that parses cleanly but is a list rather than an object'
+    hints:
+      - 'The parse succeeded, so returning the result feels right. A list still has no named fields to read.'
+      - 'The caller is going to look up keys. A list fails on the first lookup instead of failing here.'
+      - 'Check that the parsed value is a dict and raise ExtractionError when it is anything else.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestExtraction.test_rejects_text_with_no_json_in_it:
+    condition: 'a plain refusal that carries no JSON at all'
+    hints:
+      - 'A model declining the task is an ordinary outcome, and it has to surface as an error rather than as an empty dict.'
+      - 'Every strategy fails on this input, and the last one already raises on its own.'
+      - 'Let the error from the brace scan travel out of the function instead of catching it and returning None.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_accepts_a_valid_object:
+    condition: 'an object that matches the schema on every field'
+    hints:
+      - 'Raising on correct input is as broken as accepting bad input. The passing case has to return quietly.'
+      - 'validate returns None and reports problems by raising, so there is nothing to return on success.'
+      - 'Walk the schema, check each field, and fall off the end of the loop without producing a value.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_missing_required_field:
+    condition: 'a required field the model left out of the object'
+    hints:
+      - 'An absent key is not the same thing as a key holding None. Test membership before reading the value.'
+      - 'Fields count as required by default, so a spec that says nothing about it still has to be present.'
+      - 'Raise ValidationError with the field name in the message, because that text is what goes back to the model on the retry.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_absent_optional_field_is_fine:
+    condition: 'a field marked required false that the model did not send'
+    hints:
+      - 'Not every missing key is a failure.'
+      - 'Read the required entry out of the spec, defaulting to true when the spec does not mention it.'
+      - 'When the field is absent and not required, move on to the next field instead of raising.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_null_allowed_when_nullable:
+    condition: 'an explicit null in a field the schema says may be null'
+    hints:
+      - 'null is the honest answer to "there was no order id", and the schema allows it here.'
+      - 'A None also has to skip the type check, since None is not a str.'
+      - 'When the value is None and the spec is nullable, continue to the next field before any type or enum comparison runs.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_null_rejected_when_not_nullable:
+    condition: 'a null in a field the schema never said could be null'
+    hints:
+      - 'Nullable is false unless the field opted in, so a null customer name is an error.'
+      - 'Handle None as its own case, ahead of the type table, rather than letting it reach the isinstance check.'
+      - 'Raise ValidationError for a None whose spec carries no nullable flag.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_wrong_type:
+    condition: 'a quantity sent back as the string "two" rather than a number'
+    hints:
+      - 'A number in quotes is a string, and it will break the first piece of arithmetic downstream.'
+      - 'Compare the value against the Python types the schema name stands for.'
+      - 'Raise ValidationError naming the field, the type the schema asked for, and the type that arrived, so the retry has something to act on.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_bool_is_not_an_integer:
+    condition: 'a quantity of true, which Python counts as a whole number'
+    hints:
+      - 'In Python a bool is a subclass of int, so a plain isinstance check lets true through as a count.'
+      - 'The bool case has to be settled before the numeric check runs, not after it.'
+      - 'Reject a bool whenever the declared type is anything other than boolean.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_bool_still_satisfies_boolean:
+    condition: 'a true value in a field the schema declares as boolean'
+    hints:
+      - 'Guarding against bool everywhere would break the fields that genuinely want one.'
+      - 'The guard belongs on the declared type, not on the value alone.'
+      - 'Refuse a bool only when the expected type is something other than boolean. Otherwise it passes the ordinary check.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_an_integer_satisfies_number:
+    condition: 'a whole number supplied where the schema asks for a number'
+    hints:
+      - '3 is a number. Demanding a float here would reject a perfectly good score.'
+      - 'A schema type name can stand for more than one Python type.'
+      - 'Let number accept int as well as float, while still keeping bool out of both.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_a_float_does_not_satisfy_integer:
+    condition: 'a value of 1.5 where the schema asks for an integer'
+    hints:
+      - 'The relationship does not run both ways. A number field takes an int; an integer field does not take a float.'
+      - '1.5 items is not a quantity, and rounding it quietly loses the error you were trying to catch.'
+      - 'Map integer to int alone, so a float fails the check.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_enum_accepts_an_allowed_value:
+    condition: 'a status holding one of the values the schema lists'
+    hints:
+      - 'The enum check only rejects. A listed value has to pass straight through it.'
+      - 'Membership in the spec list of options is the whole test.'
+      - 'Run the enum comparison after the type check and raise nothing when the value is in the list.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_enum_rejects_anything_else:
+    condition: 'a status of "pending" when the schema lists only three states'
+    hints:
+      - 'A plausible sounding value that the schema does not list is the failure that reaches production.'
+      - 'The message has to name the field and the values that were allowed, so the model can pick a real one.'
+      - 'Compare against the spec list of options and raise ValidationError naming the field when the value is not among them.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestValidate.test_fields_outside_the_schema_are_ignored:
+    condition: 'an extra field the model added that the schema never mentions'
+    hints:
+      - 'You are checking the fields you consume, not policing everything the model chose to say.'
+      - 'Iterate over the schema fields, not over the keys of the data.'
+      - 'Loop over the schema entries and look each one up in the data, which leaves unknown keys untouched.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_succeeds_on_the_first_try:
+    condition: 'a first reply that is already usable'
+    hints:
+      - 'A good reply must not cost a second call.'
+      - 'Return from inside the loop as soon as extraction and validation both pass.'
+      - 'Keep the message appending in the failure branch only, so a success adds nothing and calls nothing.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_recovers_from_an_unparseable_reply:
+    condition: 'a first reply with no JSON in it, then a good one'
+    hints:
+      - 'An ExtractionError is a retryable outcome, not the end of the call.'
+      - 'Catch it inside the loop rather than letting it leave the function on the first attempt.'
+      - 'Wrap the extract and validate step in a handler for both error types and go round again while budget remains.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_recovers_from_a_validation_failure:
+    condition: 'a first reply that parses but carries a field of the wrong type'
+    hints:
+      - 'Parsing successfully is not success. The schema check can still fail, and it still deserves a retry.'
+      - 'Both failure modes take the same path back into the loop.'
+      - 'Handle ValidationError alongside ExtractionError so a wrong type earns a correction instead of escaping the function.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_feeds_the_reply_and_the_error_back:
+    condition: 'a second call that has to carry the bad reply and the complaint about it'
+    hints:
+      - 'Sending the same prompt again gives the model nothing it did not already have.'
+      - 'The conversation grows by two messages: what the model said, then what was wrong with it.'
+      - 'Append the raw reply under the assistant role, then a user message that says the reply was not usable and quotes the error text.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_a_truncated_reply_is_rejected_even_when_it_parses:
+    condition: 'a reply cut off at the token limit that still happens to parse'
+    hints:
+      - 'Valid JSON is not proof of a complete answer. The cut can land just after a closing brace.'
+      - 'finish_reason on the choice carries the only evidence, and parsing throws it away.'
+      - 'Test finish_reason for length before extraction, and treat that as an extraction failure with nothing parsed.'
+    concept: ai-foundations.reading-a-completion
+
+  TestRetryLoop.test_retries_after_a_truncated_reply:
+    condition: 'a reply cut off mid field, followed by a complete one'
+    hints:
+      - 'Truncation is transient. The next call usually returns a whole document.'
+      - 'The truncation check should raise the same error class the retry branch already handles.'
+      - 'Raise ExtractionError for the cut reply so the loop feeds it back and calls again, rather than returning what parsed.'
+    concept: ai-foundations.reading-a-completion
+
+  TestRetryLoop.test_respects_the_attempt_budget:
+    condition: 'three unusable replies against a budget of three calls'
+    hints:
+      - 'max_attempts counts calls in total, the first one included, not retries after it.'
+      - 'An off by one here doubles the bill and the latency.'
+      - 'Loop max_attempts times with one model call per pass, and stop appending corrections on the final pass.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_one_attempt_makes_one_call:
+    condition: 'a budget of one, which leaves no room for a correction'
+    hints:
+      - 'A budget of one still makes a call. It is the retry that is missing, not the request.'
+      - 'The last pass must not append messages that will never be sent.'
+      - 'With max_attempts of 1 the first failure ends the loop and the error is raised without a second call.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_rejects_a_nonsense_budget:
+    condition: 'a max_attempts of zero, which cannot mean anything'
+    hints:
+      - 'Zero calls cannot produce an object, and a loop that runs no times would return nothing at all.'
+      - 'This is the caller getting it wrong, so it is a ValueError rather than an extraction failure.'
+      - 'Check the budget before the first call and raise ValueError naming the value you were given.'
+    concept: ai-prompt-engineering.structured-output
+
+  TestRetryLoop.test_raises_the_error_from_the_final_attempt:
+    condition: 'two different failures where only the later one is worth reporting'
+    hints:
+      - 'The first failure is stale by the time the budget runs out.'
+      - 'Hold on to the most recent error rather than the first one you caught.'
+      - 'Overwrite a stored error on every failed pass and raise that stored one once the loop ends.'
+    concept: ai-prompt-engineering.structured-output
