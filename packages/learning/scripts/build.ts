@@ -974,12 +974,41 @@ async function buildCourse(
 async function main() {
   const check = process.argv.includes('--check')
 
+  /**
+   * Check one course instead of all four.
+   *
+   * `--course <dir>` narrows the run, and it is only meaningful with `--check`.
+   * When several people are authoring at once, the shared gate goes red on
+   * whichever half-written file somebody else happens to be holding, and a
+   * gate that is red for reasons you cannot fix is a gate nobody reads. This
+   * runs the identical validation over one directory.
+   *
+   * It never writes `dist/`, because a partial manifest is worse than none.
+   */
+  const courseFlag = process.argv.indexOf('--course')
+  const onlyCourse = courseFlag === -1 ? undefined : process.argv[courseFlag + 1]
+  if (onlyCourse && !check) {
+    console.error('--course only makes sense with --check: a partial build would write a partial manifest.')
+    process.exit(1)
+  }
+
   if (!check) await rm(DIST_DIR, { recursive: true, force: true })
 
-  const dirs = await readDirs(COURSES_DIR)
+  let dirs = await readDirs(COURSES_DIR)
   if (dirs.length === 0) {
     console.error('No courses found in courses/. Nothing to build.')
     process.exit(1)
+  }
+
+  if (onlyCourse) {
+    const wanted = dirs.filter((dir) => path.basename(dir) === onlyCourse)
+    if (wanted.length === 0) {
+      console.error(
+        `No course directory named "${onlyCourse}". Found: ${dirs.map((d) => path.basename(d)).join(', ')}`,
+      )
+      process.exit(1)
+    }
+    dirs = wanted
   }
 
   const bodies = new Map<string, string>()
@@ -997,19 +1026,27 @@ async function main() {
 
   const allModules = courses.flatMap((c) => c.modules)
 
+  // Checks that span courses cannot mean anything when only one was read.
+  const wholeCatalogue = !onlyCourse
+
   // Module and exercise ids are the natural keys the platform stores progress
   // and awards against, so they have to be unique across the whole catalogue and
   // not merely within a course. Neither was checked before there was more than
   // one course, and exercise ids were unique by luck rather than by rule.
-  assertUnique(allModules.map((m) => m.id), 'courses', 'duplicate module id across courses')
-  assertUnique(
-    allModules.flatMap((m) => m.lessons.flatMap((l) => (l.exercise ? [l.exercise.id] : []))),
-    'courses',
-    'duplicate exercise id across courses',
-  )
+  // Skipped under `--course`: uniqueness across the catalogue and cross-lesson
+  // links cannot be judged from one course, and reporting a link as broken
+  // because its target was never read would train people to ignore the output.
+  if (wholeCatalogue) {
+    assertUnique(allModules.map((m) => m.id), 'courses', 'duplicate module id across courses')
+    assertUnique(
+      allModules.flatMap((m) => m.lessons.flatMap((l) => (l.exercise ? [l.exercise.id] : []))),
+      'courses',
+      'duplicate exercise id across courses',
+    )
 
-  checkCrossLinks(allModules, bodies)
-  checkCourseBoundaries(courses)
+    checkCrossLinks(allModules, bodies)
+    checkCourseBoundaries(courses)
+  }
 
   if (problems.length > 0) {
     console.error(`\nContent build failed with ${problems.length} problem(s):\n`)
