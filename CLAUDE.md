@@ -47,10 +47,46 @@ generated hints, no model calls at runtime. Exercises need no API key and no net
 **Exercises grade in two places and must mean the same thing in both.** The desktop runs a
 real interpreter; the web runs CPython on WebAssembly in a worker. Both post to
 `/api/attempts`, which decides what the attempt was worth, so nothing about the runner may
-affect the reward. Whether an exercise can run in a browser is derived by the content build
+affect the reward.
+
+That is now a fact about one file rather than a promise about two.
+`packages/learning/runner/atlas_report.py` is the only thing that decides what a test run
+means: the desktop compiles it in with `include_str!`, the browser worker fetches a copy
+that `apps/web/scripts/copy-runner.mjs` puts in `public/`. It reads unittest's result
+object. Neither grader parses unittest's text, and reintroducing that is how the two
+silently diverged before. If you change the shape it emits, change `RunOutcome` in
+`packages/core/src/grading.ts`, the Rust mirror in `grader.rs`, and
+`runner/test_atlas_report.py` together. Whether an exercise can run in a browser is derived by the content build
 from its own imports, never authored, and `packages/learning/src/browser.ts` records what is
 unsupported and how that was measured. Do not make it a runtime attempt: `parallel-dispatch`
 does not error under the browser runtime, it silently fails 15 of its 24 tests.
+
+**A failing test names the condition, not the test.** Every exercise carries a `cases.yaml`
+beside its `test.py` mapping each test method to a plain-English condition and escalating
+hints, and the build refuses a map that does not cover its suite exactly. None of the 1775
+test methods has a docstring, so there is nothing to derive this from: it is authored. The
+map never enters `exerciseFiles` and never enters `exerciseHash`, because editing a hint
+must not tell a learner mid-exercise that the exercise moved underneath them.
+
+**Stage 1 is data, not a component.** A lesson's `challenges:` block is three or four steps
+drawn from the kit in `packages/core/src/challenges/kinds.ts`, checked by pure functions in
+`check.ts`. Those functions live in core rather than in React because the content build runs
+them: it proves a `text-contract` opens failing and its solution passes, and walks a
+`machine`'s transition graph to prove the goal is reachable. That is the same bargain as
+reference-passes and scaffold-fails, and it is what makes it safe to author hundreds of
+challenges. Write a bespoke component only when a concept is genuinely visual and its state
+space cannot be written down, and address it through `kind: custom` like everything else.
+
+**Nothing authored is ever evaluated.** The desktop's production CSP is `script-src 'self'`
+with no `unsafe-eval`, which is why lessons compile to HTML at build time and why challenge
+verification is a closed set of typed assertions rather than an expression language. A
+challenge that needs a check the vocabulary cannot express wants a component, not an
+interpreter.
+
+**Every lesson stage stays in the document.** `LessonStageController` hides the inactive
+ones with the `hidden` attribute rather than unmounting them. Reading is optional for the
+learner and is the entire thing a search engine is served, so a lesson that opens on stage 1
+must still ship its prose in the HTML.
 
 **Tailwind v4 only.** `@import "tailwindcss"` plus `@theme` in `packages/ui/src/styles.css`.
 There is no `tailwind.config.js` and there never should be.
@@ -134,12 +170,14 @@ thing rather than announcing it. State tradeoffs plainly instead of selling.
 
 ```bash
 pnpm content            # validate and build the courses
+pnpm content:check      # the same gate, writing nothing. Use this when others share the repo
 pnpm validate           # validate course structure, schemas, and testcases
 pnpm validate:course    # validate module/lesson schemas, prerequisites, references & scaffolds
 pnpm validate:testcases # validate all exercise testcases against crux solutions
 pnpm typecheck          # TypeScript, every package
 pnpm test:core          # the game engine, which is pure and worth over-testing
 pnpm test:content       # the content package's own units
+pnpm test:runner        # the shared grader, which is the two-runners invariant
 pnpm test:rust          # Rust suite
 pnpm lint:rust          # clippy, warnings as errors
 ```
