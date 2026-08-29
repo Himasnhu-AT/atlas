@@ -115,7 +115,8 @@ export function ChallengeRunner({
   // One hint per failed attempt, and the last one is always reachable. A
   // challenge nobody can get past ends the lesson, so hints never run out
   // before the answer does.
-  const earnedHints = Math.min(attempts[current.id] ?? 0, current.hints.length)
+  const attemptsMade = attempts[current.id] ?? 0
+  const earnedHints = Math.min(attemptsMade, current.hints.length)
   const shown = hintsShown[current.id] ?? 0
 
   const Renderer = KindRenderers[current.kind]
@@ -205,7 +206,13 @@ export function ChallengeRunner({
               </button>
             )}
 
-            {shown < current.hints.length && (
+            {/*
+              No hint before the first attempt: the challenge is meant to be
+              tried, and offering help beside a puzzle nobody has read yet is
+              what turns it into a walkthrough. Nothing here once it is solved
+              either, because a hint for something already done is clutter.
+            */}
+            {!isSettled && attemptsMade > 0 && shown < current.hints.length && (
               <button
                 type="button"
                 onClick={() =>
