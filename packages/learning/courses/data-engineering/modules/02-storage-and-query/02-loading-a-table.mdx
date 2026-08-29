@@ -7,6 +7,174 @@ estimatedMinutes: 30
 exercise:
   id: load-table
   timeboxMinutes: 30
+challenges:
+  goal: Decide what a duplicate key means, then make the load say what it wrote, what it skipped and why.
+
+  steps:
+    - id: which-conflict-clause
+      kind: choice
+      prompt: >-
+        The nightly extract timed out and retried, so forty orders already in the table
+        arrive again byte for byte. One row in the same batch has a null customer, and the
+        table declares customer NOT NULL. Which write do you reach for?
+      options:
+        - id: plain-insert
+          label: Plain INSERT, and let the IntegrityError abort the batch.
+          note: Right when a duplicate key means corruption. Here it means a retry, which is routine, so this turns an ordinary night into a failed load somebody restarts by hand.
+        - id: or-ignore
+          label: INSERT OR IGNORE.
+          note: It skips the duplicates and also swallows the NOT NULL failure on the row with no customer. One clause, two behaviours, and you wanted one of them.
+        - id: targeted-do-nothing
+          label: INSERT with ON CONFLICT(order_id) DO NOTHING.
+          correct: true
+          note: It names the collision you expect. A repeated order_id is skipped and a null customer still raises, because you excused only the conflict you meant to excuse.
+        - id: or-replace
+          label: INSERT OR REPLACE.
+          note: The right rows end up in the table. In SQLite it deletes the old row before re-inserting, so an ON DELETE CASCADE fires against a row that never really left.
+        - id: dedupe-first
+          label: Deduplicate the batch in Python, then plain INSERT.
+          note: That removes rows repeated inside the file, not rows already in the table. Re-running yesterday's file, which is what a retry does, still aborts.
+      hints:
+        - Two of these leave the table in the right state. They differ in what else they do on the way.
+        - The repeated rows are not the only rule this batch breaks. Ask what each clause does about the other one.
+        - One clause excuses every constraint, and one excuses only the constraint you name.
+      reveal: >-
+        OR IGNORE is a blanket. A targeted ON CONFLICT is a statement about which failure
+        you were expecting, so the failure you were not expecting still reaches you. Every
+        conflict clause decides what a duplicate means, and the load decides for you if you
+        do not.
+
+    - id: where-the-rows-went
+      kind: spot
+      prompt: >-
+        Three orders arrived with a null customer, the table declares customer NOT NULL,
+        the load reported no errors, and those three orders are not in the table. Click the
+        line that made them disappear.
+      lang: python
+      source: |
+        def load(rows, con):
+            cur = con.cursor()
+            for row in rows:
+                cur.execute(
+                    "INSERT OR IGNORE INTO orders VALUES (?, ?, ?)",
+                    (row["order_id"], row["customer"], row["placed_at"]),
+                )
+            con.commit()
+      targets: [4]
+      decoys:
+        "1": A cursor. Nothing about opening one decides what happens when a constraint is violated.
+        "5": The values go over as parameters, which is right. A placeholder cannot suppress an error.
+        "7": One commit at the end is the transaction boundary, and it is not what silenced this.
+      hints:
+        - Nothing raised and nothing was written. Only one line is in a position to arrange both.
+        - The clause on that line was added to deal with duplicate keys. Ask what else it covers.
+        - Naming the constraint you are willing to skip is what stops it covering the rest.
+      reveal: >-
+        OR IGNORE means ignore any constraint violation, not ignore the one you had in
+        mind. Three orders were dropped and the count of rows written was never compared
+        with the count of rows read, so nothing anywhere said a number that was wrong.
+
+    - id: the-upsert
+      kind: blanks
+      prompt: >-
+        Corrections arrive for orders already loaded, and sometimes an old copy of a row
+        arrives after a newer one. Finish the upsert so a correction lands and a stale
+        re-delivery does not.
+      lang: sql
+      template: |
+        INSERT INTO orders (order_id, customer, placed_at, total)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT({{1}}) DO UPDATE SET
+            customer  = {{2}}.customer,
+            placed_at = excluded.placed_at,
+            total     = excluded.total
+        WHERE orders.placed_at {{3}} excluded.placed_at;
+      blanks:
+        - n: 1
+          as: select
+          options: [order_id, customer, placed_at, total]
+          accept: [order_id]
+          note: The conflict target names the one constraint you are prepared to handle. Without a target this behaves like OR IGNORE and hides the rest.
+        - n: 2
+          as: select
+          options: [excluded, orders, new, incoming]
+          accept: [excluded]
+          note: SQLite calls the row that failed to insert excluded. Naming orders here would set every column to the value it already holds.
+        - n: 3
+          as: select
+          options: ["<", ">", "=", "<>"]
+          accept: ["<"]
+          note: The guard has to be false when the stored row is already the newer one, otherwise a late copy of yesterday's row overwrites today's correction.
+      hints:
+        - The first blank decides which collision you are handling and which ones still raise.
+        - One of these names the row that could not be inserted, and it is not called new or incoming here.
+        - Read the last line as a sentence about the row already in the table. When should it be replaced?
+      reveal: >-
+        The WHERE on an upsert is the part people leave out, and it is what makes replay
+        order stop mattering. With it, feeding the same day's rows in any order lands the
+        same table, which is the property the rest of this module is built on.
+
+    - id: the-load-report
+      kind: text-contract
+      prompt: >-
+        The loader printed this summary of the run beside it. Correct it against the log
+        until it says what actually happened.
+      context:
+        as: log
+        lines:
+          - received 12 rows from orders-2026-03-06.csv
+          - 1001 inserted
+          - 1002 inserted
+          - 1003 inserted
+          - 1004 inserted
+          - 1004 skipped, duplicate key, identical to the row already written
+          - 1005 inserted
+          - 1006 skipped, customer is null
+          - 1007 inserted
+          - 1008 inserted
+          - 1008 skipped, duplicate key, identical to the row already written
+          - 1009 inserted
+          - 1010 inserted
+      lang: json
+      initial: |
+        {
+          "received": 12,
+          "written": 10,
+          "skipped": 2
+        }
+      rules:
+        - message: The summary has to parse before any alert can read it.
+          check: { op: parses, as: json }
+        - message: received is the number of rows handed to the loader, and the log says so on its first line.
+          check: { op: equals, path: received, value: 12 }
+        - message: written is the loader's own optimistic tally. Count the inserted lines instead.
+          check: { op: equals, path: written, value: 9 }
+        - message: skipped and written have to account for every row received. They do not yet.
+          check: { op: equals, path: skipped, value: 3 }
+        - message: A single skipped count cannot be alerted on, because two duplicates are routine and one rejected row is not. Add a skipped_by_reason object.
+          check: { op: exists, path: skipped_by_reason }
+        - message: The duplicate keys were retries of rows already written. Count them under skipped_by_reason.duplicate_key.
+          check: { op: equals, path: skipped_by_reason.duplicate_key, value: 2 }
+        - message: The row with no customer was refused by a constraint, not by a retry. Count it under skipped_by_reason.null_customer.
+          check: { op: equals, path: skipped_by_reason.null_customer, value: 1 }
+      hints:
+        - Count the log rather than believing the summary. Two of its three numbers are wrong.
+        - Twelve rows arrived and every one of them ended up in exactly one of two places.
+        - Two rows were skipped for a reason you expect every night, and one was skipped for a reason you never want to see. A single total cannot tell them apart.
+      reveal: >-
+        A load that reports one number tells you nothing, because the number that matters
+        is the split. Duplicate keys holding steady at two a night is the extract retrying,
+        and one rejected row is a bug upstream. Reported together they average into silence.
+      solution: |
+        {
+          "received": 12,
+          "written": 9,
+          "skipped": 3,
+          "skipped_by_reason": {
+            "duplicate_key": 2,
+            "null_customer": 1
+          }
+        }
 ---
 
 Extract files frequently contain duplicate records caused by upstream network timeouts and automatic retries.

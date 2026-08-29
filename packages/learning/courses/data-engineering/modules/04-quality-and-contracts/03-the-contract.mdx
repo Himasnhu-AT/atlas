@@ -4,6 +4,187 @@ title: The contract
 summary: Everything in this course was one idea. Write down what you promise about a table, make the promise executable, and you have turned a pipeline into something somebody else can safely build on.
 order: 3
 estimatedMinutes: 30
+challenges:
+  goal: Write a table's promise down in a form that fails on its own when the promise stops being true.
+
+  steps:
+    - id: four-kinds-of-promise
+      kind: assign
+      prompt: Sort each clause of the orders contract onto the kind of promise it makes.
+      buckets:
+        - id: shape
+          label: Shape
+          note: Which columns exist, what types they hold, and what may be null.
+        - id: grain
+          label: Grain
+          note: What one row is.
+        - id: freshness
+          label: Freshness
+          note: When the table is expected to have changed.
+        - id: semantics
+          label: Semantics
+          note: What the numbers and words in a column actually mean.
+      items:
+        - id: id-not-null
+          label: order_id is an integer and is never null.
+          bucket: shape
+          because: A type and a nullability rule. The database can enforce this one on its own, which is what makes it the cheapest clause in the contract.
+        - id: status-enum
+          label: status holds one of shipped, pending, cancelled or refunded.
+          bucket: shape
+          because: An allowed value set is a fact about the column rather than about what the value implies, and it is checkable without knowing anything about the business.
+        - id: one-per-order
+          label: One row per order, never one row per item.
+          bucket: grain
+          because: This is the clause that stops a consumer summing a column and getting a number inflated by however many items each order happened to contain.
+        - id: sum-counts-once
+          label: Summing total across the table counts each order exactly once.
+          bucket: grain
+          because: The same promise as the one above, stated as the consequence a consumer actually depends on. If the grain changes, this sentence becomes false without any column changing.
+        - id: nightly-by-two
+          label: Rewritten nightly by 02:00 UTC and never more than 26 hours behind.
+          bucket: freshness
+          because: A cadence and a tolerance. Without the tolerance the cadence is unenforceable, because there is no hour at which you can say it has failed.
+        - id: weekday-calendar
+          label: The feed does not deliver at weekends, so Monday morning is not stale.
+          bucket: freshness
+          because: The calendar is part of the freshness promise. Leaving it out is how a correct pipeline gets an alert every Monday until the channel is muted.
+        - id: total-is-gross
+          label: total is gross, including sales tax.
+          bucket: semantics
+          because: Nothing about the column's type or nullability would change if this stopped being true, and every revenue figure downstream would move by about a fifth.
+        - id: status-at-extraction
+          label: status is the state at the moment of extraction, not the state now.
+          bucket: semantics
+          because: A consumer who reads this column as current state will report yesterday's pending orders as still pending, and no automated check on the table can tell them otherwise.
+      hints:
+        - Two of these describe the column and two describe what the column means. Those are different promises even when they concern the same column.
+        - Ask which clauses a database could enforce by itself, and which ones need somebody to have written down what a word means.
+        - Two clauses are about what a single row is, and one of them is phrased as the consequence rather than as the rule.
+      reveal: >-
+        Shape is the part a schema already enforces, which is why it is the part everybody
+        writes down. Grain and semantics are the parts that break silently, and they are
+        the parts that live only in the contract.
+
+    - id: which-change-is-safe
+      kind: choice
+      prompt: Four changes are queued for the orders table. Which one can ship on Thursday without telling anybody?
+      options:
+        - id: add-nullable
+          label: Add a nullable coupon_code column.
+          correct: true
+          note: Every existing query names the columns it wants and none of them name this one. A new nullable column is invisible to everything already written against the table.
+        - id: rename
+          label: Rename total to total_gross.
+          note: Every query selecting total fails on the next run. That is the good version of a breaking change, because it fails where somebody can see it.
+        - id: regrain
+          label: Load one row per item instead of one row per order.
+          note: Every query still runs. Every sum is now multiplied by however many items an order contained, and nobody finds out until revenue is reconciled against the ledger.
+        - id: redefine
+          label: Keep the column called total and start reporting it net of tax.
+          note: Identical columns, identical types, every number downstream about a fifth smaller. The cheapest looking change on the list and the most expensive one to find.
+        
+      hints:
+        - Three of these change what an existing query returns. One adds something no existing query has asked for.
+        - Sort them by whether they raise an error or quietly return a different number. The quiet ones cost the most.
+        - A column nobody has written a query against yet cannot break anybody's query.
+      reveal: >-
+        Additive changes are safe because consumers named their columns. Everything else
+        needs notice, and the ones that need it most are the ones where the shape is
+        untouched and only the meaning moved.
+
+    - id: shipping-the-break
+      kind: order
+      prompt: The grain really does have to change. Put the rollout in the order that never leaves a consumer reading a table that has quietly changed underneath them.
+      items:
+        - { id: announce, label: Tell the consumers what changes and name the date }
+        - { id: publish, label: Publish orders_v2 beside orders, loading both }
+        - { id: migrate, label: Move each consumer's queries onto orders_v2 }
+        - { id: verify, label: Check the query log shows nobody reading orders }
+        - { id: drop, label: Stop loading orders and drop it }
+      solution: [announce, publish, migrate, verify, drop]
+      because:
+        publish: Nothing can migrate onto a table that does not exist yet, so the new grain has to be readable before anybody is asked to move.
+        migrate: Consumers move themselves, one at a time, while the old table is still correct. This is the whole reason both are loaded.
+        verify: Ask the query log rather than the consumers. Somebody always forgets a scheduled report, and the log knows about it and they do not.
+        drop: Last, and only once the log has been quiet for long enough to cover a monthly job.
+      hints:
+        - The only step that destroys anything goes last, and the only step that costs nothing goes first.
+        - Both tables exist at the same time for most of this. Work out when that period starts and when it is safe to end it.
+        - Between moving the consumers and dropping the old table there is a step that does not trust anybody's word for it.
+      reveal: >-
+        A versioned transition is two tables and a period of paying for both. That cost is
+        the price of never having a consumer read a number that means something different
+        from what it meant last week, and it is almost always the cheaper side.
+
+    - id: make-it-executable
+      kind: blanks
+      prompt: >-
+        Each comment is a clause of the contract. Finish the assertion underneath it so
+        the clause fails on its own when it stops being true.
+      lang: python
+      template: |
+        # grain: one row per order
+        assert count("SELECT count(*) FROM orders") == \
+               count("SELECT count(DISTINCT {{1}}) FROM orders")
+
+        # shape: order_id is never null
+        assert count("SELECT count(*) FROM orders WHERE {{2}}") == 0
+
+        # semantics: total is gross, so it never falls below the subtotal
+        assert count("SELECT count(*) FROM orders WHERE total < {{3}}") == 0
+
+        # freshness: nightly, measured on the timestamp the source stamps
+        assert hours_since(latest("SELECT max({{4}}) FROM orders")) < 26
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - order_id
+            - customer
+            - status
+            - total
+          accept:
+            - order_id
+          note: Grain is one row per order, so the row count and the count of distinct order ids have to be the same number. Any other column would be distinct far less often.
+        - n: 2
+          as: select
+          options:
+            - order_id IS NULL
+            - order_id IS NOT NULL
+            - order_id = 0
+            - "order_id = ''"
+          accept:
+            - order_id IS NULL
+          note: You are counting the rows that violate the clause and asserting there are none. Counting the ones that satisfy it would give you the row count.
+        - n: 3
+          as: select
+          options:
+            - subtotal
+            - total
+            - tax
+            - '0'
+          accept:
+            - subtotal
+          note: Gross means tax has been added, so total is at or above subtotal on every row. Comparing against zero would pass on a table where tax had been subtracted twice.
+        - n: 4
+          as: select
+          options:
+            - placed_at
+            - loaded_at
+            - order_id
+            - status
+          accept:
+            - placed_at
+          note: loaded_at is stamped by your own pipeline and stays fresh on a night when nothing arrived. The clause is about the source, so measure the column the source fills in.
+      hints:
+        - Three of the four are counting rows that break the rule and asserting the count is zero. Work out which rows break each rule.
+        - The grain assertion is the odd one out. It compares two counts rather than looking for offending rows.
+        - Distinct order ids for the first, IS NULL for the second, subtotal for the third, and the timestamp the source stamps for the fourth.
+      reveal: >-
+        A contract in a wiki page drifts from the pipeline the first week somebody is in a
+        hurry. The same four sentences as assertions in the repository cannot drift,
+        because the run that breaks one of them is the run that tells you.
 ---
 
 Data pipelines establish structural commitments about published datasets. Making these commitments explicit turns an internal transformation workflow into an interface that downstream teams can depend on.

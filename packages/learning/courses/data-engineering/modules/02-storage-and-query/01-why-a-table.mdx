@@ -4,6 +4,173 @@ title: Why a table
 summary: A list of dicts holds whatever you put in it. A table refuses, and the refusal is the feature you are actually buying.
 order: 1
 estimatedMinutes: 20
+challenges:
+  goal: Name the constraint that would have refused each bad row, then write the table that refuses them.
+
+  steps:
+    - id: which-constraint-catches-it
+      kind: assign
+      prompt: >-
+        Eight rows reached a list of dicts without complaint. Sort each one onto the
+        constraint that would have stopped it at the table.
+      buckets:
+        - id: primary-key
+          label: PRIMARY KEY
+          note: One row per entity. A second arrival of an id already present is refused.
+        - id: not-null
+          label: NOT NULL
+          note: The column has to hold something. Absent and null are the same refusal.
+        - id: column-type
+          label: Column type
+          note: Under STRICT the declared type is checked on write rather than preferred.
+        - id: foreign-key
+          label: REFERENCES
+          note: The value has to name a row that exists in the table it points at.
+      items:
+        - id: retry-duplicate
+          label: A network timeout made the extract retry, so order 1004 arrives a second time.
+          bucket: primary-key
+          because: Identical content, and an id already in the table. This is the common case, and it is why a load has to decide what a duplicate key means before it meets one.
+        - id: recycled-id
+          label: Two different orders were both written with order_id 1007.
+          bucket: primary-key
+          because: The same refusal as a retry with a far worse cause. Without the key both rows survive and a lookup by id returns whichever one the query reaches first.
+        - id: missing-customer
+          label: An order arrives with no customer field at all.
+          bucket: not-null
+          because: A dict without the key and a dict with the key set to None are the same row once written, and NOT NULL refuses both.
+        - id: null-placed-at
+          label: placed_at is null because the source had not stamped it when the extract ran.
+          bucket: not-null
+          because: A null timestamp means every date filter downstream excludes the row without saying so, which is the failure that takes longest to notice.
+        - id: quantity-two
+          label: quantity holds the string "two".
+          bucket: column-type
+          because: A word where a number belongs. Any sum over the column now depends on which rows the engine decided it could coerce.
+        - id: total-as-float
+          label: total arrives as the float 19.99 for a column meant to hold exact decimal text.
+          bucket: column-type
+          because: Binary floating point has no exact 19.99, so what comes back out is not what went in. Only the declared type is in a position to refuse it.
+        - id: unknown-customer
+          label: An order names dave@example.com, and the customers table has never heard of them.
+          bucket: foreign-key
+          because: An orphan. Every join to customers drops this order, so it becomes a row missing from a revenue total rather than an error anybody sees.
+        - id: deleted-customer
+          label: A customer row was deleted last night and their orders still point at it.
+          bucket: foreign-key
+          because: The same orphan made after the fact, which is why the constraint has to be checked on delete as well as on insert.
+      hints:
+        - Two of these are one row arriving twice, and two are a column holding a value of the wrong kind.
+        - Ask what the database has to read before it can refuse each one, the row in front of it or a row in another table.
+        - Only two of them cannot be decided from the incoming row alone.
+      reveal: >-
+        None of these are exotic and a list of dicts accepts all eight. Each one becomes a
+        wrong number rather than an error. Declaring them at the table moves the refusal to
+        the write, which is the one place every write path has to pass through.
+
+    - id: what-affinity-does
+      kind: choice
+      prompt: The column is declared INTEGER and the load inserts the string "two". What does a default SQLite table do with it?
+      context:
+        as: code
+        lang: sql
+        source: |
+          CREATE TABLE orders (quantity INTEGER);
+          INSERT INTO orders VALUES ('two');
+      options:
+        - id: rejects
+          label: Refuses the insert, because the column says INTEGER.
+          note: That is what a STRICT table does, and STRICT has to be asked for. Assuming a plain column type already behaves this way is how the string reaches the table.
+        - id: coerces
+          label: Converts it to the integer 2.
+          note: There is nothing to convert. Affinity turns the text "2" into 2 because that text is a number written down, and the word "two" is not.
+        - id: stores-text
+          label: Stores the text "two" in the column declared INTEGER.
+          correct: true
+          note: Affinity is a preference applied when a conversion exists and dropped when it does not. The column now holds two types and every sum over it is a guess.
+        - id: stores-null
+          label: Stores null, and warns.
+          note: SQLite has no warnings, and it does not silently discard a value you supplied. Nothing is lost here, and that is the problem, because the bad value survives intact.
+      hints:
+        - The word affinity is doing real work in the documentation. It is not a synonym for type.
+        - Work out what would have to happen for the text "two" to become a number.
+        - The insert succeeds. The question is what is sitting in the column afterwards.
+      reveal: >-
+        A column type in a default SQLite table is a conversion preference, applied where a
+        conversion exists and ignored where it does not. STRICT turns it into the
+        constraint you assumed it already was, and nothing turns it on for you.
+
+    - id: the-line-that-breaks
+      kind: spot
+      prompt: >-
+        This load ran for months and then failed on a customer called O'Brien. Click the
+        line that let a name break the statement.
+      lang: python
+      source: |
+        def load(rows, con):
+            cur = con.cursor()
+            cur.execute("BEGIN")
+            for row in rows:
+                oid, name = row["order_id"], row["customer"]
+                cur.execute(f"INSERT INTO orders VALUES ({oid}, '{name}')")
+            con.commit()
+      targets: [5]
+      decoys:
+        "2": Opening one transaction around the whole batch is right. It is what stops a failure halfway through leaving part of the file loaded.
+        "4": Pulling the two fields out of the row is fine. The values are not the problem. Where they end up is.
+        "6": Committing once at the end is the other half of the transaction, and it belongs there.
+      hints:
+        - The apostrophe in O'Brien means nothing to Python. Work out what it does mean something to.
+        - One line stops treating these as values and turns them into statement text. Everything after that point sees only the statement.
+        - The fix is one line long, and it is not escaping the apostrophe.
+      reveal: >-
+        A placeholder hands the value to the driver alongside the statement instead of
+        inside it, so an apostrophe stays an apostrophe. O'Brien is the polite version of
+        this bug. The rude version is a value that ends your statement and starts another.
+
+    - id: declare-the-refusal
+      kind: text-contract
+      prompt: >-
+        This table accepts every bad row from the first challenge. Change the declaration
+        until it refuses them.
+      lang: sql
+      initial: |
+        CREATE TABLE orders (
+            order_id   INTEGER,
+            customer   TEXT,
+            placed_at  TEXT,
+            quantity   INTEGER,
+            total      REAL
+        );
+      rules:
+        - message: Nothing stops order 1004 being written twice. Declare order_id as the primary key.
+          check: { op: matches, pattern: 'order_id\s+INTEGER\s+PRIMARY KEY', flags: i }
+        - message: customer may still be null, and an order with nobody attached cannot be joined, invoiced or counted.
+          check: { op: matches, pattern: 'customer\s+TEXT\s+NOT NULL', flags: i }
+        - message: placed_at may still be null, and a null timestamp is invisible to every date filter downstream.
+          check: { op: matches, pattern: 'placed_at\s+TEXT\s+NOT NULL', flags: i }
+        - message: total is REAL, and binary floating point holds no exact 19.99. Keep money as exact text, and never null.
+          check: { op: matches, pattern: 'total\s+TEXT\s+NOT NULL', flags: i }
+        - message: quantity is nullable on purpose. An order can ship before anyone has counted the items, and refusing that row loses a real order.
+          check: { op: notMatches, pattern: 'quantity\s+INTEGER\s+NOT NULL', flags: i }
+        - message: Without STRICT the types above are still preferences. It goes after the closing bracket.
+          check: { op: matches, pattern: '\)\s*STRICT', flags: i }
+      hints:
+        - Four of the five columns need something added, and one of them needs to be left alone.
+        - Two of the changes are constraints on a column, one is a column whose type is wrong, and one applies to the whole table.
+        - The last change is a single word, and without it every type above it is only a suggestion.
+      reveal: >-
+        Every clause here is a row you never have to go looking for later. The cost is that
+        the load now fails on rows it used to accept, and that is the whole trade: an error
+        at the boundary instead of a wrong number in a report six weeks from now.
+      solution: |
+        CREATE TABLE orders (
+            order_id   INTEGER PRIMARY KEY,
+            customer   TEXT NOT NULL,
+            placed_at  TEXT NOT NULL,
+            quantity   INTEGER,
+            total      TEXT NOT NULL
+        ) STRICT;
 ---
 
 In-memory data structures like lists of dictionaries allow arbitrary keys and variable types. While flexible during initial prototyping, they rely on application-level discipline to maintain consistency.
