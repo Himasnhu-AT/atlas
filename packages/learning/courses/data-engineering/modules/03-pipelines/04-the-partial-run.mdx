@@ -7,6 +7,214 @@ estimatedMinutes: 30
 exercise:
   id: resumable-run
   timeboxMinutes: 30
+challenges:
+  goal: Resume a run that stopped halfway without redoing the work it finished or skipping the work it did not.
+
+  steps:
+    - id: what-the-log-says-to-do
+      kind: assign
+      prompt: >-
+        A runner restarts and reads its own run log. Sort each row onto what it should do
+        with that partition.
+      buckets:
+        - id: skip
+          label: Leave it alone
+          note: Either the work is finished or somebody else is doing it.
+        - id: rerun
+          label: Run it again
+          note: The partition is idempotent, so repeating it costs time and nothing else.
+        - id: halt
+          label: Stop the whole run
+          note: Continuing would burn through the remaining partitions failing the same way.
+      items:
+        - id: done-with-rows
+          label: done, finished_at set, 4102 rows written.
+          bucket: skip
+          because: The only row in the log that means what it says, because the write that justified it committed before it was recorded.
+        - id: done-with-zero
+          label: done, finished_at set, 0 rows written.
+          bucket: skip
+          because: A day with no orders is a real day. Deciding zero looks suspicious is how a resume undoes work the run had already got right.
+        - id: running-fresh
+          label: running, started forty seconds ago, and that process is still alive.
+          bucket: skip
+          because: Another runner holds this partition. A second writer is exactly what the primary key on the partition column exists to refuse.
+        - id: running-stale
+          label: running, started six hours ago, no finished_at, no process anywhere.
+          bucket: rerun
+          because: The signature of an interrupted job. Nothing can say how far it got, which is why the partition write has to be one that does not care.
+        - id: failed-transient
+          label: failed, and the error recorded against it is a connection reset.
+          bucket: rerun
+          because: A failure that says nothing about the data. Recording it as state rather than crashing is what let the run carry on past it and come back.
+        - id: failed-repeatedly
+          label: failed on all three attempts, each time on the same missing column.
+          bucket: halt
+          because: A fourth attempt fails the same way. The run log turned a crash into a diagnosis, and the diagnosis is that this needs a person.
+        - id: three-consecutive
+          label: The three partitions before this one all failed, all reporting no space left on device.
+          bucket: halt
+          because: Nothing about the partitions and everything about the host. Continuing means writing twenty-seven more failure rows about a disk.
+      hints:
+        - Two rows in a log like this are lies told by an earlier crash, and only one of the two is safe to act on.
+        - A failure that names the data and a failure that names the machine deserve different answers.
+        - One of these partitions is being worked on right now by somebody else.
+      reveal: >-
+        The run log turns three different crashes into three different rows, which is the
+        entire point of writing it down. A process that dies leaves running, a bad partition
+        leaves failed with a reason, and a bad host leaves failed three times in a row. None
+        of those are distinguishable from a stack trace and a restart.
+
+    - id: the-status-that-lied
+      kind: spot
+      prompt: >-
+        The runner was killed partway through, the resume skipped a partition, and that
+        partition holds no rows. Click the line that let it be skipped.
+      lang: python
+      source: |
+        def resume(con, log, days):
+            for day in days:
+                if log.status(day) == "done":
+                    continue
+                log.mark(day, "running")
+                rows = extract(day)
+                log.mark(day, "done", rows_written=len(rows))
+                with con:
+                    replace_partition(con, "orders", day, rows)
+      targets: [6]
+      decoys:
+        "2": Skipping partitions the log calls done is what resuming means. This line believed the log, and the log was wrong before it got here.
+        "4": Claiming the partition before starting work is right, and it is what leaves the interrupted marker a later run can recognise.
+        "8": Replacing the partition inside a transaction is both correct and idempotent, so running it again costs nothing. It is not what stopped it being run again.
+      hints:
+        - The log and the table are two separate stores here, so one of them is written first. Find the line that decides which.
+        - One line makes a claim about work that has not happened yet.
+        - Ask what the next runner sees if the process dies on the line immediately after each one.
+      reveal: >-
+        Recording a partition as done before the rows commit makes the log a promise the
+        next run cannot check and has no reason to doubt. Moving that line below the write
+        turns the same crash into a partition still marked running, which the resume can
+        see and redo. The cost of getting it backwards is silence.
+
+    - id: when-does-it-give-up
+      kind: numeric
+      prompt: >-
+        The runner aborts after three failed partitions in a row. How many partitions does
+        it attempt before it stops?
+      context:
+        as: log
+        lines:
+          - the range is thirty partitions, run oldest first
+          - partition 2026-02-01 will succeed
+          - partition 2026-02-02 will succeed
+          - partition 2026-02-03 will fail
+          - partition 2026-02-04 will succeed
+          - partition 2026-02-05 will fail
+          - partition 2026-02-06 will fail
+          - partition 2026-02-07 will succeed
+          - partition 2026-02-08 will fail
+          - partition 2026-02-09 will fail
+          - partition 2026-02-10 will fail
+          - partition 2026-02-11 will fail
+          - partition 2026-02-12 will succeed
+          - the remaining eighteen would all succeed
+      answer: 10
+      unit: partitions
+      scaleHint: >-
+        An answer near thirty is the length of the range, and the run does not get to the
+        end of it. An answer near one is a partition number rather than a count of
+        attempts.
+      hints:
+        - The threshold counts failures next to each other, not failures altogether.
+        - Seven partitions here fail, and the runner does not stop on the seventh.
+        - A partition that succeeds puts the counter back to zero.
+      reveal: >-
+        The counter resets on every success, which is what separates a bad day upstream
+        from a broken host. Three scattered failures across a month is a data problem worth
+        a ticket. Three in a row is the disk, the network or the credentials, and every
+        further attempt writes another failure row about the same thing.
+
+    - id: resume-without-doubling
+      kind: machine
+      prompt: >-
+        This is the partition the runner dies on, and that part is not yours to choose.
+        Finish with five hundred rows written once and a log that tells the truth.
+      initial: start
+      vars: { rows: 0, settled: 0 }
+      states:
+        start:
+          label: Not attempted
+          note: The run log has no row for this partition and the target holds nothing for it.
+        claimed:
+          label: Claimed as running
+          note: The log says running. No rows have been written.
+        marked:
+          label: Log says done, target empty
+          note: The log records the partition as finished. Nothing has been written to the table.
+        written:
+          label: Rows written, log still running
+          note: Five hundred rows are committed. The log has not caught up.
+        resume-after-mark:
+          label: A new runner starts, log says done
+        resume-after-write:
+          label: A new runner starts, log says running
+        finished:
+          label: Run over
+          terminal: true
+      transitions:
+        - from: start
+          on: Claim the partition as running
+          to: claimed
+          note: Inserting the running row first is what gives a later runner something to recognise, and the primary key on it is what keeps two runners apart.
+        - from: claimed
+          on: Mark it done, then write
+          to: marked
+          note: The log now says the partition is finished and the table has nothing in it.
+        - from: claimed
+          on: Write the rows, then mark it done
+          to: written
+          effects: [{ var: rows, op: set, value: 500 }]
+          note: The rows commit first, so the worst the log can be is behind rather than ahead.
+        - from: marked
+          on: The process is killed
+          to: resume-after-mark
+          note: Whatever was going to happen next did not happen.
+        - from: written
+          on: The process is killed
+          to: resume-after-write
+          note: Whatever was going to happen next did not happen.
+        - from: resume-after-mark
+          on: Skip what the log calls done
+          to: finished
+          effects: [{ var: settled, op: set, value: 1 }]
+          note: The resume has only the log to read and the log says finished. There is no signal anywhere that says otherwise.
+        - from: resume-after-write
+          on: Re-run what the log calls running
+          to: finished
+          effects: [{ var: rows, op: set, value: 500 }, { var: settled, op: set, value: 1 }]
+          note: The partition write states what the day should hold, so redoing it lands on the same five hundred rows it landed on before.
+        - from: resume-after-write
+          on: Append its rows and mark it done
+          to: finished
+          effects: [{ var: rows, op: inc, value: 500 }, { var: settled, op: set, value: 1 }]
+          note: A resume is only cheap when the write it repeats is a replacement. An append turns the retry into the second half of a double count.
+      mode: drive
+      win:
+        state: finished
+        maxSteps: 8
+        requires:
+          - { var: rows, cmp: eq, value: 500 }
+          - { var: settled, cmp: eq, value: 1 }
+      hints:
+        - The log and the table commit separately here, so one of them goes first. Decide which one you would rather have wrong.
+        - After the crash the next runner has nothing but the log. Ask what each ordering left it to read.
+        - Re-running an interrupted partition is free only when the write says what the day should contain rather than what to add.
+      reveal: >-
+        Recording a partition as done before its rows land makes the log a claim nothing can
+        contradict, and the resume believes it. Writing first leaves the log behind, which
+        is a state the resume can see and repair. That repair is free only because replacing
+        a partition is idempotent, so the run log is worth exactly what the write beneath it
+        is worth.
 ---
 
 When a long-running batch job processing thirty historical partitions fails on partition twenty, restarting the entire job from the beginning introduces unnecessary latency, source database strain, and additional opportunities for transient failures.

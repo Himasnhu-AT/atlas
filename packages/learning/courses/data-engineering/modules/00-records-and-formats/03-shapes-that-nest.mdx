@@ -7,6 +7,158 @@ estimatedMinutes: 25
 exercise:
   id: flatten-records
   timeboxMinutes: 25
+challenges:
+  goal: Turn a nested document into rows, and know which grain the number you just computed belongs to.
+
+  steps:
+    - id: flatten-the-object
+      kind: text-contract
+      prompt: >-
+        Flatten this order for a table. The nested customer becomes columns; the items
+        list stays where it is.
+      lang: json
+      initial: |
+        {
+          "order_id": 1003,
+          "customer": {"email": "lin@example.com", "country": "SG"},
+          "items": [{"sku": "A-1", "quantity": 2}, {"sku": "B-7", "quantity": 1}],
+          "total": 1499.00
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The customer object is still nested. A column holding an object is not a column.
+          check: { op: absent, path: customer }
+        - message: Name each flattened column by the path that reached it, joined with a dot. The email is missing.
+          check: { op: contains, text: '"customer.email"' }
+        - message: The country came from the same object and needs the same treatment.
+          check: { op: contains, text: '"customer.country"' }
+        - message: The items list has to survive. Removing it loses what was ordered.
+          check: { op: exists, path: items }
+        - message: Leave items as a list. Flattening it into items.0.sku makes the column names depend on how many items the order had.
+          check: { op: type, path: items, is: array }
+        - message: The total is a number and has to stay one. Quoting it here is how a sum turns into string concatenation later.
+          check: { op: type, path: total, is: number }
+      hints:
+        - Two of the four fields are already columns. One of the other two becomes columns and one does not.
+        - A dict under a key becomes several keys. A list under a key is a different problem, and this is not where it gets solved.
+        - Replace the customer object with two keys whose names carry the path, and leave items exactly as it is.
+      reveal: >-
+        Dotted keys handle objects and stop dead at lists, because an order with three
+        items and an order with one would end up with different column names. That is the
+        line between flattening and exploding.
+      solution: |
+        {
+          "order_id": 1003,
+          "customer.email": "lin@example.com",
+          "customer.country": "SG",
+          "items": [{"sku": "A-1", "quantity": 2}, {"sku": "B-7", "quantity": 1}],
+          "total": 1499.00
+        }
+
+    - id: three-ways-to-land-a-list
+      kind: assign
+      prompt: Sort each consequence onto the strategy that produces it.
+      buckets:
+        - id: dotted
+          label: Dotted keys
+          note: Nested keys become column names joined by a dot.
+        - id: explode
+          label: One row per element
+          note: The list is unnested into rows.
+        - id: serialised
+          label: The list stored as text
+          note: The array is kept in one column as raw JSON.
+      items:
+        - id: handles-objects-only
+          label: It solves the customer object and does nothing at all about items.
+          bucket: dotted
+          because: A list under a key is not a nested object, so the rule that flattens objects has no opinion about it.
+        - id: row-count-unchanged
+          label: One row per order still, and the item detail is unreachable from SQL.
+          bucket: serialised
+          because: The cardinality is preserved, which is the point, and the cost is that the query engine sees a string rather than fields.
+        - id: total-appears-twice
+          label: The 1499 total appears on two rows and sums to 2998.
+          bucket: explode
+          because: The parent attributes are copied onto every child row, so any aggregate over them counts each order once per item.
+        - id: item-rows-joinable
+          label: Two rows, each carrying the order id so it can be joined back.
+          bucket: explode
+          because: Repeating the key is what makes the child rows usable, and it is also exactly what makes the parent columns unsafe to sum.
+        - id: needs-parsing-first
+          label: Filtering on a sku means parsing a string inside the query.
+          bucket: serialised
+          because: The structure is still there and the engine cannot see it, which is the whole trade being made.
+        - id: column-per-path
+          label: customer.email and customer.country become two ordinary columns.
+          bucket: dotted
+          because: Every leaf gets a name built from the path down to it, which is why the schema is stable across documents.
+      hints:
+        - Two of these change how many rows you end up with. Work out which two first.
+        - Only one strategy keeps the array intact, and the cost lands on whoever writes the query rather than on the loader.
+        - The one that duplicates a parent value is the one that produced more rows than it was given.
+      reveal: >-
+        The relational answer is neither of the three on its own. An orders table and an
+        order_items table, joined on the key, keeps both grains addressable. Flattening
+        earlier than that means carrying the grain in your head instead.
+
+    - id: the-inflated-total
+      kind: numeric
+      prompt: >-
+        These are the two rows the explode produced. Somebody sums the total column to
+        get the day's revenue. What number do they get?
+      context:
+        as: table
+        caption: Exploded item rows for order 1003
+        columns: [order_id, sku, quantity, total]
+        rows:
+          - [1003, 'A-1', 2, 1499.00]
+          - [1003, 'B-7', 1, 1499.00]
+      answer: 2998
+      tolerance: 0
+      scaleHint: Check which column you are adding and how many rows carry it. This is an addition, not a rate.
+      hints:
+        - Read the total column as it stands rather than as you think it should be.
+        - The value on each row is the whole order, not that item's share of it.
+        - Two rows, 1499 on each, and nothing in the table says they describe one order.
+      reveal: >-
+        The order was worth 1499. The report says 2998, which is a plausible number for a
+        real day, so nobody queries it. That is what makes the grain mismatch the most
+        expensive bug in this module.
+
+    - id: revenue-at-the-right-grain
+      kind: choice
+      prompt: You have those exploded rows and you need the day's revenue. What do you run?
+      context:
+        as: table
+        columns: [order_id, sku, quantity, total]
+        rows:
+          - [1003, 'A-1', 2, 1499.00]
+          - [1003, 'B-7', 1, 1499.00]
+          - [1004, 'C-2', 1, 29.99]
+      options:
+        - id: plain-sum
+          label: sum(total)
+          note: 3027.99 for two orders worth 1528.99. Every order contributes once per item it happened to contain.
+        - id: distinct-sum
+          label: sum(distinct total)
+          note: Right on this data and wrong on the next day. Two different orders that both came to 29.99 would collapse into one.
+        - id: divide-by-items
+          label: sum(total) divided by the number of rows
+          note: This produces an average of something nobody asked for. Dividing by rows does not undo a duplication that is uneven across orders.
+        - id: one-row-per-order
+          label: Take one row per order id first, then sum that.
+          correct: true
+          note: The total belongs to the order grain, so it has to be reduced to that grain before it is added. This is the only option that stays right when one order has six items and another has one.
+      hints:
+        - The column is measured per order and the table is stored per item. Those are different things to count.
+        - One of these is right on this data by accident. Try it against two orders that happen to cost the same.
+        - Get back to one row per order before you add anything measured per order.
+      reveal: >-
+        Every aggregate carries an assumption about grain, and the assumption is almost
+        never written down. When a number looks high, the first question is which grain
+        the table is at and which grain the column belongs to.
 ---
 
 Flat files treat every column as a scalar, often serialized as text. API payloads frequently deliver structured, hierarchical documents:

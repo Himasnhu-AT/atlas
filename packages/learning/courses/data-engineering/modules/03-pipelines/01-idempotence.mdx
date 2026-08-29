@@ -4,6 +4,185 @@ title: Idempotence
 summary: A job you cannot safely run twice is a job you cannot safely run at all, because sooner or later something will run it twice and it will not be you.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Tell a write that survives being replayed from one that quietly doubles, and drive a job through the retry it will get.
+
+  steps:
+    - id: what-a-second-run-does
+      kind: assign
+      prompt: >-
+        Each of these is the whole of what one pipeline step does. Sort them by what the
+        second run over the same input leaves behind.
+      buckets:
+        - id: unchanged
+          label: The same state as one run
+          note: Running it again lands where the first run landed.
+        - id: more-rows
+          label: More rows than one run
+          note: The second pass adds records the first pass already wrote.
+        - id: bigger-number
+          label: A number that moved
+          note: No new rows, and a stored figure that no longer matches reality.
+        - id: outside
+          label: The table is fine, the world is not
+          note: Storage ends up correct and something outside the database happened twice.
+      items:
+        - id: plain-insert
+          label: INSERT INTO orders VALUES (?, ?, ?) for every row in the extract.
+          bucket: more-rows
+          because: Nothing here asks what is already there. With a primary key the second run fails instead, which is louder but still not a run you can repeat.
+        - id: append-file
+          label: Open the day's output file in append mode and write the batch to it.
+          bucket: more-rows
+          because: The same shape as the unconditional insert, with no key available to make it fail loudly. A file has no constraints, so the duplication is silent.
+        - id: accumulate
+          label: UPDATE totals SET amount = amount + ? WHERE day = ?
+          bucket: bigger-number
+          because: Correct exactly once. Nothing in the statement remembers what it has already added, so there is no conflict clause that could repair it.
+        - id: bump-counter
+          label: UPDATE runs SET n = n + 1 WHERE job = ?
+          bucket: bigger-number
+          because: The same accumulation, and a good example of why it is not always a bug. A count of executions is meant to move on every run.
+        - id: upsert
+          label: INSERT with ON CONFLICT(order_id) DO UPDATE SET total = excluded.total
+          bucket: unchanged
+          because: The row is addressed by its key rather than appended, so a second run overwrites what the first run wrote with the same values.
+        - id: replace-partition
+          label: DELETE the day's rows, then insert the day's rows, in one transaction.
+          bucket: unchanged
+          because: The write states what the partition should contain rather than what to add to it, so replaying it repairs a half-written partition instead of doubling it.
+        - id: derive-total
+          label: Recompute the day's total from the orders table and write it keyed by day.
+          bucket: unchanged
+          because: Derived from the rows rather than accumulated across runs. Two runs read the same rows and compute the same figure.
+        - id: notify-customer
+          label: Email each customer whose order was loaded, as the row is written.
+          bucket: outside
+          because: An upsert can correct a row. Nothing can unsend a mail, which is why external effects wait until the transaction that justified them has committed.
+      hints:
+        - Read each one as a sentence about the state it is writing into. Some of them mention that state and some do not.
+        - Two of these add to something rather than setting it, and only one of the two is a bug.
+        - One of them leaves the database in exactly the right condition and is still the worst one on the list to run twice.
+      reveal: >-
+        The safe three all name what the result should be. The unsafe ones all describe a
+        change to apply, and a change applied twice is applied twice. That is the whole
+        distinction, and it is why partition replacement and keyed upserts keep turning up
+        as the answer.
+
+    - id: the-lines-that-double
+      kind: spot
+      prompt: >-
+        The scheduler retried this on Tuesday after a timeout. Click every line that made
+        the second run leave a different table from the first.
+      lang: python
+      source: |
+        def run(day, con):
+            rows = extract(day)
+            cur = con.cursor()
+            for r in rows:
+                cur.execute("INSERT INTO orders VALUES (?, ?, ?)", r)
+            cur.execute(
+                "UPDATE daily_totals SET amount = amount + ? WHERE day = ?",
+                (sum(r[2] for r in rows), day),
+            )
+            con.commit()
+            notify(f"loaded {len(rows)} rows for {day}")
+      targets: [4, 6]
+      decoys:
+        "1": Extracting the same day twice returns the same rows. Reading is the part of a pipeline where repeating yourself is always safe.
+        "7": Summing the batch in hand is arithmetic over local data. It produces the same figure on every run.
+        "9": One commit at the end decides when the writes become visible. It has no opinion on what they were.
+      hints:
+        - Reading the input again is harmless. Look at what each write assumes about what it is writing into.
+        - One line adds rows without asking whether they are there already, and one adds to a number without asking what the number was.
+        - There are two, and only one of them can be repaired by changing the statement.
+      reveal: >-
+        Both lines are correct on a first run, which is exactly why they ship. The insert
+        has a fix, which is a key and a conflict clause. The accumulating update has none,
+        because nothing in it can tell a first run from a fourth. Deriving the total from
+        the orders table is the only version of that line that survives a retry.
+
+    - id: survive-the-retry
+      kind: machine
+      prompt: >-
+        The scheduler will interrupt the first attempt and run the job again, and you do
+        not get to decide when. Land the partition on exactly 100 rows.
+      initial: ready
+      vars: { rows: 0, attempts: 0 }
+      states:
+        ready:
+          label: Ready to run
+          note: The extract holds 100 rows for 2026-03-06. The target holds whatever the last attempt left in it.
+        running:
+          label: Writing
+          note: The rows are going in. Nothing has been recorded as finished yet.
+        settled:
+          label: Recorded as done
+          terminal: true
+      transitions:
+        - from: ready
+          on: Append the 100 rows
+          to: running
+          effects: [{ var: rows, op: inc, value: 100 }]
+          note: An unconditional insert. It adds a hundred rows to whatever is already in the partition.
+        - from: ready
+          on: Replace the day's partition
+          to: running
+          effects: [{ var: rows, op: set, value: 100 }]
+          note: Delete the day and insert the day, in one transaction. It states what the partition should contain.
+        - from: running
+          on: The scheduler loses the worker
+          to: ready
+          when: [{ var: attempts, cmp: lt, value: 1 }]
+          effects: [{ var: attempts, op: inc, value: 1 }]
+          note: The interruption the first attempt was always going to get. Whatever had been written stayed written.
+        - from: running
+          on: Commit and record the run
+          to: settled
+          when: [{ var: attempts, cmp: gte, value: 1 }]
+          note: The run finishes. The partition holds whatever the attempts before it left there.
+      mode: drive
+      win:
+        state: settled
+        maxSteps: 6
+        requires: [{ var: rows, cmp: eq, value: 100 }]
+      hints:
+        - The first attempt cannot finish. Pick the write that does not mind being started twice.
+        - One of the two writes says how many rows to add and the other says what the day should hold.
+        - A hundred rows added to a partition that already holds a hundred is not a bug in the scheduler.
+      reveal: >-
+        Neither write is wrong on a clean run, only one is right on a retry, and nobody
+        gets to choose which kind of run they are having. Saying what the partition should
+        contain rather than what to add to it turns a replay into a repair.
+
+    - id: the-limit-of-idempotence
+      kind: choice
+      prompt: >-
+        Monday's extract returned zero rows because the source was mid-migration. The
+        delete-then-insert replacement ran, and Monday's partition is now empty. Which
+        guard would have stopped it?
+      options:
+        - id: skip-empty
+          label: Skip the partition whenever the extract has zero rows.
+          note: It stops today's incident and also stops the day a shop genuinely closes, so that partition keeps stale rows for good. It says nothing about an extract that returned three rows instead of three thousand.
+        - id: upsert-only
+          label: Use upserts and never delete anything.
+          note: Nothing gets emptied, and nothing gets removed either, so a partition that legitimately shrank keeps rows the source no longer has. It swaps a visible failure for an invisible one.
+        - id: validate-input
+          label: Compare the extract against what the partition held before, and refuse to write when it falls outside the expected range.
+          correct: true
+          note: The write is gated on a fact about the input rather than about the run. Zero rows fails, a tenth of the usual volume fails, and a real holiday is a threshold somebody chose on purpose.
+        - id: wrap-transaction
+          label: Wrap the delete and the insert in one transaction.
+          note: Already the case here, and it is what made the emptying atomic. A transaction promises the partition is all old or all new. It has no opinion on whether the new one is any good.
+      hints:
+        - The replacement did exactly what it was told. The question is what it should have been asked before it was told.
+        - Two runs landing the same state says nothing about whether that state is right.
+        - One option refuses every empty day, and one refuses the days that do not resemble the days before them.
+      reveal: >-
+        Idempotence is a property of the operation and validation is a property of the
+        input, and delete-then-insert is what makes the second one mandatory. Replacing a
+        partition is the only write in this course that can destroy data it was never sent.
 ---
 
 Data pipelines regularly execute multiple times across the same input dataset. Schedulers retry failed tasks after network timeouts, backfill jobs reprocess historical partitions, and deployment rollouts replay queue messages.

@@ -4,6 +4,173 @@ title: What a record is
 summary: A row is a claim about something that happened. Most of the difficulty in this job comes from rows that make a claim they cannot support, and from pipelines that pass them along anyway.
 order: 1
 estimatedMinutes: 20
+challenges:
+  goal: Read a row as a claim, and decide what to do with the part of it the source never sent.
+
+  steps:
+    - id: rows-that-cannot-count
+      kind: spot
+      prompt: >-
+        This is the extract the course works on. Click every row whose quantity
+        column cannot be added to a total.
+      lang: text
+      source: |
+        order_id,customer,placed_at,quantity,total,status
+        1001,ada@example.com,2026-03-01,2,49.90,shipped
+        1002, Grace@Example.com ,01/03/2026,1,19.95,shipped
+        1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending
+        1004,ada@example.com,2026-03-02,,29.99,shipped
+        1005,kofi@example.com,03/03/2026,2,$59.00,cancelled
+        1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending
+        1006,mei@example.com,2026-03-04,unknown,15.00,shipped
+        1007,ada@example.com,2026-03-05,1,9.99
+        1008,,2026-03-05,4,80.00,shipped
+        1009,kofi@example.com,2026-03-06,1,12.50,refunded
+      targets: [4, 7]
+      decoys:
+        '3': The total on this row carries a comma inside quotes, which is a parsing problem. Its quantity is 3 and adds up fine.
+        '5': The total has a currency symbol glued to it. The quantity is 2 and there is nothing wrong with it.
+        '6': This row is order 1003 a second time, from a retried export. Both copies say 3, so the quantity itself is readable.
+        '8': This row is a field short, so it has no status. The field it lost is not the quantity, which is 1.
+        '9': This one has no customer. That breaks a join later; it does not stop you counting the four items.
+      hints:
+        - Two rows fail for the same reason and it is not the same reason as any of the others.
+        - One column is blank and one holds a word. Both are gaps, and neither is a number.
+        - Blank is not zero and "unknown" is not a number, so neither row can go into a sum.
+      reveal: >-
+        Both of these rows shipped. Neither can say how many items. Everything else wrong
+        with this file breaks parsing or joining, which fails loudly; these two produce a
+        total that is quietly short and nothing anywhere raises.
+
+    - id: what-the-format-decides
+      kind: assign
+      prompt: Sort each fact about a record onto the format that makes it true.
+      buckets:
+        - id: delimited
+          label: Delimited file
+          note: Fields separated by a character. Everything is text.
+        - id: document
+          label: Document format
+          note: JSON. Typed values, and structure inside a record.
+        - id: table
+          label: Database table
+          note: The schema lives in the storage engine.
+      items:
+        - id: quoted-comma
+          label: A comma inside a value is safe as long as the value is quoted.
+          bucket: delimited
+          because: Quoting is this format's answer to the delimiter turning up in the data, and it is the rule a naive split ignores.
+        - id: spans-lines
+          label: One record can run across more than one line.
+          bucket: delimited
+          because: A newline inside a quoted field is legal, which is why splitting the file on newlines before parsing loses records.
+        - id: everything-text
+          label: Every field is text until somebody decides what it means.
+          bucket: delimited
+          because: There is no type information anywhere in the file, so 29.99, 2026-03-02 and unknown all arrive as strings.
+        - id: typed-number
+          label: A total of 1499.00 arrives as a number rather than as the characters that spell one.
+          bucket: document
+          because: Types survive the wire here, which is most of the reason to take this over CSV.
+        - id: nested-items
+          label: The order carries its items inside it, so something has to decide how it becomes rows.
+          bucket: document
+          because: Nesting is what you buy with the types, and turning it into rows is a design decision rather than a mechanical one.
+        - id: refused-at-write
+          label: A row with no customer is refused at write time.
+          bucket: table
+          because: The constraint is enforced by the engine, so the bad row never lands rather than being found weeks later.
+      hints:
+        - Ask what each format knows about a value beyond the characters it is made of.
+        - Two of these are about the delimiter appearing where it was not meant to, and both belong to the same format.
+        - Only one of the three can refuse a record. The other two accept anything and leave the checking to you.
+      reveal: >-
+        Each format moves the same difficulty somewhere else. CSV pushes typing onto you,
+        JSON pushes shaping onto you, and a table takes both and charges you a schema you
+        have to agree on before you can write anything.
+
+    - id: the-blank-quantity
+      kind: choice
+      prompt: Order 1004 shipped and its quantity column is empty. What goes in the column?
+      context:
+        as: log
+        lines:
+          - '1004,ada@example.com,2026-03-02,,29.99,shipped'
+      options:
+        - id: zero
+          label: Write 0.
+          note: An order for zero items did not ship, and this one did. The arithmetic works and the row now states something false.
+        - id: one
+          label: Write 1, because most orders are for one item.
+          note: A guess in a factual column. Once it is written down nothing distinguishes it from a value the source actually sent.
+        - id: drop
+          label: Drop the row.
+          note: The shipment and the 29.99 were both real. This loses a whole order from the day to hide one unknown field.
+        - id: keep-null
+          label: Keep the row, leave the quantity null, and record that the field arrived empty.
+          correct: true
+          note: The order still counts, the money still sums, and anything that wants to add up quantities has to decide for itself what a null means.
+      hints:
+        - Three of these let the arithmetic run. Ask what each one costs the truth of the row.
+        - The row is right about four things and silent about one. Two of the options make it wrong about the fifth.
+        - A value nobody sent is not a value. The honest answer is to say so and keep everything the row did tell you.
+      reveal: >-
+        Defaulting is how a gap becomes a fact. Once 0 or 1 is written into the column,
+        every consumer downstream reads it as something the source said, and the evidence
+        that it was invented is gone.
+
+    - id: an-honest-record
+      kind: text-contract
+      prompt: >-
+        Somebody defaulted the quantity on their way to JSON. Repair the record so it
+        satisfies the contract and says only what the source said.
+      context:
+        as: pairs
+        items:
+          - { k: order_id, v: the order number, as a whole number }
+          - { k: customer, v: the address, unchanged }
+          - { k: quantity, v: a whole number, or null when the source sent nothing }
+          - { k: status, v: one of shipped, pending, cancelled, refunded }
+          - { k: missing_fields, v: a list naming every column that arrived empty }
+      lang: json
+      initial: |
+        {
+          "order_id": 1004,
+          "customer": "ada@example.com",
+          "quantity": 0,
+          "status": "shipped"
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: quantity is a guess. Nothing in the source said 0, so the field has to say the value is unknown.
+          check: { op: type, path: quantity, is: 'null' }
+        - message: missing_fields is not there. A null on its own says nothing about whether anyone noticed.
+          check: { op: exists, path: missing_fields }
+        - message: missing_fields has to be a list, because a second column can go missing tomorrow.
+          check: { op: type, path: missing_fields, is: array }
+        - message: The list does not name quantity, which is the column that arrived empty.
+          check: { op: contains, path: missing_fields, text: quantity }
+        - message: Keep the rest of the row. status was shipped and still is.
+          check: { op: equals, path: status, value: shipped }
+        - message: Keep the rest of the row. This is order 1004.
+          check: { op: equals, path: order_id, value: 1004 }
+      hints:
+        - The row is not wrong about the order. It is wrong about one field, and it is missing the record of that.
+        - JSON has a way of writing "there is no value here" that is not 0 and not an empty string.
+        - Set quantity to null and add a list naming the column that came through empty.
+      reveal: >-
+        This is the shape every later stage in the course relies on. The row survives, the
+        gap is named, and the decision about what a missing quantity means is left to
+        whoever is doing the counting rather than made here by accident.
+      solution: |
+        {
+          "order_id": 1004,
+          "customer": "ada@example.com",
+          "quantity": null,
+          "status": "shipped",
+          "missing_fields": ["quantity"]
+        }
 ---
 
 A pipeline reads data from one location, changes its shape, and writes it somewhere else. The mechanics of reading and writing are straightforward. The difficulty comes from the data itself: records represent claims about real-world events, and upstream sources rarely validate entries thoroughly.

@@ -7,6 +7,143 @@ estimatedMinutes: 30
 exercise:
   id: backfill
   timeboxMinutes: 30
+challenges:
+  goal: Reprocess the past with the code that processes today, and know which day it stopped on.
+
+  steps:
+    - id: can-these-run-in-parallel
+      kind: assign
+      prompt: >-
+        A thirty day range is waiting. Sort each job onto whether its partitions can be
+        handed to thirty workers or have to go through one at a time.
+      buckets:
+        - id: any-order
+          label: Any order, in parallel
+          note: A partition's output depends on its own input and nothing else.
+        - id: oldest-first
+          label: Oldest first, one at a time
+          note: A partition reads what the partition before it wrote.
+      items:
+        - id: daily-counts
+          label: Count the orders placed each day and write one row per day.
+          bucket: any-order
+          because: Each day reads its own rows and writes its own row. Two days computed at the same time cannot reach the same output row.
+        - id: fx-convert
+          label: Convert each day's totals using the rate published for that day.
+          bucket: any-order
+          because: The rate is an input keyed by the same date as the rows. Nothing about it comes from what yesterday's run produced.
+        - id: rolling-average
+          label: A seven day rolling average computed from the raw orders table.
+          bucket: any-order
+          because: It reads a wider window than it writes, and reads seven days of source rows rather than six days of its own output. Reading widely is not a dependency between partitions.
+        - id: running-balance
+          label: A running account balance carried forward from the previous day's closing figure.
+          bucket: oldest-first
+          because: The input is literally the row the day before wrote. Running the two at once means one of them reads a balance that has not been computed yet.
+        - id: scd-two
+          label: A type 2 dimension that closes yesterday's row when today's attributes differ.
+          bucket: oldest-first
+          because: Closing a row means writing an end date onto a record an earlier partition opened. Out of order, the open and the close land in the wrong sequence.
+        - id: first-seen
+          label: A first-seen table that inserts a customer only when no earlier day has.
+          bucket: oldest-first
+          because: The date it records is whichever partition got there first, so running the range out of order stamps customers with the wrong first day and nothing ever contradicts it.
+      hints:
+        - Ask, for each one, whether the job reads any row that one of its own earlier runs wrote.
+        - Reading many days of the source table is not the same as reading yesterday's output.
+        - Three of them write a row whose value came from a row written by the partition before.
+      reveal: >-
+        The dependency is on the job's own output, not on how much input it reads. That
+        distinction is worth writing into the code, because the first person who parallelises
+        a backfill will look for it and find nothing, and a rolling balance computed out of
+        order produces numbers that are wrong and entirely plausible.
+
+    - id: the-script-that-drifted
+      kind: spot
+      prompt: >-
+        The backfill ran over five weeks of history and left the table worse than it found
+        it. Click every line in the copy that does not do what the scheduled run does.
+      lang: python
+      source: |
+        # scheduled_run.py, in production since January
+        def run(day, con):
+            rows = [normalise(r) for r in extract(day)]
+            replace_partition(con, "orders", day, rows)
+
+        # backfill_2026_03.py, written this morning
+        def backfill(con, start, end):
+            for day in days_between(start, end):
+                rows = extract(day)
+                con.executemany("INSERT INTO orders VALUES (?, ?, ?)", rows)
+      targets: [8, 9]
+      decoys:
+        "2": Normalising the rows as they are read is right. It is the step the version below has quietly dropped.
+        "3": Replacing the partition is the write that turns a re-run into a repair, and it is not what the version below does.
+        "7": Iterating over a date range is the parameterisation that makes a backfill possible at all. It is the one thing the copy got right.
+      hints:
+        - Compare the two functions line for line. Two lines in the second one differ from the first, and both differences are silent.
+        - One difference changes what the rows look like and one changes what happens to the rows already in the table.
+        - Running the copy twice over the same day is not the same as running the original twice.
+      reveal: >-
+        The second script is not a backfill, it is a second pipeline with a different
+        cleaning rule and a different write. Parameterising the real job by date is what
+        makes a backfill a run rather than a rewrite, and the reason to insist on it is
+        that a copy drifts on the day somebody edits one of the two.
+
+    - id: the-partition-that-emptied
+      kind: choice
+      prompt: >-
+        A day that held four hundred orders is corrected upstream and now legitimately
+        holds none. The backfill reruns that partition. Which write leaves the table
+        agreeing with the source?
+      options:
+        - id: upsert-only
+          label: Upsert every row in the payload.
+          note: The payload has no row for the four hundred that were removed, so nothing addresses them and all four hundred stay. The table now disagrees with the source and nothing raised.
+        - id: delete-then-insert
+          label: Delete the partition, then insert the payload, in one transaction.
+          correct: true
+          note: The delete is what deals with rows that are no longer sent. An empty payload leaves an empty partition, which here is the correct answer rather than the accident.
+        - id: soft-delete
+          label: Flag the missing rows as deleted rather than removing them.
+          note: It keeps the history and hands every consumer a WHERE clause they have to remember. That is a decision about the table's contract, not a fix for the backfill.
+        - id: skip-empty
+          label: Treat an empty payload as nothing to do and move on.
+          note: That is the guard against an empty extract wiping a good partition, and here the emptiness is real. A rule that cannot tell a broken extract from a closed shop belongs in validation as a threshold, not here as a hard skip.
+      hints:
+        - Nothing in the payload mentions the rows that were removed. Ask which write can act on a row it was not sent.
+        - Two of these leave the four hundred rows readable. One of the two is a deliberate contract and one is an accident.
+        - The right answer here is the same write that makes a re-run safe, and for the same reason.
+      reveal: >-
+        Replacement handles removals because it states what the partition should contain
+        rather than what to add to it. Upserts cannot, because a row that is gone sends
+        nothing to conflict with. This is the case that decides between the two patterns,
+        and it only shows up on the day something upstream is genuinely deleted.
+
+    - id: the-order-of-a-backfill
+      kind: order
+      prompt: Put the steps of running five weeks of history through the nightly job in the order that keeps production recoverable.
+      items:
+        - { id: order-check, label: Establish whether a partition can be computed without the one before it }
+        - { id: stage, label: Point the target parameter at a staging table and run one day }
+        - { id: diff, label: Compare that staged day against what production holds for it }
+        - { id: run, label: Run the range against production, recording each partition as it completes }
+        - { id: verify, label: Check the recorded per-partition counts against the source }
+      solution: [order-check, stage, diff, run, verify]
+      because:
+        order-check: This decides whether the range can be split across workers or has to go through one at a time, and it is far cheaper to answer than to discover halfway.
+        stage: The same code with one parameter changed. If this needs a separate script, the backfill has already stopped being the same job as the nightly run.
+        diff: Staging without comparing is a rehearsal nobody watched. This is the step that catches the logic change nobody meant to make.
+        verify: A run that recorded counts nobody read produced a log file. The counts exist so that they can be held against something.
+      hints:
+        - Two of these happen before production is touched at all.
+        - One decides whether the middle of this can be split across workers, and it is not a question you want to answer after the run.
+        - The run is not the last step, because a number nobody compares against anything has not checked anything.
+      reveal: >-
+        A backfill is the nightly job with a wider date range, and every step here exists to
+        prove that before it touches five weeks of production. The staging pass and the
+        comparison are the whole safeguard. The per-partition record is what makes a failure
+        on day twenty cost twenty minutes instead of the entire range.
 ---
 
 When business logic bugs affect historical records, repairing the dataset requires reprocessing historical partitions without introducing side effects or schema divergence.

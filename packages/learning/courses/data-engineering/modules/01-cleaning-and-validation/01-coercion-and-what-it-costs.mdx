@@ -7,6 +7,166 @@ estimatedMinutes: 25
 exercise:
   id: coerce-fields
   timeboxMinutes: 25
+challenges:
+  goal: Turn text into typed values without letting a gap in the source become a fact in the table.
+
+  steps:
+    - id: where-a-gap-becomes-a-fact
+      kind: spot
+      prompt: >-
+        Click every line where a value nobody sent turns into a value the row now
+        asserts.
+      lang: python
+      source: |
+        def clean(row):
+            order_id = int(row["order_id"])
+            quantity = int(row["quantity"] or 0)
+            total = Decimal(row["total"].replace("$", "").replace(",", ""))
+            status = row.get("status", "shipped")
+            return order_id, quantity, total, status
+      targets: [2, 4]
+      decoys:
+        '1': This raises on an unreadable order_id rather than inventing one. Stopping the run is a different problem from writing something false.
+        '3': Stripping the currency symbol and the thousands comma reads the value that was sent. Nothing here is invented.
+        '5': The return is fine. By this point the damage has already been done twice.
+      hints:
+        - Two of these lines cannot fail. Ask what they produce when the field is empty or absent.
+        - One turns an empty string into a number, and one turns a column the export never sent into a word.
+        - An empty quantity becomes 0 items, and a row too short to have a status becomes a shipment.
+      reveal: >-
+        Both of these were written to stop the pipeline crashing, and both succeed. The
+        row that arrives is complete, typed and wrong, and there is nothing left in it to
+        say which fields the source actually supplied.
+
+    - id: what-to-do-with-unknown
+      kind: choice
+      prompt: The quantity column on one row holds the word unknown. Which shape of coercion do you want?
+      context:
+        as: log
+        lines:
+          - '1006,mei@example.com,2026-03-04,unknown,15.00,shipped'
+      options:
+        - id: bare-int
+          label: int(raw), and let the ValueError travel.
+          note: Honest and unusable at scale. Row four of a million ends the run and you learn nothing about the other 999,996 rows.
+        - id: default-zero
+          label: int(raw or 0), so an empty field becomes zero.
+          note: This does not even help here, because unknown still raises. What it does do is turn every blank into a real order for zero items.
+        - id: none-on-failure
+          label: Return the number, or None when it cannot be read.
+          note: Close. The caller now has to treat None as failure, which works until a column is legitimately null and the two meanings collide.
+        - id: value-and-flag
+          label: Return the value and a flag saying whether reading it worked.
+          correct: true
+          note: The caller cannot ignore the flag without ignoring it on purpose, and a genuine null stays distinguishable from a failed read.
+        - id: skip-row
+          label: Drop any row with a field that will not coerce.
+          note: The order still happened and the money was still taken. This removes the evidence rather than the problem.
+      hints:
+        - Two of these lose the run and two of them lose the truth. Only one loses neither.
+        - Ask what the caller is forced to look at in each case, and what it can skip past without noticing.
+        - The failure has to travel with the value rather than being encoded inside it.
+      reveal: >-
+        A pair costs one extra name at every call site and buys a pipeline that reports on
+        a whole batch instead of dying on its fourth row. That report is what the next
+        lesson turns into a decision about whether the extract is usable at all.
+
+    - id: which-dates-are-decidable
+      kind: assign
+      prompt: Sort each placed_at value by how much the parser can work out on its own.
+      buckets:
+        - id: unambiguous
+          label: Reads one way only
+          note: The value itself settles the question.
+        - id: convention
+          label: Needs a convention written down
+          note: Readable, and only once somebody has decided how.
+        - id: unreadable
+          label: Not a date at all
+          note: No convention rescues it.
+      items:
+        - id: iso-date
+          label: '2026-03-01'
+          bucket: unambiguous
+          because: ISO puts the parts in descending size, so there is nothing left to decide about which number is which.
+        - id: iso-timestamp
+          label: '2026-03-02T09:14:00'
+          bucket: unambiguous
+          because: Still ISO. The time part is dropped and the date part in front of it reads one way.
+        - id: slashes
+          label: '01/03/2026'
+          bucket: convention
+          because: The first of March or the third of January depending on who wrote the export, and nothing in the file says which.
+        - id: impossible-day
+          label: '31/02/2026'
+          bucket: unreadable
+          because: February has never had a 31st under either convention, so this fails whichever way you read it.
+        - id: free-text
+          label: last tuesday
+          bucket: unreadable
+          because: Free text in a date column. Whatever it meant, the moment it meant it did not survive the export.
+      hints:
+        - Start by asking which values contain a number that can only be one thing.
+        - One of these is perfectly well formed and still cannot be read without a decision from outside the file.
+        - Two of them are broken rather than ambiguous, and one of those two is broken in a way that looks like a real date.
+      reveal: >-
+        The temptation is a chain of try blocks over several formats. That parses some
+        rows day first and others month first inside one column, which is worse than
+        failing, because the column now looks fine and is internally inconsistent.
+
+    - id: an-honest-coercion
+      kind: text-contract
+      prompt: >-
+        This is what a coercion produced for the row with quantity unknown. Repair it so
+        it satisfies the contract and reports what actually happened.
+      context:
+        as: pairs
+        items:
+          - { k: quantity, v: the number, or null when the text could not be read }
+          - { k: quantity_ok, v: whether reading it worked }
+          - { k: quantity_raw, v: the text that arrived, kept either way }
+          - { k: total, v: the exact amount, written as a string }
+      lang: json
+      initial: |
+        {
+          "order_id": 1006,
+          "quantity": 0,
+          "quantity_ok": true,
+          "total": 15.0,
+          "placed_at": "2026-03-04"
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The source sent the word unknown, so 0 is not what it said. The contract has a way of writing "no readable value".
+          check: { op: type, path: quantity, is: 'null' }
+        - message: The flag has to agree with the value. A number beside true, or a null beside true, leaves every caller picking which half to believe.
+          check: { op: equals, path: quantity_ok, value: false }
+        - message: quantity_raw is missing. The text that arrived is the only evidence of what went wrong, and it is gone once the coercion has run.
+          check: { op: exists, path: quantity_raw }
+        - message: quantity_raw has to hold what the file actually contained.
+          check: { op: equals, path: quantity_raw, value: unknown }
+        - message: The total is a float. Binary floats cannot hold an exact amount, and the drift arrives as a report that is out by a cent.
+          check: { op: type, path: total, is: string }
+        - message: Keep the amount exact and keep its precision. The file said 15.00.
+          check: { op: equals, path: total, value: '15.00' }
+      hints:
+        - Three of the five fields are wrong, and two of them are wrong about the same field.
+        - A failed read has a value, a flag and the original text, and the value is not a number.
+        - Set quantity to null with the flag false, add the raw text beside it, and write the amount as a quoted string.
+      reveal: >-
+        This is the record the quarantine in lesson 3 is built from. Every part of it is
+        here because something downstream needs it: the null so nothing sums it, the flag
+        so nothing trusts it, and the raw text so somebody can work out whose fault it was.
+      solution: |
+        {
+          "order_id": 1006,
+          "quantity": null,
+          "quantity_ok": false,
+          "quantity_raw": "unknown",
+          "total": "15.00",
+          "placed_at": "2026-03-04"
+        }
 ---
 
 Every field in a raw delimited file arrives as text. Values such as `29.99`, `2026-03-02`, and `unknown` are all strings. Transforming them into typed values requires explicit assumptions about source formatting.

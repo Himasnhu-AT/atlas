@@ -7,6 +7,165 @@ estimatedMinutes: 30
 exercise:
   id: join-audit
   timeboxMinutes: 30
+challenges:
+  goal: Count what an inner join dropped and what it multiplied, and fix the cause rather than the symptom.
+
+  steps:
+    - id: how-many-were-lost
+      kind: numeric
+      prompt: >-
+        The nightly join finished without error. How many orders matched no customer row
+        at all?
+      context:
+        as: pairs
+        items:
+          - { k: rows in orders, v: "1204" }
+          - { k: rows returned by the inner join, v: "1197" }
+          - { k: ada@example.com in customers, v: two rows, from a duplicated signup }
+          - { k: orders placed by ada@example.com, v: "4" }
+      answer: 11
+      unit: orders
+      scaleHint: >-
+        An answer an order of magnitude out means the duplicate was counted as a loss. A
+        repeated key in the dimension adds rows to the output, so it hides losses rather
+        than causing them.
+      hints:
+        - The difference between the two counts is not the answer, because two different things moved it and they moved it in opposite directions.
+        - Ada placed four orders and the join did not return four rows for them.
+        - Work out how many output rows the orders that did match produced, and only then subtract.
+      reveal: >-
+        The duplicate customer row concealed four of the losses. A join that drops and
+        multiplies at the same time can return a count close to the source and be wrong
+        twice over, which is why the audit has to check that the joined count never exceeds
+        the source count separately from checking how far below it fell.
+
+    - id: why-each-one-missed
+      kind: assign
+      prompt: Sort each unmatched order onto the reason it found no customer.
+      buckets:
+        - id: missing-key
+          label: The key is not a key
+          note: There is nothing in the field that could ever match. This belongs in quarantine.
+        - id: normalisation
+          label: The key needs normalising
+          note: A real customer, written in a form the dimension does not store.
+        - id: lag
+          label: The dimension is behind
+          note: The customer exists in the source and has not reached the table yet.
+      items:
+        - id: empty-string
+          label: Order 1008 carries an empty string where the customer email belongs.
+          bucket: missing-key
+          because: No amount of cleaning turns an empty string into a customer. This is a validation failure that reached the warehouse, and quarantine is where it belongs.
+        - id: literal-null
+          label: Order 1031 carries the four characters NULL, written out as text.
+          bucket: missing-key
+          because: A null that survived a CSV export as a word. It will never match, and it will also never be null, so a NOT NULL constraint let it through.
+        - id: padded-and-capitalised
+          label: The key on order 1042 reads " Grace@Example.com ", padded and capitalised.
+          bucket: normalisation
+          because: Grace exists and this is her address. The join compares bytes, and these bytes are not the ones the dimension stored.
+        - id: shouty-dimension
+          label: Order 1044 names grace@example.com and the dimension holds GRACE@EXAMPLE.COM.
+          bucket: normalisation
+          because: The same mismatch from the other side, which is why normalising only the incoming rows leaves half of these unmatched.
+        - id: signed-up-this-morning
+          label: The customer signed up at 09-40 and the dimension last loaded at midnight.
+          bucket: lag
+          because: Nothing is wrong with either row. The order got here first, and it will join tomorrow without anybody touching it.
+        - id: order-before-refresh
+          label: The order arrived ninety seconds after the signup that created its customer.
+          bucket: lag
+          because: An orchestration problem rather than a data problem. The dimension has to be refreshed before the fact table is joined, and here it was not.
+      hints:
+        - Three of these are about the customer and three are about the key that points at them.
+        - Two will join tomorrow with no intervention at all. Two never will, whatever you do to them.
+        - For two of them the customer is real and the address is right, and the bytes still differ.
+      reveal: >-
+        All three arrive as the same symptom, which is a smaller row count, and they need
+        three different responses. Quarantine the ones that can never match, normalise the
+        ones that could, and fix the schedule for the ones that are only early. Counting
+        them together tells you the total is up and nothing about which of the three moved.
+
+    - id: fix-the-cause
+      kind: choice
+      prompt: >-
+        Seven orders a night miss the join because their customer key carries stray casing
+        and whitespace. Which change fixes the revenue figure without moving the problem
+        somewhere else?
+      options:
+        - id: lower-in-query
+          label: Join on lower(trim(c.email)) equals lower(trim(o.customer)).
+          note: The rows come back, the join stops using the index on email, and the rule now has to be repeated in every query anybody writes against these tables from here on.
+        - id: left-join
+          label: Change the inner join to a LEFT JOIN.
+          note: The seven orders return with a null country. Revenue by country is now short by seven orders that belong to no group, and the total and the breakdown disagree.
+        - id: normalise-at-load
+          label: Lowercase and trim the key as it is loaded, on both sides.
+          correct: true
+          note: The stored values match, so the join is plain equality that an index can serve, and no future query has to remember anything. One pass over the rows already loaded pays for it.
+        - id: collate-nocase
+          label: Declare the join columns COLLATE NOCASE.
+          note: It settles the casing and leaves the whitespace, so some of the seven come back and some do not. A partial fix is worse than none here, because the remainder stops looking like a pattern.
+      hints:
+        - Three of these change what one query returns. One changes what is stored.
+        - Ask what the next person writing a query against these two tables would have to already know.
+        - One of them recovers about half the seven, which is harder to notice than recovering none of them.
+      reveal: >-
+        Normalising at the boundary is the only fix the next query inherits for free.
+        Anything done inside a query is a rule that lives in the head of whoever wrote it,
+        and it stops being applied the first time somebody writes a query without reading
+        that one first.
+
+    - id: the-audit-that-catches-it
+      kind: blanks
+      prompt: >-
+        This runs after every join. Finish it so it fails on a join that lost rows and on
+        one that multiplied them.
+      lang: python
+      template: |
+        source_rows = count("SELECT count(*) FROM orders")
+        joined_rows = count(
+            "SELECT count(*) FROM orders o JOIN customers c ON c.email = o.customer"
+        )
+
+        # a repeated key in the dimension emits an order more than once
+        assert joined_rows {{1}} source_rows
+
+        # two of these every night are known test accounts
+        lost = source_rows - joined_rows
+        assert lost <= {{2}}
+
+        # a count nobody can look at is a number, not a finding
+        quarantine(
+            "SELECT o.* FROM orders o WHERE NOT {{3}} ("
+            "  SELECT 1 FROM customers c WHERE c.email = o.customer)"
+        )
+      blanks:
+        - n: 1
+          as: select
+          options: ["<=", ">=", "==", "!="]
+          accept: ["<="]
+          note: An inner join on a dimension key may return fewer rows than the fact table and must never return more. Asserting equality here would fire every night on the two known test accounts.
+        - n: 2
+          as: select
+          options: ["0", "15", "source_rows", "joined_rows"]
+          accept: ["15"]
+          note: Zero fires every night until somebody mutes the channel. The threshold is a baseline with headroom, set from what the join has actually been losing.
+        - n: 3
+          as: select
+          options: [EXISTS, IN, ANY, LIKE]
+          accept: [EXISTS]
+          note: The subquery returns a marker row rather than a value, so the test is whether it returned anything at all.
+      hints:
+        - Two of the blanks are the two directions a join can go wrong, and they are not symmetric.
+        - One of the thresholds cannot be zero, and the comment above it says why.
+        - The last subquery selects the literal 1, which is a clue about what is being asked of it.
+      reveal: >-
+        Three lines and it catches the whole failure class. The upper bound catches
+        multiplication, the threshold catches losses that go beyond the known baseline, and
+        the quarantine query is what makes the number investigable at three in the morning
+        instead of merely alarming.
 ---
 
 Joining transactional tables to dimension tables is a standard operation in analytical transformations:

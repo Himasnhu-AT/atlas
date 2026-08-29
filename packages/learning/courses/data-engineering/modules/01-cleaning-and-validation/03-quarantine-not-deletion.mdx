@@ -7,6 +7,167 @@ estimatedMinutes: 25
 exercise:
   id: quarantine
   timeboxMinutes: 25
+challenges:
+  goal: Keep the rows you could not load, somewhere you can query them and replay them.
+
+  steps:
+    - id: what-the-drop-cost
+      kind: numeric
+      prompt: >-
+        An upstream change made 100 of last night's 10,000 rows unparseable. The loader
+        dropped them and reported success. How much revenue is missing from this
+        morning's report?
+      context:
+        as: table
+        caption: Last night's run
+        columns: [rows in, rows loaded, rows dropped, mean order value]
+        rows:
+          - [10000, 9900, 100, 152.90]
+      answer: 15290
+      tolerance: 0
+      scaleHint: This is the money on the rows that never landed, not a rate and not a percentage.
+      hints:
+        - The dropped rows were real orders. Somebody paid for each of them.
+        - Every row that did not load takes its own value out of the total.
+        - One hundred orders at 152.90 each.
+      reveal: >-
+        The job succeeded, the dashboard rendered, and the number is short by 15,290. No
+        exception was raised anywhere, and nothing on the page says that 1 percent of the
+        day is missing.
+
+    - id: where-a-rejected-row-goes
+      kind: assign
+      prompt: Sort each place you could put a rejected row by what you can still do about it in March.
+      buckets:
+        - id: replayable
+          label: Findable and replayable
+          note: You can query the rows and run them again.
+        - id: countable
+          label: Countable only
+          note: You learn that it happened, not which rows.
+        - id: gone
+          label: Gone
+          note: Nothing about the row survives the run.
+      items:
+        - id: quarantine-table
+          label: A quarantine table beside the orders table.
+          bucket: replayable
+          because: Structured, durable and queryable with the same SQL as everything else, which is what makes "when did this start" a five minute question.
+        - id: partitioned-files
+          label: One file per day in object storage, holding the raw rows and their errors.
+          bucket: replayable
+          because: Slower to query than a table and it keeps the payload, so the rows can still be pushed back through the validator once the bug is fixed.
+        - id: rejected-counter
+          label: A metric counting rejected rows per run.
+          bucket: countable
+          because: The jump from 2 to 200 shows up here, which is often how you find out at all. It cannot tell you which orders, and it cannot replay them.
+        - id: warning-log
+          label: A warning logged per bad row, kept for seven days.
+          bucket: countable
+          because: Readable for a week, unqueryable in practice, and the reconciliation that needs it happens next quarter.
+        - id: stdout-print
+          label: A print to stdout in a container that has since exited.
+          bucket: gone
+          because: The row was described exactly once, to nobody, and the description went with the container.
+        - id: filtered-away
+          label: A filter that keeps the good rows, with no else branch.
+          bucket: gone
+          because: Nothing recorded that the row existed. The shortfall in the total is the only evidence there is, and nobody is looking at the total for that reason.
+      hints:
+        - Ask what each one lets you do six weeks later, when the finance team asks why March is short.
+        - Two of these keep the row itself. Two keep only the fact that there was a row.
+        - Replaying needs the payload, so anything that stored a sentence about the row rather than the row cannot do it.
+      reveal: >-
+        The distinction that matters is not durable against transient. It is whether the
+        payload survived. A count tells you when the trouble started; only the row itself
+        lets you fix the numbers afterwards without going back to cold storage.
+
+    - id: what-to-alert-on
+      kind: choice
+      prompt: Two rows a night fail validation and always have. Last night two hundred did. What should page somebody?
+      options:
+        - id: absolute
+          label: More than ten rejected rows in a run.
+          note: Fine until the batch changes size. Ten rejections in ten thousand rows is noise and ten in eighty is an incident, and a fixed count cannot tell those apart.
+        - id: any-rejection
+          label: Any rejected row at all.
+          note: Two a night is normal, so this pages somebody every night and is muted inside a week. A muted alert is worse than none, because everybody still believes it is on.
+        - id: rate-vs-history
+          label: A rejection rate several times the recent median.
+          correct: true
+          note: It scales with the batch, tolerates the steady background, and fires on the overnight jump, which is the shape a schema change upstream actually has.
+        - id: nothing-loaded
+          label: Only when nothing loads at all.
+          note: This catches the outage everybody would have noticed anyway and sleeps through the hundred rows a changed column quietly removed.
+      hints:
+        - Two rows a night is not a problem to be fixed. It is the number the alert has to learn to ignore.
+        - Ask what each rule does on a night when the batch is half its usual size.
+        - The interesting quantity is how far today is from normal, which means normal has to be measured rather than guessed.
+      reveal: >-
+        The median of recent runs is the baseline, not the mean, because one bad night in
+        the history would otherwise raise the bar for the next month. That is the same
+        check the row count gets in module 4, pointed at failures instead of rows.
+
+    - id: build-the-quarantine-record
+      kind: text-contract
+      prompt: >-
+        Order 1006 arrived as 1006,mei@example.com,2026-03-04,unknown,15.00,shipped and
+        failed. All somebody kept was a log line. Rebuild it as a record you could replay.
+      context:
+        as: pairs
+        items:
+          - { k: row_number, v: the line in the source file, which was 8 }
+          - { k: source, v: the file it came from, orders_2026-03-06.csv }
+          - { k: received_at, v: when the load ran, which was 2026-03-06T02:00:00Z }
+          - { k: errors, v: a list, each entry naming the field, the value and the problem }
+          - { k: raw, v: the whole row exactly as it arrived, quantity still the text unknown }
+      lang: json
+      initial: |
+        {
+          "message": "skipping bad row, quantity not an integer"
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The row itself is not here. Without it the record says something was wrong and can never say what, and it can never be replayed.
+          check: { op: exists, path: raw }
+        - message: raw is the whole row, not the field that failed. Replaying it later means every column.
+          check: { op: length, path: raw, min: 4 }
+        - message: The unreadable text has to survive in raw. Cleaning it up here destroys the only evidence of what upstream sent.
+          check: { op: equals, path: raw.quantity, value: unknown }
+        - message: Which line was it? A record nobody can trace back to a position in a file is a record nobody checks.
+          check: { op: equals, path: row_number, value: 8 }
+        - message: Name the file. Next month there will be sixty of them and the errors will be spread across all sixty.
+          check: { op: equals, path: source, value: orders_2026-03-06.csv }
+        - message: Record when the load ran, so a range of bad days can be selected later.
+          check: { op: equals, path: received_at, value: '2026-03-06T02:00:00Z' }
+        - message: errors has to be a list, because the second column goes wrong tomorrow and the record has to hold both.
+          check: { op: type, path: errors, is: array }
+        - message: The errors list has to name the field that failed.
+          check: { op: contains, path: errors, text: quantity }
+      hints:
+        - A log line is a sentence about a row. What is needed is the row, plus where it came from and what was wrong with it.
+        - Five things go in, and one of them is the record the validator was handed rather than anything the validator produced.
+        - Keep the raw row whole and untouched, and put the position, the file, the load time and the error list around it.
+      reveal: >-
+        The raw payload is what makes this replayable. When the upstream bug is fixed, or
+        your parser learns the new spelling, these rows go back through the same validator
+        and land, and nobody has to fetch a file out of cold storage to do it.
+      solution: |
+        {
+          "row_number": 8,
+          "source": "orders_2026-03-06.csv",
+          "received_at": "2026-03-06T02:00:00Z",
+          "errors": [{"field": "quantity", "value": "unknown", "problem": "invalid"}],
+          "raw": {
+            "order_id": "1006",
+            "customer": "mei@example.com",
+            "placed_at": "2026-03-04",
+            "quantity": "unknown",
+            "total": "15.00",
+            "status": "shipped"
+          }
+        }
 ---
 
 When validation separates records into valid and invalid collections, the default impulse is often to ingest the valid records and ignore the rest:

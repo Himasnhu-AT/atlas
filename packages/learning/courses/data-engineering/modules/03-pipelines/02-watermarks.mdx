@@ -7,6 +7,211 @@ estimatedMinutes: 35
 exercise:
   id: incremental-load
   timeboxMinutes: 35
+challenges:
+  goal: Move a cursor forward without losing the rows sitting exactly on it, or the batch a crash interrupted.
+
+  steps:
+    - id: the-boundary-row
+      kind: choice
+      prompt: >-
+        The last batch ended on placed_at 2026-03-06T09:14:00, and three more orders were
+        created during that same second. The load upserts on order_id. What does the next
+        run filter on?
+      options:
+        - id: strictly-greater
+          label: placed_at greater than the watermark.
+          note: The three orders carry exactly the watermark, so they are excluded, and the next run starts later still. Nothing will ever ask for them again and no count anywhere goes down.
+        - id: inclusive
+          label: placed_at greater than or equal to the watermark.
+          correct: true
+          note: The boundary rows come back, including the ones already written. The upsert absorbs the repeats, and that is the price of never dropping a tie.
+        - id: lookback
+          label: placed_at greater than or equal to the watermark minus three hours.
+          note: That covers rows arriving late, which is a different failure. Here it re-reads three hours on every run to fix a problem that spans one second.
+        - id: keyset
+          label: placed_at greater than the watermark, or equal to it with a higher order_id.
+          note: Sound, and it needs the source to break ties by that id and never to issue one out of order. It is the right answer when the cursor is a sequence, and this cursor is a wall clock.
+      hints:
+        - Ask what each filter does with a row whose timestamp is exactly the watermark.
+        - Something has to be re-read if nothing is to be dropped. The only question is how much.
+        - The load already tolerates seeing a row twice. That was the point of making it an upsert.
+      reveal: >-
+        Strict inequality assumes timestamps are unique, and a timestamp with second
+        resolution over a busy source is not. An inclusive bound re-reads the tie and the
+        upsert makes the re-read free, which is a trade you paid for already when you made
+        the write idempotent.
+
+    - id: which-defence-for-which-lateness
+      kind: assign
+      prompt: >-
+        A watermark on the business timestamp misses all six of these. Sort each one onto
+        the cheapest defence that catches it.
+      buckets:
+        - id: ingest-ts
+          label: Watermark on the ingestion timestamp
+          note: Cursor on when the source wrote the row rather than on when the event happened.
+        - id: lookback
+          label: Overlap the window
+          note: Start the fetch a fixed interval behind the cursor and let the upsert dedupe.
+        - id: reconcile
+          label: Scheduled full reconciliation
+          note: Re-read the whole range on a cadence and compare it against what is stored.
+      items:
+        - id: backdated-event
+          label: A row is inserted today carrying an event date of last Tuesday.
+          bucket: ingest-ts
+          because: The business date is behind the cursor the moment the row appears, so no incremental filter on that column can ever see it. The write timestamp is in front of the cursor.
+        - id: queue-replay
+          label: The source was down for two days and replayed its queue on Thursday.
+          bucket: ingest-ts
+          because: Two days of events with old business dates and fresh write timestamps. A cursor on the write timestamp picks up the whole replay on the next run.
+        - id: long-transaction
+          label: A transaction opened at 09-12 and committed at 09-20, after the run that read at 09-15.
+          bucket: lookback
+          because: The row was stamped before the run and became visible after it, so both timestamps are behind the cursor. Only re-reading a window that reaches back past the commit finds it.
+        - id: clock-skew
+          label: The source host runs four seconds behind the host the pipeline runs on.
+          bucket: lookback
+          because: A fixed offset between two clocks is exactly what a fixed overlap absorbs. Chasing it with a more precise cursor means trusting two clocks to agree.
+        - id: silent-correction
+          label: Somebody corrected a three week old row in a source that stamps no update time.
+          bucket: reconcile
+          because: There is no column that moved, so nothing incremental has a signal to filter on. The only way to find it is to compare the two sides.
+        - id: hard-delete
+          label: A row was hard deleted upstream last month.
+          bucket: reconcile
+          because: An incremental read asks what is new and this is the absence of something old. No cursor of any kind produces a row that is not there.
+      hints:
+        - Two of these leave no trace in any column, so nothing incremental can filter for them.
+        - Two are a fixed distance behind the cursor, and a fixed overlap covers a fixed distance.
+        - For two of them the event is old and the write is new. Ask which of those two the cursor is reading.
+      reveal: >-
+        A cursor on the ingestion timestamp catches everything the source wrote after the
+        last run, whenever the event happened. An overlap catches what was in flight when
+        the run read. Reconciliation catches what left no trace at all, and it is the only
+        one of the three that can find a deletion.
+
+    - id: the-early-promise
+      kind: spot
+      prompt: >-
+        The host rebooted somewhere in the middle of this and eight hundred orders were
+        never loaded, and never will be. Click the line that made them unrecoverable.
+      lang: python
+      source: |
+        def run(con, source):
+            wm = read_watermark(con)
+            rows = source.fetch(placed_at_from=wm)
+            commit_watermark(con, max(r.placed_at for r in rows))
+            for r in rows:
+                upsert(con, r)
+            con.commit()
+      targets: [3]
+      decoys:
+        "2": Inclusive from the watermark, so the tied rows come back. That is the other watermark bug, and it is not the one that lost these.
+        "5": An upsert keyed on the order id. Being run twice over the same row is what this line exists to survive.
+        "6": The commit that makes the rows visible. It is in the right place. Something else committed before it.
+      hints:
+        - Walk down the lines and ask, at each one, what the next run would fetch if the machine died right there.
+        - One line records progress that has not been made yet.
+        - A watermark is a promise that everything before it is written down. Find the line that makes the promise first.
+      reveal: >-
+        A watermark committed ahead of the rows it covers is a claim the next run has no
+        way to doubt. The fix is one transaction holding both, so the cursor cannot move
+        unless the data moves with it. Committing rows first and the cursor second is
+        survivable, because the worst case there is re-reading a batch the upsert absorbs.
+
+    - id: drive-the-cursor
+      kind: machine
+      prompt: >-
+        Three source rows carry exactly the current watermark, and the worker is going to
+        die once during the commit. Finish the run with nothing lost.
+      initial: start
+      vars: { missed: 0, crash: 0 }
+      states:
+        start:
+          label: Cursor parked
+          note: The watermark sits on 09:14:00 and three unwritten rows carry that exact timestamp.
+        fetched:
+          label: Batch in memory
+          note: Eight hundred rows are in hand and nothing is durable yet.
+        wm-first:
+          label: Cursor moved, rows not written
+          note: The watermark is committed and the rows are still only in memory.
+        rows-first:
+          label: Rows written, cursor behind
+          note: The rows are committed. The watermark still points at where the run started.
+        atomic:
+          label: Rows and cursor in one transaction
+          note: Neither is durable until both are, and then both are.
+        done:
+          label: Run finished
+          terminal: true
+      transitions:
+        - from: start
+          on: Fetch after the watermark
+          to: fetched
+          effects: [{ var: missed, op: inc, value: 3 }]
+          note: Strict inequality leaves the three tied rows behind, and the cursor ends the run past them for good.
+        - from: start
+          on: Fetch from the watermark
+          to: fetched
+          note: The tied rows come back along with everything after them. Some of them are already written and the upsert takes care of that.
+        - from: fetched
+          on: Advance the cursor, then write
+          to: wm-first
+          note: The watermark claims the batch is durable while the batch is in a list in memory.
+        - from: fetched
+          on: Write, then advance the cursor
+          to: rows-first
+          note: Two transactions, in the order where the second one being missing costs a re-read rather than a loss.
+        - from: fetched
+          on: Write and advance in one transaction
+          to: atomic
+          note: The cursor cannot move without the rows, because there is no moment at which only one of them has committed.
+        - from: wm-first
+          on: The worker dies mid-commit
+          to: start
+          when: [{ var: crash, cmp: lt, value: 1 }]
+          effects: [{ var: missed, op: inc, value: 800 }, { var: crash, op: inc, value: 1 }]
+          note: The cursor is past a batch nothing wrote. The next run asks for what comes after it and gets the rows after the batch, not the batch.
+        - from: rows-first
+          on: The worker dies mid-commit
+          to: start
+          when: [{ var: crash, cmp: lt, value: 1 }]
+          effects: [{ var: crash, op: inc, value: 1 }]
+          note: The rows are down and the cursor is behind them. The next run fetches the same batch again and the upsert absorbs it.
+        - from: atomic
+          on: The worker dies mid-commit
+          to: start
+          when: [{ var: crash, cmp: lt, value: 1 }]
+          effects: [{ var: crash, op: inc, value: 1 }]
+          note: Nothing committed, so nothing to reconcile. The next run repeats the whole batch from the same cursor.
+        - from: wm-first
+          on: Record the run as finished
+          to: done
+          when: [{ var: crash, cmp: gte, value: 1 }]
+        - from: rows-first
+          on: Record the run as finished
+          to: done
+          when: [{ var: crash, cmp: gte, value: 1 }]
+        - from: atomic
+          on: Record the run as finished
+          to: done
+          when: [{ var: crash, cmp: gte, value: 1 }]
+      mode: drive
+      win:
+        state: done
+        maxSteps: 8
+        requires: [{ var: missed, cmp: eq, value: 0 }]
+      hints:
+        - Two decisions have to go right. One is the shape of the fetch and one is the shape of the commit.
+        - After the crash, ask what the next run will fetch. Two of the three commit orders leave it able to find the batch again.
+        - Losing rows is permanent here. Re-reading them is not.
+      reveal: >-
+        Only one thing here is unrecoverable, and it is a cursor that moved past data
+        nothing wrote. Everything else costs a repeated read, which is free once the write
+        is idempotent. That is why the two lessons are next to each other, and why the
+        single transaction is the version with no repeated read either.
 ---
 
 Full table reloads on a nightly cadence provide simple operational semantics. As datasets expand, pipelines transition to incremental synchronization using a **watermark**: a cursor recording the latest state or timestamp processed by previous runs.

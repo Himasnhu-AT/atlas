@@ -7,6 +7,161 @@ estimatedMinutes: 30
 exercise:
   id: freshness
   timeboxMinutes: 30
+challenges:
+  goal: Tell a pipeline that ran and loaded nothing apart from one that ran and loaded everything.
+
+  steps:
+    - id: who-gets-the-page
+      kind: assign
+      prompt: Sort each morning's evidence onto what has actually broken.
+      buckets:
+        - id: healthy
+          label: Nothing is broken
+          note: Including the cases that look broken to a badly written check.
+        - id: upstream
+          label: The source stopped delivering
+          note: Your side ran and found nothing to do.
+        - id: scheduler
+          label: The job never ran
+          note: Whatever triggers it is what needs looking at.
+      items:
+        - id: ran-and-fresh
+          label: The job exited 0 at 02:04 and the newest order is from 01:52.
+          bucket: healthy
+          because: Both halves agree. This is the only combination that means what a green pipeline is supposed to mean.
+        - id: ran-and-stale
+          label: The job exited 0 at 02:04, wrote no rows, and the newest order is from three days ago.
+          bucket: upstream
+          because: The job did its work and there was no work. What stopped is on the far side of the boundary, and no check on your own code would have seen it.
+        - id: missed-run-still-fresh
+          label: The job has not run since Tuesday, and the newest order is from Tuesday night.
+          bucket: scheduler
+          because: Yesterday's load is still inside tolerance, so nobody has noticed. The data will be stale tomorrow for a reason that already exists today.
+        - id: missed-run-and-stale
+          label: The job has not run for four days and the newest order is four days old.
+          bucket: scheduler
+          because: The data is stale because nothing has run. Fix the trigger before drawing any conclusion at all about the source.
+        - id: volume-collapsed
+          label: Orders arrive every few minutes and there are 400 of them today against a usual 9,800.
+          bucket: upstream
+          because: The newest timestamp is minutes old, so every freshness check passes. Something upstream is dropping most of the traffic and only a volume check can see it.
+        - id: monday-morning
+          label: It is Monday at 08:00 and the weekday only feed is 58 calendar hours stale.
+          bucket: healthy
+          because: A feed that does not run at weekends is always two days stale on a Monday. The alarm is measuring calendar hours against a business day cadence.
+      hints:
+        - Two of these are the pipeline working exactly as designed, and one of those two will page somebody anyway.
+        - Whether the job ran and whether the data is recent are two separate facts. Read both before deciding which side of the boundary broke.
+        - One of them has perfectly fresh timestamps and almost no rows, which is a failure that no timestamp can see.
+      reveal: >-
+        Job status alone cannot distinguish a working pipeline from an empty one, and data
+        age alone cannot distinguish a dead source from a dead scheduler. You need both
+        readings, and on a weekday feed you need a calendar as well.
+
+    - id: how-stale-is-monday
+      kind: numeric
+      prompt: >-
+        A monitor measuring plain calendar hours runs on Monday morning. What lag does it
+        report?
+      context:
+        as: pairs
+        items:
+          - { k: cadence, v: weekdays only, delivered at 02:00 UTC }
+          - { k: newest placed_at, v: Friday 22:00 UTC }
+          - { k: now, v: Monday 04:00 UTC }
+      answer: 54
+      tolerance: 0
+      unit: hours
+      scaleHint: Out by roughly a factor of twenty four. The answer is in hours rather than days.
+      hints:
+        - Count whole days from the newest record first, then the hours left over.
+        - Friday 22:00 to Sunday 22:00 is two days. You are asked about Monday 04:00.
+        - Forty eight hours takes you to Sunday 22:00, and Monday 04:00 is six hours after that.
+      reveal: >-
+        Fifty four hours against a threshold of twenty six, every single Monday, on a feed
+        that is behaving exactly as designed. Skip the two non-delivery days and the lag
+        is six hours, which is the number the threshold was chosen for.
+
+    - id: where-the-monitor-runs
+      kind: choice
+      prompt: The freshness check has to run somewhere. Which schedule can report on the morning the pipeline does not run at all?
+      options:
+        - id: last-step
+          label: As the final step of the nightly pipeline, after the write.
+          note: On the morning the scheduler fails, the pipeline does not run, so the check does not run, so nothing is reported. The one failure it most needs to catch is the one that stops it executing.
+        - id: own-schedule
+          label: On its own schedule, triggered independently of the pipeline.
+          correct: true
+          note: It runs whether the pipeline did or not, which is the only way an absent run can produce an alert rather than a silence.
+        - id: dashboard
+          label: As a query in the dashboard, so the number is on screen.
+          note: The number is correct and nobody is looking at it at 04:00. A monitor that requires a human to open a page is a report, not a monitor.
+        - id: downstream-job
+          label: As a precondition on the job that reads the table next.
+          note: Better than nothing, and it fires whenever that job happens to run. If the downstream job is weekly, staleness goes unreported for up to a week.
+      hints:
+        - Ask what happens to each of these on a morning when the scheduler itself is down.
+        - Three of the four only execute because something else executed first.
+        - A monitor that shares a trigger with the thing it watches goes quiet in exactly the same circumstances.
+      reveal: >-
+        A check that depends on the pipeline inherits every one of the pipeline's failure
+        modes, including the silent ones. Independence is not a nicety here; it is the
+        entire mechanism by which absence becomes an alert.
+
+    - id: repair-the-monitor
+      kind: text-contract
+      prompt: >-
+        This monitor has never fired, on a table that has been stale twice this quarter.
+        Repair it.
+      context:
+        as: pairs
+        items:
+          - { k: timestamp_column, v: the column that says when the event happened }
+          - { k: max_age_hours, v: the cadence plus a margin }
+          - { k: runs_with, v: what triggers the monitor }
+          - { k: calendar, v: all_days or weekdays }
+          - { k: min_rows_24h, v: the floor below which fresh is not enough }
+      lang: json
+      initial: |
+        {
+          "table": "orders",
+          "timestamp_column": "loaded_at",
+          "max_age_hours": 0,
+          "runs_with": "orders_nightly",
+          "calendar": "all_days"
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: loaded_at is stamped by the pipeline itself, so it is fresh on a night when the source sent nothing at all. Measure placed_at, which the source stamps.
+          check: { op: equals, path: timestamp_column, value: placed_at }
+        - message: A nightly batch landing at 02:00 is legitimately almost a day old just before the next one arrives. Zero pages every night. Allow the cadence plus a margin, between 25 and 30 hours.
+          check: { op: range, path: max_age_hours, min: 25, max: 30 }
+        - message: The monitor is triggered by the job it is watching, so a scheduler failure silences both. Give it its own schedule.
+          check: { op: equals, path: runs_with, value: own_schedule }
+        - message: The feed does not deliver at weekends, so counting calendar hours pages every Monday until somebody mutes the channel.
+          check: { op: equals, path: calendar, value: weekdays }
+        - message: A source delivering five percent of its usual volume keeps the newest timestamp perfectly fresh. Add a floor on how many rows arrived in the last day.
+          check: { op: exists, path: min_rows_24h }
+        - message: A floor of zero is not a floor. Put a real number under it, well below a normal day of 9,800 and well above nothing.
+          check: { op: range, path: min_rows_24h, min: 1 }
+      hints:
+        - Every field in here is set to something, and four of the five settings are the reason it has never fired.
+        - One of them measures a timestamp your own pipeline writes, which is fresh whether or not any data arrived.
+        - Switch to placed_at, allow 26 hours, give it its own schedule, count weekdays, and add a row floor for the days when data arrives but almost none of it does.
+      reveal: >-
+        Four of these were wrong in the same direction. Each one made the monitor agree
+        with the pipeline instead of checking it, and a monitor that agrees with the thing
+        it watches will report green through the whole outage.
+      solution: |
+        {
+          "table": "orders",
+          "timestamp_column": "placed_at",
+          "max_age_hours": 26,
+          "runs_with": "own_schedule",
+          "calendar": "weekdays",
+          "min_rows_24h": 4000
+        }
 ---
 
 Validation assertions inspect incoming payloads, but fail to detect scenarios where no data arrives at all.

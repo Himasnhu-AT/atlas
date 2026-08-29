@@ -7,6 +7,179 @@ estimatedMinutes: 25
 exercise:
   id: row-checks
   timeboxMinutes: 25
+challenges:
+  goal: Pick checks that a broken batch actually fails, and set a threshold people will not mute.
+
+  steps:
+    - id: which-check-catches-it
+      kind: assign
+      prompt: Sort each way a batch goes wrong onto the check that would catch it first.
+      buckets:
+        - id: volume
+          label: Row count against recent history
+          note: How many rows arrived, compared with what usually arrives.
+        - id: uniqueness
+          label: Key uniqueness
+          note: Whether one order id means one row.
+        - id: nullability
+          label: Null count on a key column
+          note: Whether the column that identifies a row has a value in it.
+        - id: domain
+          label: Allowed value set
+          note: Whether a categorical column still holds values you know about.
+      items:
+        - id: truncated-export
+          label: The extract stopped after 12 rows. A normal day is 9,800.
+          bucket: volume
+          because: Nothing is wrong with any of the twelve rows. The only thing that is wrong is how few of them there are.
+        - id: zero-rows
+          label: The source sent nothing at all and the job wrote nothing at all.
+          bucket: volume
+          because: Every per-row check passes on an empty batch, because there is no row to fail one.
+        - id: retried-batch
+          label: A retried export re-sent 40 rows out of 9,800.
+          bucket: uniqueness
+          because: Forty extra rows out of nine thousand does not move the count enough to trip a volume check. The forty duplicate keys are unmissable.
+        - id: join-fanout
+          label: A join to the items table made each order appear once per item it contains.
+          bucket: uniqueness
+          because: Most orders have one item, so the count stays inside its band. The grain has changed and only the key shows it.
+        - id: renamed-key
+          label: A rename upstream left order_id empty on every row written after Tuesday.
+          bucket: nullability
+          because: The right number of rows arrived and each one is well formed. They cannot be joined to anything, which nothing else here notices.
+        - id: new-status
+          label: Someone upstream added a status called on_hold and told nobody.
+          bucket: domain
+          because: The rows are complete and unique and the count is normal. The only evidence is a value you have never seen before.
+      hints:
+        - Two of these leave every individual row perfectly valid, and two of them leave the row count perfectly normal.
+        - A retried export and a fanned out join both change how many rows carry the same key. That is one check, not two.
+        - The one about the empty column is not about missing rows. The rows arrived; the column that identifies them did not.
+      reveal: >-
+        Four counts and a comparison. None of this is statistics, and the work is in
+        choosing what to count: a check that counts rows will never see a duplicated key,
+        and a check that counts duplicates will never see an empty batch.
+
+    - id: checks-that-cannot-fail
+      kind: spot
+      prompt: >-
+        Click every assertion that would still pass on the exact batch it was written to
+        catch.
+      lang: python
+      source: |
+        assert rows > 0
+        assert rows >= median_7d * 0.5
+        assert nulls("order_id") == 0
+        assert distinct("order_id") <= rows
+        assert set(statuses) <= ALLOWED
+        assert sum(total) >= 0
+      targets: [3, 5]
+      decoys:
+        '0': An empty batch has zero rows, so this one fails and says so. It is the cheapest check in the file.
+        '1': A batch of twelve against a median of nine thousand eight hundred is well under half, so this fires.
+        '2': A rename that empties order_id puts the null count above zero immediately.
+        '4': A status nobody warned you about is not in the allowed set, so this raises on the first row that carries it.
+      hints:
+        - Two of these are true of almost every batch that has ever existed, including the broken ones.
+        - Duplicated keys make the distinct count go down. Ask which direction the comparison allows.
+        - A decimal point moving two places to the right leaves a sum that is larger, and still not negative.
+      reveal: >-
+        A check that cannot fail is worse than no check, because it appears in the report
+        as a green tick. The uniqueness one needs distinct to equal rows rather than sit
+        below it, and a sum needs a band around what it usually is rather than a sign.
+
+    - id: a-band-people-will-keep
+      kind: tune
+      prompt: >-
+        Set the volume threshold for this pipeline. Both readouts are measured against
+        the last ninety days of its actual traffic.
+      inputs:
+        - id: band
+          label: Alert when the batch is this far under the median
+          unit: '%'
+          min: 5
+          max: 90
+          step: 5
+          initial: 5
+      outputs:
+        - id: false-alarms
+          label: Alerts on days when nothing was wrong
+          unit: per quarter
+          terms:
+            - { coef: 60, of: [] }
+            - { coef: -1.2, of: [band] }
+            - { coef: 0.006, of: [band, band] }
+          target: { max: 13 }
+          note: Still firing on ordinary variance. A quiet Sunday is a smaller batch and it is not a failure, and a channel that pages people about Sundays gets muted inside a month.
+        - id: silent-shortfall
+          label: Largest shortfall that never alerts
+          unit: '%'
+          terms:
+            - { coef: 1, of: [band] }
+          target: { max: 65 }
+          note: The band is now wide enough that the batch could lose most of its rows in silence. A threshold nobody trips is the same as no threshold.
+      hints:
+        - The two readouts move in opposite directions, and each has a ceiling. You are looking for the overlap rather than the best value of either.
+        - Alert fatigue is not a soft cost. Every false alarm makes the next real one less likely to be read.
+        - Somewhere around sixty percent both numbers sit under their limit. Half the median, the round number everyone reaches for first, is slightly tighter than this pipeline's own variance allows.
+      reveal: >-
+        The band belongs to the pipeline rather than to the handbook. This one varies
+        enough that half the median fires on ordinary weekends, and a check that fires on
+        ordinary weekends stops being read long before the day it is right.
+
+    - id: write-the-suite-down
+      kind: text-contract
+      prompt: >-
+        This is the check manifest for the orders table. Every entry in it currently
+        passes on a broken batch. Repair it.
+      context:
+        as: pairs
+        items:
+          - { k: row_count, v: the smallest fraction of the seven day median that is still acceptable }
+          - { k: unique, v: the columns that identify one row, one per order }
+          - { k: not_null, v: the columns without which the row cannot be used }
+          - { k: status_in, v: every status value you already know about }
+      lang: json
+      initial: |
+        {
+          "table": "orders",
+          "row_count": { "min_fraction_of_median_7d": 0 },
+          "unique": [],
+          "not_null": ["customer"],
+          "status_in": ["shipped", "pending", "cancelled", "refunded"]
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: A floor of zero passes on an empty batch. Put in the fraction the previous step landed on, between 0.35 and 0.45 of the seven day median.
+          check: { op: range, path: row_count.min_fraction_of_median_7d, min: 0.35, max: 0.45 }
+        - message: Nothing is declared unique, so a retried export and a fanned out join both pass this manifest untouched.
+          check: { op: length, path: unique, min: 1 }
+        - message: The column that has to be unique is order_id. One order, one row.
+          check: { op: contains, path: unique, text: order_id }
+        - message: A row with no customer can still be counted and summed. A row with no order_id cannot be matched to anything, so order_id belongs here too.
+          check: { op: contains, path: not_null, text: order_id }
+        - message: Keep customer in not_null. Losing it is how a joinable table quietly becomes an unjoinable one.
+          check: { op: contains, path: not_null, text: customer }
+        - message: Keep the four statuses. An allowed set is the only thing that will notice on_hold arriving next Tuesday.
+          check: { op: length, path: status_in, min: 4 }
+      hints:
+        - Three of the four entries are present and empty or zero, which reads as configured and behaves as absent.
+        - The manifest never names the column that identifies a row. Two of the four checks are useless until it does.
+        - Set the fraction to 0.4, put order_id in unique, and add order_id to not_null alongside customer.
+      reveal: >-
+        This file is the promise, and because it is a file rather than a paragraph on a
+        wiki it goes stale loudly instead of quietly. Everything in the rest of this
+        module is one more line in it.
+      solution: |
+        {
+          "table": "orders",
+          "row_count": { "min_fraction_of_median_7d": 0.4 },
+          "unique": ["order_id"],
+          "not_null": ["order_id", "customer"],
+          "status_in": ["shipped", "pending", "cancelled", "refunded"]
+        }
 ---
 
 Pipelines that fail with clear error messages allow immediate triage. Pipelines that complete successfully while writing corrupt numbers often remain unnoticed for extended periods, silently invalidating downstream reports.
