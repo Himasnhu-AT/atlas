@@ -7,6 +7,191 @@ estimatedMinutes: 60
 exercise:
   id: fan-out-orchestrator
   timeboxMinutes: 30
+challenges:
+  goal: Keep each worker reading only its own documents, and size the fan-out so the coverage arrives inside a budget.
+
+  steps:
+    - id: the-worker-that-saw-everything
+      kind: spot
+      prompt: >-
+        Three workers, and the dropped note count is climbing on all of them while the bill
+        is three times what the plan said. Click the line.
+      lang: python
+      source: |
+        def run_worker(client, search, corpus, sub_query, budget):
+            docs = search(sub_query, k=3)
+            messages = build_worker_messages(sub_query, corpus)
+            raw = client.call(messages, tools=[EXTRACT])
+            budget.charge("worker", raw.usage)
+            allowed = {doc.id for doc in docs}
+            return [note for note in raw.notes if note["doc_id"] in allowed]
+      targets: [2]
+      decoys:
+        "1": Retrieving for this sub-question is right. What is wrong is where the result goes, and it goes nowhere until two lines later.
+        "4": Charging the budget straight after the call is deliberate. Those tokens were billed whether or not the notes turn out to be usable.
+        "5": Building the allow list from the retrieved documents is the correct set. This line is the only one still holding what the worker was supposed to be reading.
+        "6": Filtering against the allow list is right, and here it is a symptom. It is discarding notes the worker should never have been able to write.
+      hints:
+        - Count how many documents this worker retrieves, then count how many it is shown.
+        - The dropped notes are real citations to real documents. They are just not this worker's documents.
+        - One variable is computed on the second line and first used on the sixth.
+      reveal: >-
+        Isolation is the whole reason to pay for three workers instead of one call. Hand
+        each of them the corpus and you have bought three copies of the single-prompt
+        version, and the note filter downstream turns the resulting off-topic citations into
+        a metric that looks like the model behaving badly.
+
+    - id: clean-the-plan
+      kind: text-contract
+      prompt: >-
+        The planner returned six lines and you have three workers. Turn it into the list you
+        are willing to spend them on.
+      context:
+        as: log
+        lines:
+          - '  How fast is the interconnection queue growing? '
+          - 'How fast is the interconnection queue growing?'
+          - 'What happened to solar module prices?'
+          - 'What happened to grid battery storage?'
+          - 'Who owns the transmission lines?'
+          - 'What happened to solar module prices? '
+      lang: json
+      initial: |
+        {
+          "sub_queries": [
+            "  How fast is the interconnection queue growing? ",
+            "How fast is the interconnection queue growing?",
+            "What happened to solar module prices?"
+          ]
+        }
+      rules:
+        - message: This no longer parses. Check the commas between the strings.
+          check: { op: parses, as: json }
+        - message: Three workers, three sub-questions. No more and no fewer.
+          check: { op: length, path: sub_queries, min: 3, max: 3 }
+        - message: The first entry still has the whitespace the planner left on it. Two identical questions look different to every comparison you are about to write.
+          check: { op: equals, path: sub_queries.0, value: How fast is the interconnection queue growing? }
+        - message: The second entry is the first one again. Deduplicate before truncating, or a repeat costs a worker slot and the fourth real question never runs.
+          check: { op: equals, path: sub_queries.1, value: What happened to solar module prices? }
+        - message: Keep the planner's ordering for what survives. Stable order keeps the note tags stable, which keeps two runs of the same question comparable.
+          check: { op: equals, path: sub_queries.2, value: What happened to grid battery storage? }
+      hints:
+        - Six lines, and two of them are the same question twice with different spacing.
+        - Strip first, then deduplicate, then cut to the cap. Doing the last one first is what loses a real question.
+        - The transmission line question is genuinely fourth and there are three slots.
+      reveal: >-
+        Truncating before deduplicating is the bug that hides, because the plan still looks
+        like three sub-questions. Two of them are the same one, so a third of the fan-out
+        budget bought a second copy of an answer you already had.
+      solution: |
+        {
+          "sub_queries": [
+            "How fast is the interconnection queue growing?",
+            "What happened to solar module prices?",
+            "What happened to grid battery storage?"
+          ]
+        }
+
+    - id: charge-before-you-raise
+      kind: blanks
+      prompt: >-
+        Fill in the three values that decide what a run costs, when it stops, and what
+        happens when the planner returns nothing.
+      lang: python
+      template: |
+        def charge(self, stage, usage):
+            cost = {{1}}
+            self.spent += cost
+            self.by_stage[stage] = self.by_stage.get(stage, 0) + cost
+            if self.spent {{2}} self.limit:
+                raise BudgetExceeded(f"budget of {self.limit} exceeded at {stage!r}")
+
+
+        def plan(client, question, max_workers, budget):
+            raw = ask_planner(client, question, budget)
+            queries = dedupe(strip_all(raw))[:max_workers]
+            return queries or {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'usage.total_tokens'
+            - 'usage.completion_tokens'
+            - 'usage.prompt_tokens'
+            - 'len(messages)'
+          accept: ['usage.total_tokens']
+          note: Both halves. Counting only completions understates a fan-out badly, because every worker pays again for its own copy of the retrieved documents.
+        - n: 2
+          as: select
+          options: ['>', '>=', '<', '==']
+          accept: ['>']
+          note: A limit is a ceiling you may reach. With the non-strict comparison, the call that fitted exactly is the one that raises.
+        - n: 3
+          as: select
+          options: ['[question]', '[]', 'None', 'raw']
+          accept: ['[question]']
+          note: An empty plan should not mean an empty run. One worker against the original question is worse than a good decomposition and much better than a brief with nothing in it.
+      hints:
+        - The spend is recorded on all three lines above the check, and that ordering is the point rather than an accident.
+        - One comparison decides whether a run that lands exactly on its limit succeeds.
+        - The planner can return nothing. Ask what the pipeline should do rather than what it would do.
+      reveal: >-
+        Recording before raising means the audit log matches the invoice, which is the only
+        version anybody can reconcile afterwards. The same instinct keeps the notes from
+        workers that already finished: the tokens are spent either way, so throwing away
+        what they bought is a second loss on top of the first.
+
+    - id: size-the-fan-out
+      kind: tune
+      prompt: >-
+        Find a fan-out that reads at least twelve documents, keeps each worker's prompt
+        short enough to stay on its own question, and lands inside the run budget.
+      inputs:
+        - id: workers
+          label: Workers
+          min: 1
+          max: 8
+          step: 1
+          initial: 1
+        - id: docs-per-worker
+          label: Documents in each worker's prompt
+          min: 1
+          max: 6
+          step: 1
+          initial: 6
+      outputs:
+        - id: coverage
+          label: Documents read across the run
+          terms:
+            - { coef: 1, of: [workers, docs-per-worker] }
+          target: { min: 12 }
+          note: Not enough of the corpus is being opened. Parts of it are never read by anybody, and the brief will be confident about the parts that were.
+        - id: worker-prompt
+          label: Tokens in one worker's prompt
+          unit: tokens
+          terms:
+            - { coef: 500 }
+            - { coef: 400, of: [docs-per-worker] }
+          target: { max: 2100 }
+          note: Each worker is now holding more documents than its sub-question needs, and its notes will start drifting onto the topics sitting next to it in the context.
+        - id: total
+          label: Tokens for the whole run
+          unit: tokens
+          terms:
+            - { coef: 600 }
+            - { coef: 250, of: [workers] }
+            - { coef: 1, of: [workers, worker-prompt] }
+          target: { max: 12000 }
+          note: Over budget. Every worker pays for its own prompt, so this grows with the product of the two sliders rather than the sum.
+      hints:
+        - Coverage is the product of the two sliders, so several pairs reach twelve. They do not cost the same.
+        - One slider only affects the prompt each worker sees. The other multiplies whatever that prompt costs.
+        - Start by finding the largest number of documents per worker the middle target allows, then add workers until the coverage clears.
+      reveal: >-
+        Coverage is a product and cost is a product, and they are not the same product,
+        which is why there is a window rather than a single answer. More workers on fewer
+        documents each buys the same coverage with better isolation, and it stops being
+        worth it at the point where the per-worker overhead outgrows what you saved.
 ---
 
 A comprehensive research agent decomposes a complex query, gathers evidence from document sources,

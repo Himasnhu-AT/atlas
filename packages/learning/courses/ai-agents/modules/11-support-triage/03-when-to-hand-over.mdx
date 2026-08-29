@@ -7,6 +7,237 @@ estimatedMinutes: 55
 exercise:
   id: escalation-contract
   timeboxMinutes: 30
+challenges:
+  goal: Detect a real request for a person, push back once against the right topic, and hand over a ticket worth receiving.
+
+  steps:
+    - id: the-false-positive
+      kind: spot
+      prompt: >-
+        A customer writes that their user agent string is wrong and the page will not load.
+        The session escalates. Click the line that decided that.
+      lang: python
+      source: |
+        WANTS_HUMAN = ("human", "real person", "agent", "representative", "someone else")
+        NOT_A_REQUEST = ("user agent", "agent string", "support agent")
+
+        def wants_human(message):
+            text = message.lower()
+            return any(word in text for word in WANTS_HUMAN)
+      targets: [5]
+      decoys:
+        "0": The trigger list is fine. Every phrase on it does appear in genuine requests for a person, which is why the matching has to be careful rather than the list shorter.
+        "1": The exclusion list is correct and complete for this case. Nothing below it ever reads it, which is a clue rather than a defect in this line.
+        "4": Lowercasing before matching is right and has nothing to do with what got through.
+      hints:
+        - The customer used one of the trigger words and did not use it as a trigger.
+        - There is a list two lines above that was written for exactly this message.
+        - Substring matching also fires on humanities, agentic and representatives.
+      reveal: >-
+        Two fixes and this line needs both: mask the excluded phrases before matching, and
+        put word boundaries on what is left. Neither is clever, and skipping them puts a
+        human on a conversation about a browser header.
+
+    - id: what-the-pushback-searches
+      kind: blanks
+      prompt: >-
+        The customer just said they want a person. Fill in the lookup that decides what the
+        one remaining automated attempt is about.
+      lang: python
+      template: |
+        def _topic(self, message):
+            for role, said in {{1}}:
+                if role == "user" and {{2}}:
+                    return said
+            return {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'reversed(self.transcript[:-1])'
+            - 'self.transcript'
+            - 'reversed(self.transcript)'
+            - 'self.transcript[:-1]'
+          accept: ['reversed(self.transcript[:-1])']
+          note: Backwards, from the turn before this one. Forwards finds the oldest thing in the session, and including the current turn finds the request for a person.
+        - n: 2
+          as: select
+          options:
+            - 'not wants_human(said)'
+            - 'wants_human(said)'
+            - 'said'
+            - 'len(said) > 0'
+          accept: ['not wants_human(said)']
+          note: Skip the turns that are themselves requests for a person. A customer who has asked twice has two turns you do not want to retrieve against.
+        - n: 3
+          as: select
+          options: ['message', 'None', '""', 'self.transcript[0][1]']
+          accept: ['message']
+          note: Somebody can open a conversation by asking for a person. There is no earlier topic then, and searching their actual words beats searching nothing.
+      hints:
+        - Retrieving against the words I want a human returns the article about how to contact support.
+        - The useful question is somewhere behind the current turn, and there may be more than one turn to skip.
+        - The fallback matters for the customer whose first message is the request.
+      reveal: >-
+        The single pushback is the only automated attempt left, so aiming it at the wrong
+        text wastes the one chance and confirms the customer's suspicion that nothing is
+        listening. Four lines, and they decide whether the last attempt is about their
+        problem or about their frustration.
+
+    - id: the-handoff-payload
+      kind: text-contract
+      prompt: >-
+        The customer has asked twice and the session is escalating. Fill in the ticket the
+        human is about to open.
+      context:
+        as: log
+        lines:
+          - 'user: how do I reset my password'
+          - 'agent: [A2] Reset it from the account page'
+          - 'user: that is not working, I want a human'
+          - 'agent: [A5] Check the spam folder for the reset email, and [A2] resend it'
+          - 'user: a human, now'
+          - 'reason is one of customer_request, no_coverage or policy'
+      lang: json
+      initial: |
+        {
+          "reason": "escalated",
+          "summary": "escalated",
+          "attempted": [],
+          "article_ids": ["A2", "A2", "A5"],
+          "transcript_turns": 5
+        }
+      rules:
+        - message: This no longer parses. Check the brackets around the two lists.
+          check: { op: parses, as: json }
+        - message: The summary is the line the human reads before deciding whether to open the transcript. One word tells them only the thing they already know.
+          check: { op: length, path: summary, min: 20 }
+        - message: Name the problem rather than the event. The human needs to know what the customer came in about.
+          check: { op: contains, path: summary, text: password }
+        - message: Two automated replies went out. Both belong here, so the human does not send the spam folder suggestion a third time.
+          check: { op: length, path: attempted, min: 2, max: 2 }
+        - message: A2 was cited in both replies and is listed twice. This is a list of articles the customer has already been shown, so it is deduplicated.
+          check: { op: length, path: article_ids, min: 2, max: 2 }
+        - message: In the order they were first referenced.
+          check: { op: equals, path: article_ids.0, value: A2 }
+        - message: And the one that came in with the second attempt.
+          check: { op: equals, path: article_ids.1, value: A5 }
+        - message: Three user turns. The agent's replies are in attempted, and this number is how long the customer has been at it.
+          check: { op: equals, path: transcript_turns, value: 3 }
+        - message: The reason is why this escalated rather than that it did. This one escalated because the customer asked.
+          check: { op: equals, path: reason, value: customer_request }
+      hints:
+        - Two fields are counting the wrong things, and both of them are counting the agent's own turns.
+        - One article was cited twice and appears twice.
+        - The summary and the reason are both currently saying escalated, and neither of them should.
+      reveal: >-
+        The test of a handoff is whether the human has to ask the customer anything the
+        agent already knows. Summary, attempts and articles seen cover that, and the turn
+        count is what tells the human how much patience is left on the other end.
+      solution: |
+        {
+          "reason": "customer_request",
+          "summary": "Password reset email not arriving after two attempts",
+          "attempted": [
+            "[A2] Reset it from the account page",
+            "[A5] Check the spam folder for the reset email, and [A2] resend it"
+          ],
+          "article_ids": ["A2", "A5"],
+          "transcript_turns": 3
+        }
+
+    - id: run-the-session
+      kind: machine
+      prompt: >-
+        A password reset conversation. Get it to a human with exactly one pushback and at
+        most two model calls.
+      initial: t1-question
+      vars: { pushbacks: 0, calls: 0 }
+      states:
+        t1-question:
+          label: Customer asks how to reset their password
+        answered:
+          label: Answered, with a citation
+        asked-for-human:
+          label: Customer says it is not working and wants a person
+          note: The first explicit request. The contract allows one more automated attempt and no more.
+        pushed-back:
+          label: One more attempt sent
+        asked-again:
+          label: Customer asks a second time
+          note: There is nothing left to try. Anything sent now is deflection.
+        escalated:
+          label: Handed over with a payload
+          terminal: true
+        off-topic:
+          label: Pushed back with the wrong article
+          note: The retrieval ran against the words I want a human and came back with the page about contacting support. The one remaining attempt is spent telling them how to do what they just did.
+          terminal: true
+          error: true
+        deflect-loop:
+          label: A third article after two requests
+          note: The customer stopped reading two turns ago. This costs a call and buys a worse review.
+          terminal: true
+          error: true
+        escalated-blank:
+          label: Handed over with nothing attached
+          note: The human opens a ticket saying the customer wants help, and starts by asking what the problem is.
+          terminal: true
+          error: true
+      transitions:
+        - from: t1-question
+          on: retrieve and answer
+          to: answered
+          effects: [{ var: calls, op: inc, value: 1 }]
+        - from: answered
+          on: customer asks for a person
+          to: asked-for-human
+        - from: asked-for-human
+          on: offer one more, on the earlier topic
+          to: pushed-back
+          effects:
+            - { var: calls, op: inc, value: 1 }
+            - { var: pushbacks, op: inc, value: 1 }
+          note: Retrieved against the password question rather than against the request, which is the only version of this attempt worth making.
+        - from: asked-for-human
+          on: retrieve on the words they just used
+          to: off-topic
+          effects:
+            - { var: calls, op: inc, value: 1 }
+            - { var: pushbacks, op: inc, value: 1 }
+        - from: asked-for-human
+          on: hand over now
+          to: escalated
+          note: Defensible, and it is the configuration for billing disputes and safety issues rather than for a password reset. Here it gives up a resolution that was one article away.
+        - from: pushed-back
+          on: customer asks again
+          to: asked-again
+        - from: asked-again
+          on: hand over with the payload
+          to: escalated
+        - from: asked-again
+          on: offer another article
+          to: deflect-loop
+          effects: [{ var: calls, op: inc, value: 1 }]
+        - from: asked-again
+          on: hand over with an empty payload
+          to: escalated-blank
+      mode: drive
+      win:
+        state: escalated
+        maxSteps: 8
+        requires:
+          - { var: pushbacks, cmp: eq, value: 1 }
+          - { var: calls, cmp: lte, value: 2 }
+      hints:
+        - There are two ways to reach a handed-over session and they differ by one attempt.
+        - The pushback has to be about the password, which means the retrieval has to look further back than the last thing the customer said.
+        - Handing over is not the end of the work. What goes across with it is the part the human notices.
+      reveal: >-
+        Exactly one pushback is a policy rather than a preference: zero gives up on the
+        customers who would have taken the article, and two is where a support conversation
+        starts feeling like a maze. Once it is handed over the session freezes, because a
+        second automated reply lands in a conversation a person now owns.
 ---
 
 While the grounded answering layer operates statelessly, the session manager maintains conversation

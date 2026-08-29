@@ -7,6 +7,181 @@ estimatedMinutes: 50
 exercise:
   id: cited-synthesis
   timeboxMinutes: 35
+challenges:
+  goal: Number the notes so two runs agree, write the brief in one call, and record every sentence the notes do not support.
+
+  steps:
+    - id: who-writes-it
+      kind: choice
+      prompt: >-
+        Three workers have come back with eleven notes between them. Who writes the brief?
+      options:
+        - id: each-worker
+          label: Each worker drafts its own section and you concatenate them.
+          note: Three introductions, three citation styles and three different assumptions about what the reader already knows. It reads like three memos in a folder, because that is what it is.
+        - id: supervisor
+          label: One call over all eleven notes, with the title and the source list assembled in Python.
+          correct: true
+          note: One voice, one tagging scheme, and the parts a program can do deterministically are not being paid for in tokens or checked afterwards.
+        - id: supervisor-formats
+          label: One call over all eleven notes, and let it write the title and the source list too.
+          note: Close, and it gives the model a job where being wrong is invisible. A bibliography the model wrote can list a document nothing in the brief actually cites.
+        - id: draft-then-merge
+          label: Each worker drafts, then a second call rewrites the three drafts into one.
+          note: The evidence went through prose and back, so the merge is working from summaries of summaries. Four calls to arrive somewhere worse than one.
+      hints:
+        - Two of these produce a document with more than one author's habits in it.
+        - Ask which parts of a brief have a single correct form that no model needs to be involved in.
+        - The notes are the evidence. Count how many times each option turns them into prose.
+      reveal: >-
+        The supervisor exists so that there is one place where prose gets written, and
+        everything around it is deterministic. Title, ordering and bibliography come out of
+        Python because they are derived from the claims, and a derived thing that a model
+        writes is a thing you now have to verify.
+
+    - id: number-the-notes
+      kind: assign
+      prompt: >-
+        Four notes came back, in the order shown. Assign the tag each one gets, sorting by
+        document id first and arrival second.
+      buckets:
+        - id: s1
+          label: "[S1]"
+        - id: s2
+          label: "[S2]"
+        - id: s3
+          label: "[S3]"
+        - id: s4
+          label: "[S4]"
+      items:
+        - id: solar-prices
+          label: "arrived first, d-solar: module prices fell 41 percent last year"
+          bucket: s2
+          because: First to arrive and second in the ordering, because d-queue sorts before d-solar. Arrival order is only the tie-break within a document.
+        - id: queue-wait
+          label: "arrived second, d-queue: the median wait is now five years"
+          bucket: s1
+          because: d-queue is first alphabetically, so it takes S1 whatever order the workers happened to finish in. That is the entire reason for sorting.
+        - id: solar-passthrough
+          label: "arrived third, d-solar: installers passed about half of the decline on"
+          bucket: s3
+          because: The second note from d-solar, and arrival breaks the tie against the other one. Adjacent tags from one document also make the bibliography group itself.
+        - id: storage-doubled
+          label: "arrived fourth, d-storage: grid battery additions doubled"
+          bucket: s4
+          because: Last document alphabetically and last tag. Nothing about the worker that produced it affects where it lands.
+      hints:
+        - The sort key has two parts and the first one is not the order they came back in.
+        - Two notes share a document, so the tie-break decides which of them is which.
+        - Workers finish in whatever order the network allows. The tags must not.
+      reveal: >-
+        Tags assigned in arrival order would change between two runs of the same question,
+        which makes every downstream comparison useless: the diff between yesterday's brief
+        and today's would be full of renumbered citations that mean the same thing.
+
+    - id: split-the-prose
+      kind: blanks
+      prompt: >-
+        Fill in the three pieces of the sentence splitter. Each wrong option breaks on real
+        text in a way that is easy to miss.
+      lang: python
+      template: |
+        _BOUNDARY = re.compile(r"(?<={{1}}){{3}}")
+
+        def split_sentences(text):
+            parts = _BOUNDARY.split(text.strip())
+            out = []
+            for part in parts:
+                if out and out[-1].split(" ")[-1].lower() in {{2}}:
+                    out[-1] = out[-1] + " " + part
+                else:
+                    out.append(part)
+            return out
+      blanks:
+        - n: 1
+          as: select
+          options: ['[.!?]', '[.]', '[.!?;]', '[a-z][.]']
+          accept: ['[.!?]']
+          note: The three characters that end a sentence. A semicolon does not, and restricting it to a full stop loses every question and exclamation in the brief.
+        - n: 3
+          as: select
+          options: ['\s+', '\s*', '.', '\n']
+          accept: ['\s+']
+          note: One or more spaces after the punctuation. The zero-or-more version matches an empty string, so it cuts inside 15.5 and between every letter it can reach.
+        - n: 2
+          as: select
+          options: ['ABBREVIATIONS', 'set()', 'STOPWORDS', 'out']
+          accept: ['ABBREVIATIONS']
+          note: A known list, checked against the last word of the previous fragment. Ugly, and it is the version that survives e.g. and et al. in the middle of a paragraph.
+      hints:
+        - The lookbehind keeps the punctuation attached to the sentence it ended, so what follows it is what you split on.
+        - One of the options for the second blank matches an empty string.
+        - The recombination step exists for the abbreviations the first rule cuts in half.
+      reveal: >-
+        Sentence boundaries are the unit the verifier works in, so a splitter that cuts
+        inside a decimal produces a claim with half a number in it and a claim that starts
+        mid-sentence, and both will fail verification for reasons that have nothing to do
+        with the model.
+
+    - id: what-the-brief-admits
+      kind: text-contract
+      prompt: >-
+        The supervisor wrote five sentences. Fill in the metadata, where uncited means every
+        sentence that ended up with no valid tag.
+      context:
+        as: log
+        lines:
+          - 'notes: S1 d-queue, S2 d-solar, S3 d-solar, S4 d-storage'
+          - 'corpus: d-queue, d-solar, d-storage, d-wind'
+          - '1. The interconnection queue now runs to a median of five years [S1].'
+          - '2. Module prices fell 41 percent last year [S2], and installers passed about half of it on [S3].'
+          - '3. Grid battery additions doubled [S4].'
+          - '4. Transmission build-out is the binding constraint [S7].'
+          - '5. The notes do not cover permitting timelines.'
+      lang: json
+      initial: |
+        {
+          "cited_claims": 4,
+          "unknown_tags": [],
+          "uncited": ["The notes do not cover permitting timelines."],
+          "sources": ["d-queue", "d-solar", "d-storage", "d-wind"]
+        }
+      rules:
+        - message: This no longer parses. Check the brackets around the three lists.
+          check: { op: parses, as: json }
+        - message: Four sentences carry a marker and one of those markers is not a note. A sentence whose only tag failed the check is not a cited claim.
+          check: { op: equals, path: cited_claims, value: 3 }
+        - message: There are only four notes, so S7 refers to nothing. It goes in its own list rather than being quietly dropped, because a run producing these is a run whose prompt has drifted.
+          check: { op: equals, path: unknown_tags.0, value: S7 }
+        - message: Only S7. The other three markers all point at real notes.
+          check: { op: length, path: unknown_tags, min: 1, max: 1 }
+        - message: Two sentences end up with no valid tag. One of them is an honest statement of a gap and the other is a claim whose only support was invented, and the brief has to admit to both.
+          check: { op: length, path: uncited, min: 2, max: 2 }
+        - message: Sentence four comes first, in the order it appears in the prose.
+          check: { op: contains, path: uncited.0, text: Transmission build-out }
+        - message: Three documents were actually cited. d-wind is in the corpus and nothing in the brief refers to it, so it is not a source of this brief.
+          check: { op: length, path: sources, min: 3, max: 3 }
+        - message: Sorted by document id, the same order the tags were assigned in.
+          check: { op: equals, path: sources.0, value: d-queue }
+      hints:
+        - Count the tags in the prose, then count the notes. They do not match.
+        - A sentence can be tagged and still be uncited, which is what makes the fourth one interesting.
+        - The bibliography comes from what the surviving claims cite, not from what was retrieved.
+      reveal: >-
+        Keeping the untagged sentences in the prose and listing them in the metadata is the
+        honest arrangement: the reader sees the gap in context and the pipeline can count it.
+        Deriving the source list from surviving citations is the same instinct, because a
+        bibliography that lists a document nothing cited is a claim the brief never made.
+      solution: |
+        {
+          "cited_claims": 3,
+          "unknown_tags": ["S7"],
+          "uncited": [
+            "Transmission build-out is the binding constraint [S7].",
+            "The notes do not cover permitting timelines."
+          ],
+          "sources": ["d-queue", "d-solar", "d-storage"]
+        }
 ---
 
 Once parallel workers extract evidence from their respective document subsets, the system must

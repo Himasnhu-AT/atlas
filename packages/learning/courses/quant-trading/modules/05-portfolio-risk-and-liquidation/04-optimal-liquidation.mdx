@@ -7,6 +7,189 @@ estimatedMinutes: 25
 exercise:
   id: almgren-chriss
   timeboxMinutes: 35
+challenges:
+  goal: Price the cost of trading a large position quickly, separate the three things that cost you, and say what risk aversion does to the schedule.
+
+  steps:
+    - id: what-slicing-saves
+      kind: numeric
+      prompt: >-
+        You liquidate a million shares in twenty equal slices. What is the total temporary
+        impact cost in dollars?
+      unit: dollars
+      context:
+        as: pairs
+        items:
+          - { k: Position, v: '1,000,000 shares to sell' }
+          - { k: Schedule, v: 20 equal slices }
+          - { k: Impact per share, v: eta times the shares traded in that slice }
+          - { k: Eta, v: '0.000001 dollars per share, per share traded' }
+      answer: 50000
+      tolerance: 10
+      scaleHint: >-
+        That is out by more than a factor of ten. Check whether the per-share concession was
+        multiplied by the shares in the slice as well as by eta.
+      hints:
+        - Work out one slice first, then multiply by the number of slices.
+        - A slice is 50,000 shares, so the concession on that slice is five cents a share.
+        - Five cents on 50,000 shares is 2,500 dollars, and there are twenty slices.
+      reveal: >-
+        Selling the whole million in one go would have cost a dollar a share, or a million
+        dollars, so twenty slices saved 950,000 of it. Impact under this model falls in
+        proportion to the number of slices, which would suggest slicing forever, and the only
+        thing that stops you is what can happen to the price while you are still holding the
+        rest.
+
+    - id: three-ways-a-liquidation-costs-you
+      kind: assign
+      prompt: >-
+        Sort each thing that happened during your liquidation by which part of the cost model
+        accounts for it.
+      buckets:
+        - id: temporary
+          label: Temporary impact
+          note: Your own trading pushes the price and it comes back once you stop.
+        - id: permanent
+          label: Permanent impact
+          note: The market revises its view because of what your trading revealed.
+        - id: timing
+          label: Timing risk
+          note: The price moves for reasons that have nothing to do with you.
+      items:
+        - id: walk-the-book
+          label: Your slice consumed the top three price levels and averaged worse than the touch
+          bucket: temporary
+          because: >-
+            The book refills within seconds once you stop taking. You paid for depth that was
+            not there at the moment you wanted it, and nothing about the fair price changed.
+        - id: tick-and-recover
+          label: The price ticked down while your slice filled and was back within a minute
+          bucket: temporary
+          because: >-
+            Recovery is the definition of temporary. This is liquidity being consumed and
+            replenished, and it costs you exactly once per slice.
+        - id: mid-settles-lower
+          label: The mid settled four cents lower and stayed there after you had finished
+          bucket: permanent
+          because: >-
+            The market concluded something from the flow and repriced. This part does not come
+            back, and slicing more finely does not avoid it because it is a function of the
+            total size rather than of the rate.
+        - id: leakage
+          label: Other participants inferred a large seller and widened their quotes
+          bucket: permanent
+          because: >-
+            Information leakage is permanent impact arriving through a different door. What
+            was revealed cannot be unrevealed, which is why schedules are randomised and
+            slices are sized to look ordinary.
+        - id: news
+          label: The stock gapped on unrelated news with half the position still on
+          bucket: timing
+          because: >-
+            Nothing you did caused this and nothing you could have done to your schedule would
+            have changed it, except finishing sooner. That is precisely the trade the model is
+            about.
+        - id: another-seller
+          label: A different large seller arrived and the price fell before you were done
+          bucket: timing
+          because: >-
+            Somebody else's flow is exogenous to you. It is a risk of still holding inventory
+            rather than a cost of trading, and it scales with how long you are exposed.
+      hints:
+        - Ask whether the price came back afterwards. That single question separates two of the three buckets.
+        - Two of these are things you did to the price and two are things the world did to it.
+        - One bucket contains the costs that get worse the faster you trade, and another contains the ones that get worse the slower you trade.
+      reveal: >-
+        The whole model is the tension between two of these buckets. Temporary impact falls as
+        you slow down and timing risk rises, so there is a schedule in between that minimises
+        the sum. Permanent impact sits outside the argument entirely, since it depends on the
+        total size rather than on the rate, and no schedule avoids paying it.
+
+    - id: the-schedule-that-never-finished
+      kind: spot
+      prompt: >-
+        The risk-neutral branch liquidates the whole position. The general branch leaves a
+        sliver of it on the book at the end of the day. Click the line responsible.
+      lang: python
+      source: |
+        def trajectory(total, n, tau, sigma, eta, lam):
+            kappa = math.sqrt(lam * sigma ** 2 / eta)
+            horizon = n * tau
+            if kappa == 0.0:
+                return [total * (1.0 - k / n) for k in range(n + 1)]
+            return [
+                total * math.sinh(kappa * (horizon - k * tau)) / math.sinh(kappa * horizon)
+                for k in range(n)
+            ]
+      targets: [7]
+      requireAll: true
+      decoys:
+        '1': >-
+          The urgency parameter is right. Risk aversion and variance push it up, impact pushes
+          it down, and the square root keeps it in units of one over time.
+        '2': >-
+          The horizon is the number of intervals times their length, which is exactly the
+          total time available.
+        '3': >-
+          Guarding the zero case is right, since kappa of zero would make the ratio below it
+          zero over zero rather than a straight line.
+        '4': >-
+          The straight line schedule is correct, endpoint included. It starts at the full
+          position and finishes at nothing.
+        '6': >-
+          The ratio of hyperbolic sines is the optimal trajectory, and it evaluates to the
+          full position at the start and to zero at the horizon.
+      hints:
+        - Compare the two branches. They are supposed to return lists of the same length.
+        - The schedule is a position after each of n intervals, plus the position before any of them, so it has one more entry than there are intervals.
+        - The last element the loop produces is the position with one interval still to run, and nobody ever asks it for the one after that.
+      reveal: >-
+        Off by one in a trajectory is not an off by one in an array, it is inventory left on
+        the book overnight. Nothing raises, the schedule looks smooth, and the difference only
+        shows up as a small residual position that the risk report cannot explain. The test
+        that catches it is the one that asserts the last element is zero, which is a property
+        of the answer rather than of the code.
+
+    - id: what-risk-aversion-does
+      kind: choice
+      prompt: >-
+        You raise lambda, the risk aversion, and leave every other parameter alone. What
+        happens to the schedule?
+      options:
+        - id: front-loaded
+          label: It front-loads, selling more early and paying more impact to do it
+          correct: true
+          note: >-
+            Higher lambda prices inventory risk more dearly, so the model buys its way out of
+            exposure sooner. The trajectory bends away from the straight line and toward the
+            axis, which is the shape the hyperbolic sine produces as kappa grows.
+        - id: back-loaded
+          label: It back-loads, holding on longer to avoid the impact
+          note: >-
+            That is what lowering lambda does. A trader who does not mind holding inventory
+            trades as slowly as the horizon allows, because impact is the only cost being
+            counted.
+        - id: straight
+          label: It straightens toward a constant rate
+          note: >-
+            The straight line is the limit as lambda goes to zero, not as it grows. A constant
+            rate is the schedule of a trader who is indifferent to when the risk goes away.
+        - id: unchanged
+          label: Nothing, since lambda only affects the reported cost and not the path
+          note: >-
+            Lambda enters through kappa, and kappa is the only thing that shapes the
+            trajectory. The path is exactly where risk aversion expresses itself.
+      hints:
+        - Lambda appears in the model in one place, and that place is the urgency parameter.
+        - Ask what a trader who hates holding inventory is willing to pay to stop holding it.
+        - One of the two limiting cases in the lesson is a straight line, and it is not this one.
+      reveal: >-
+        Lambda is where the model stops being about the market and starts being about you.
+        The same stock, the same book and the same day give a different schedule to a desk
+        that must be flat by the close than to one that can carry the position for a week, and
+        neither is more correct. What the model provides is the exchange rate between impact
+        paid now and variance carried later, so the number you have to supply is how much that
+        variance is worth to you.
 ---
 
 Liquidating a large position of $X$ shares presents a fundamental trade-off:

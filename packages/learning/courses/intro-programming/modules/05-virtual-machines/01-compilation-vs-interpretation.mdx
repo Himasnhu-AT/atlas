@@ -4,6 +4,171 @@ title: Compilation, bytecode interpretation, and virtual machines
 summary: The spectrum of execution models from native machine code compilation (C/C++) to bytecode interpreters (Python, JVM) and just-in-time (JIT) runtimes.
 order: 1
 estimatedMinutes: 20
+challenges:
+  goal: Place a runtime on the spectrum by asking when it translates, and say what each position costs.
+
+  steps:
+    - id: count-the-dispatches
+      kind: numeric
+      prompt: >-
+        Compile the expression (a + b) * (c + d) for a stack machine. How many instructions does
+        it take?
+      context:
+        as: code
+        lang: text
+        source: |
+          A stack machine has no operands in its opcodes. Loading a variable pushes it,
+          and an operator pops what it needs and pushes the result.
+
+          For (a + b) * c the compiler emits:
+
+            LOAD_VAR a
+            LOAD_VAR b
+            ADD
+            LOAD_VAR c
+            MUL
+      answer: 7
+      tolerance: 0
+      hints:
+        - Every variable that takes part has to be pushed, and there are four of them here rather than three.
+        - Each operator is one instruction, and this expression has three operators.
+        - Nothing else is needed, because no instruction has to name where its operands are.
+      reveal: >-
+        Seven instructions of one or two bytes each, against three register instructions of
+        three or four bytes each. The stack encoding is smaller on disk and longer to run,
+        because every instruction is a dispatch and dispatch is what an interpreter spends its
+        time on. That is the trade LuaJIT and Dalvik took the other way, paying bytes to save
+        dispatches.
+
+    - id: when-the-translation-happens
+      kind: assign
+      prompt: >-
+        Each of these is true of exactly one of the three execution models. Sort them.
+      buckets:
+        - id: aot
+          label: Ahead of time, to native code
+          note: Nothing stands between the binary and the processor once it is running.
+        - id: bytecode
+          label: Bytecode virtual machine
+          note: Translated once into a compact instruction stream that software then dispatches.
+        - id: jit
+          label: Just in time
+          note: Starts interpreted and compiles whatever turns out to be worth compiling.
+      items:
+        - id: rebuild-per-target
+          label: Shipping to a different CPU architecture means building the program again
+          bucket: aot
+          because: The artefact is machine code for one instruction set, which is the entire point of emitting it early.
+        - id: no-runtime
+          label: There is no runtime engine to ship alongside the program
+          bucket: aot
+          because: The translation already happened, so nothing has to be present later to do any more of it.
+        - id: portable-artefact
+          label: The compilation output runs unchanged anywhere the runtime is installed
+          bucket: bytecode
+          because: The instruction set belongs to the virtual machine rather than to a processor, so the artefact is not tied to a chip.
+        - id: dispatch-loop
+          label: The dominant cost of a tight loop is fetching and decoding the next instruction in software
+          bucket: bytecode
+          because: A fetch, decode and execute step per operation is the overhead the other two models have already paid off or never take on.
+        - id: warmup
+          label: Peak throughput arrives only after the program has been running for a while
+          bucket: jit
+          because: Nothing gets compiled until something has been measured, so the fast version of a function does not exist at startup.
+        - id: deopt
+          label: Execution can drop from compiled code back into an interpreter part way through a function
+          bucket: jit
+          because: Optimised code was compiled on an assumption, so something has to catch the assumption failing and rebuild the state the interpreter expects.
+        - id: code-cache
+          label: The memory footprint includes machine code that was generated while the program ran
+          bucket: jit
+          because: The compiled versions have to live somewhere, and so does the profiling data that decided to make them.
+      hints:
+        - Only one of the three changes its mind about how to run the code while the code is already running.
+        - Two of these are about what has to be shipped or rebuilt, and they point at the same end of the spectrum.
+        - Anything mentioning warming up, falling back, or generating code at run time belongs together.
+      reveal: >-
+        The whole spectrum is one question asked from three places, which is when the
+        translation happens. Early gives the best steady state and the least flexibility, never
+        gives the most flexibility and the worst steady state, and late gives both at the cost
+        of memory and a warm-up. None of that is a ranking, which is why a real system usually
+        contains more than one of them.
+
+    - id: where-the-jumps-are
+      kind: choice
+      prompt: >-
+        Both of these interpreters run the same bytecode, and the threaded one is reliably
+        faster. What is it buying?
+      context:
+        as: code
+        lang: c
+        source: |
+          /* switch dispatch: one shared jump for every opcode */
+          while (running) {
+              uint8_t opcode = *ip++;
+              switch (opcode) { case OP_ADD: ... break; }
+          }
+
+          /* direct threading: each handler ends in its own jump */
+          do_add:
+              push(pop() + pop());
+              goto **(ip++);
+      options:
+        - id: fewer-instructions
+          label: It executes fewer machine instructions for each bytecode.
+          note: It saves a couple of instructions at most, and a couple of instructions would not show up in a benchmark. What changes is what the processor is able to predict.
+        - id: branch-prediction
+          label: Every handler ends in its own indirect jump, so the branch predictor can learn which opcode tends to follow which.
+          correct: true
+          note: A switch has one indirect jump shared by every opcode, so the predictor sees a single site with dozens of targets and misses constantly. Threading gives one site per opcode, and each of those sites has a favourite successor.
+        - id: inlining
+          label: The compiler can now inline each handler into the next one.
+          note: It cannot. The next handler is chosen from data at run time, and nothing about threading makes that target known while compiling.
+        - id: cache-layout
+          label: The handlers end up adjacent in memory and share instruction cache lines.
+          note: Where the handlers land is up to the compiler and threading does not control it. Instruction cache behaviour is much the same in both forms.
+      hints:
+        - Both forms fetch, decode and execute. Ask where the jumps are rather than how many of them there are.
+        - A branch predictor works per branch site, and one of these has a single site while the other has one per opcode.
+        - Compiled bytecode is far from random. A given opcode is very often followed by the same handful of others.
+      reveal: >-
+        A mispredicted indirect jump costs fifteen to twenty cycles, and an interpreted bytecode
+        does a handful of cycles of real work, so prediction is most of the runtime. Splitting
+        one shared jump into one per opcode lets the predictor exploit the fact that bytecode
+        repeats itself, which is where the usual twenty to thirty percent comes from. It needs a
+        compiler extension for taking the address of a label, which is why the strictly portable
+        build of CPython is the slower one.
+
+    - id: the-path-of-a-hot-function
+      kind: order
+      prompt: >-
+        A function is called in a loop and eventually a guard on it fails. Put the stages of its
+        life in a tiered runtime in order.
+      items:
+        - { id: interpret, label: "Run in the interpreter while a counter records how often the function is entered" }
+        - { id: threshold, label: "Cross the threshold that marks the function as hot" }
+        - { id: profile, label: "Record the types actually seen at each operation in it" }
+        - { id: compile, label: "Emit native code that assumes those types, with a guard at every assumption" }
+        - { id: run-native, label: "Run the native version, checking each guard as it goes" }
+        - { id: deoptimize, label: "A guard fails, the compiled frame is discarded and interpreter state is rebuilt on the stack" }
+      solution: [interpret, threshold, profile, compile, run-native, deoptimize]
+      because:
+        interpret: Execution has to start somewhere, and starting in the interpreter is what makes startup instant. The counter is the only extra work being done.
+        threshold: Compiling everything would cost more than it saved, so the counter decides what is worth the effort rather than a heuristic about the source.
+        profile: The compiler needs to know what the types actually are, and in a dynamic language the only reliable source for that is what already happened.
+        compile: The assumptions and the guards are emitted together. Code compiled on an assumption with no check on it would just be wrong.
+        run-native: This is the fast path, and it is fast because the guards are cheap comparisons rather than the dynamic lookups they replaced.
+        deoptimize: The bail-out is the price of having assumed anything. Reconstructing the interpreter's view of a half-finished frame is the hardest part of the whole design.
+      hints:
+        - Two things have to be known before any code can be emitted, and they are learned at different moments.
+        - Nothing is compiled until something has been counted, and nothing is specialised until something has been observed.
+        - The last stage is what makes the optimism safe rather than reckless.
+      reveal: >-
+        The guards are the whole design. They let the compiler assume things that are not
+        guaranteed, which is the only way to get native code out of a language where a name can
+        hold anything. The cost is that the runtime must be able to rebuild an interpreter frame
+        from a native one at any guard, which is why on-stack replacement is where JITs are hard
+        and where they have their worst bugs.
 ---
 
 Programs express logic in human-readable source text, but hardware execution units only decode binary machine instructions for a specific instruction set architecture (ISA) like x86_64 or ARM64. The mechanism translating source text to silicon execution forms the execution model.

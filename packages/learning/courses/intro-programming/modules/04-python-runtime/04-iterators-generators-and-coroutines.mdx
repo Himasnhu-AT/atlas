@@ -87,7 +87,7 @@ challenges:
         - from: created
           on: call close()
           to: exhausted
-          note: Closing a generator that never started throws nothing into it, because there is no frame to throw into. It is simply marked finished.
+          note: Closing a generator that never started throws nothing into it, because there is no frame to throw into. It is marked finished and nothing runs.
         - from: suspended
           on: call next()
           to: suspended

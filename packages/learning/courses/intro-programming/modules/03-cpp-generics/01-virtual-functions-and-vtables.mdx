@@ -116,7 +116,7 @@ challenges:
           note: Slicing is fully defined, and that is what makes it dangerous. Nothing is corrupted and nothing warns. The answer is quietly the base implementation, every time.
         - id: compile-error
           label: It will not compile, because a Circle does not fit in a Shape.
-          note: It compiles. A Circle is a Shape, so Shape's copy constructor accepts one, and the bytes that do not fit are simply not copied.
+          note: It compiles. A Circle is a Shape, so Shape's copy constructor accepts one, and the bytes that do not fit are not copied.
       hints:
         - Ask what type the object called shape actually is, and what its own constructor did to its vptr.
         - Dispatch reads the vptr out of the object in front of it, and copying by value produced a different object.
@@ -157,7 +157,7 @@ challenges:
       targets: [3]
       decoys:
         '2': A pure virtual function makes Base abstract and gives run a vtable slot. The call through it resolves exactly as intended.
-        '11': Freeing the buffer in the destructor is right, and this destructor is correct. It is simply never called.
+        '11': Freeing the buffer in the destructor is right, and this destructor is correct. It is never called.
         '16': Constructing a Derived and holding it through a Base pointer is the entire point of a polymorphic hierarchy.
         '17': This call does dispatch to Derived::run, which is the evidence that the vtable exists and the object knows what it is.
       hints:
