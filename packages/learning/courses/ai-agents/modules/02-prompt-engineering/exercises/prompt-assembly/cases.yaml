@@ -1,0 +1,225 @@
+version: 1
+cases:
+  TestOverlap.test_tokenize_lowercases_and_splits:
+    condition: 'text in mixed case, where the capitals must not make two words different'
+    hints:
+      - 'The Cat and the cat are the same word for this purpose.'
+      - 'Comparing raw text means a capitalised sentence overlaps with nothing.'
+      - 'Fold the text to lower case before pulling the words out of it.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_tokenize_keeps_apostrophes_and_digits:
+    condition: 'a contraction and a version number, both of which are single words'
+    hints:
+      - 'Splitting on anything that is not a letter cuts doesn''t into two pieces and drops the 2 from v2.'
+      - 'An apostrophe inside a word belongs to the word, and digits are as much a part of a word as letters.'
+      - 'Match runs of letters, digits and apostrophes rather than splitting on every non letter.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_tokenize_drops_punctuation_and_duplicates:
+    condition: 'a repeated word and trailing punctuation attached to another'
+    hints:
+      - 'A word said twice is not more similar than a word said once.'
+      - 'A comma left stuck to a word makes it fail to match the same word elsewhere.'
+      - 'Collect the words into a set, which drops the repeats, and let the pattern exclude the punctuation.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_tokenize_of_empty_string:
+    condition: 'an empty string with no words to extract'
+    hints:
+      - 'Empty text is a real input, not a bug to guard against.'
+      - 'The result has to be an empty set rather than a set holding one empty string.'
+      - 'A pattern that matches runs of word characters finds nothing here, which already gives the empty set.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_identical_strings_score_one:
+    condition: 'two identical strings, which are as similar as anything can be'
+    hints:
+      - 'The top of the scale is one, and identical text has to reach it exactly.'
+      - 'When both sides have the same words, the shared count and the combined count are the same number.'
+      - 'Divide the size of the intersection by the size of the union, which is one when the sets are equal.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_no_overlap_scores_zero:
+    condition: 'two strings that share no word at all'
+    hints:
+      - 'Nothing in common is the bottom of the scale.'
+      - 'The intersection is empty, so the numerator is zero whatever the union holds.'
+      - 'The denominator is still non-zero here, so this needs no special case.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_partial_overlap:
+    condition: 'two phrases sharing two of the four words between them'
+    hints:
+      - 'Similarity is a ratio, not a count. Two shared words means nothing without knowing out of how many.'
+      - 'Dividing by the length of one side alone makes the measure disagree with itself when you swap the arguments.'
+      - 'Divide the shared words by the total distinct words across both sides.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_empty_side_scores_zero:
+    condition: 'one side with no words in it and the other with real text'
+    hints:
+      - 'An empty input is unusable, not similar to everything.'
+      - 'The union is non-empty here, so the arithmetic gives zero, but an empty string on both sides would divide by zero.'
+      - 'Return zero when either side has no words, before computing the ratio.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestOverlap.test_is_symmetric:
+    condition: 'the same pair of strings compared in both orders'
+    hints:
+      - 'Which argument came first must not change the answer.'
+      - 'Dividing by the size of the first argument makes the score depend on the order.'
+      - 'Use a denominator built from both sides, so the expression is unchanged when they swap.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_returns_k_examples:
+    condition: 'a request for three examples from a bank of six'
+    hints:
+      - 'The count is a request for exactly that many when the bank can supply them.'
+      - 'Selection stops once enough have been gathered rather than scoring and returning everything.'
+      - 'Break out of the selection loop when the chosen list reaches the requested size.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_most_similar_comes_last:
+    condition: 'a selection whose strongest example must sit nearest the real question'
+    hints:
+      - 'Recency wins inside a prompt. The example closest to the question is the one the model leans on hardest.'
+      - 'A plain descending sort puts the strongest first, which is exactly backwards for sending.'
+      - 'Select strongest first because that is the useful order to choose in, then reverse the list once before returning it.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_picks_the_relevant_examples:
+    condition: 'a billing question over a bank where half the tickets are billing'
+    hints:
+      - 'With no cap in place, nearest neighbours over a lopsided bank come back lopsided.'
+      - 'That is the correct behaviour here: the selection follows the scores and nothing else.'
+      - 'Rank by similarity to the question and take the top of that ranking as it stands.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_a_cap_forces_variety:
+    condition: 'a cap of one per label over a bank whose closest three examples share a label'
+    hints:
+      - 'Three examples of one label teach the model that the label is the answer.'
+      - 'A capped label does not end the search. The next best example of another label takes the slot.'
+      - 'Count how many of each label you have taken, skip a candidate whose label is already at the cap, and carry on down the ranking.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_a_cap_does_not_change_the_ordering_rule:
+    condition: 'a capped selection whose strongest example must still be the last one sent'
+    hints:
+      - 'The cap decides which examples are chosen. It does not decide what order they go out in.'
+      - 'Reversing before applying the cap, or reversing twice, undoes the rule.'
+      - 'Apply the cap during selection and reverse once at the very end.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_a_cap_can_return_fewer_than_k:
+    condition: 'a bank of two examples sharing one label, under a cap of one'
+    hints:
+      - 'The cap binds harder than the requested count does.'
+      - 'Backfilling past the cap to reach the requested number defeats the purpose of having a cap.'
+      - 'Let the loop finish having taken fewer than asked for, and return that shorter list.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_no_cap_by_default:
+    condition: 'a selection with no cap given, where two examples of one label are correct'
+    hints:
+      - 'The default is no cap at all, not a cap of one.'
+      - 'A None cap means skip the check entirely rather than compare against some number.'
+      - 'Only apply the per label count when a cap was actually supplied.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_k_larger_than_the_bank_returns_everything:
+    condition: 'a request for ninety nine examples from a bank of six'
+    hints:
+      - 'Asking for more than exists is a request for everything, not an error.'
+      - 'The loop simply runs out of candidates before it reaches the requested count.'
+      - 'Let the ranking loop end naturally and return what it gathered.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_empty_bank_and_zero_k_return_empty:
+    condition: 'a bank with nothing in it, and a request for zero examples'
+    hints:
+      - 'Both are legitimate: a fresh bank, or a caller who wants no examples this time.'
+      - 'Scoring an empty bank is wasted work, and a zero count should not fall through into the loop.'
+      - 'Return an empty list at the top when either the bank is empty or the count is not positive.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_ties_break_toward_the_earlier_example:
+    condition: 'three examples all scoring zero against a question that matches none of them'
+    hints:
+      - 'When nothing matches, every score is the same and the ranking has to decide something.'
+      - 'Reversing a descending sort flips the tie break too, so the last examples in the bank win instead of the first.'
+      - 'Sort on a pair of score descending and original position ascending, so equal scores fall in bank order.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestSelectExamples.test_selection_is_repeatable:
+    condition: 'the same bank and question selected twice, which must agree'
+    hints:
+      - 'A prompt that reorders itself between runs cannot be measured or compared.'
+      - 'Anything that depends on set iteration or on an unspecified tie break makes the output drift.'
+      - 'Carry the original position into the sort key so the ordering is fully determined by the inputs.'
+    concept: ai-prompt-engineering.teaching-with-examples
+
+  TestAssembly.test_system_message_comes_first:
+    condition: 'a system prompt that has to open the message list'
+    hints:
+      - 'The instructions come before anything they apply to.'
+      - 'A system message appended after the examples is no longer a system prompt.'
+      - 'Add it to the list before any example turns are added.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt
+
+  TestAssembly.test_no_system_message_when_none_or_empty:
+    condition: 'a system prompt of None, and one that is the empty string'
+    hints:
+      - 'Both mean no instructions. An empty system message is not the same as no system message on the wire.'
+      - 'Testing only for None lets the empty string through as a real message.'
+      - 'Test the value for truthiness, which covers both cases in one check.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt
+
+  TestAssembly.test_examples_alternate_user_and_assistant:
+    condition: 'two example pairs that must appear as four alternating turns'
+    hints:
+      - 'The examples are shown as turns that already happened, not as text pasted into the system prompt.'
+      - 'The alternation is the delimiter. Nothing else tells the model where an example ends.'
+      - 'Append two messages per pair, the input under the user role and the output under the assistant role.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt
+
+  TestAssembly.test_example_content_is_preserved_in_order:
+    condition: 'an example pair whose input and output must land in the right two slots'
+    hints:
+      - 'The input is what a user would have said and the output is what the assistant would have replied.'
+      - 'Swapping them teaches the model to produce questions from answers.'
+      - 'Put the first element of the pair in the user turn and the second in the assistant turn.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt
+
+  TestAssembly.test_real_input_comes_last_and_alone:
+    condition: 'the actual question, which has to be the final message with no answer after it'
+    hints:
+      - 'The examples all end in an assistant turn. The real question ends without one, and that is what asks the model to speak.'
+      - 'Anything appended after it makes the model complete something else.'
+      - 'Append the real input as a user turn once every example has been added.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt
+
+  TestAssembly.test_build_messages_does_not_reorder_examples:
+    condition: 'examples handed over in an order that is not alphabetical or scored'
+    hints:
+      - 'The order was already decided by the selection, and it carries the strongest example last.'
+      - 'Sorting again here throws that decision away and puts them back in some other order.'
+      - 'Walk the examples in the order they arrived and append them as they come.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt
+
+  TestAssembly.test_assemble_matches_its_two_halves:
+    condition: 'a combined call that must agree with running selection and assembly separately'
+    hints:
+      - 'This function is a composition, not a reimplementation.'
+      - 'Any selection or ordering logic written again here will eventually drift from the original.'
+      - 'Call the selection, then hand what it returns straight to the message builder.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt
+
+  TestAssembly.test_assemble_produces_the_expected_shape:
+    condition: 'a request for two examples, which has to produce six messages in total'
+    hints:
+      - 'One system message, two messages per example, and one for the question.'
+      - 'The keyword arguments have to reach the selection or the count comes out wrong.'
+      - 'Pass the requested count and the cap through to the selection rather than relying on its defaults.'
+    concept: ai-prompt-engineering.anatomy-of-a-prompt

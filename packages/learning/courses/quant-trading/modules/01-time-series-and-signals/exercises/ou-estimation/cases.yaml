@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestOUEstimation.test_ou_calibration_on_synthetic_path:
+    condition: '2000 steps of a known OU path sampled daily, at a dt of one over 252'
+    hints:
+      - 'The regression gives you discrete AR(1) coefficients. They are not the continuous parameters the caller asked for, and dt is what carries you between the two.'
+      - 'Regress each observation on the one before it. The slope decays as exp(-theta * dt), so theta is minus its logarithm divided by dt, and the equilibrium level is the intercept over one minus the slope.'
+      - 'Scale the residual variance up to a continuous sigma by two theta over one minus the slope squared, and report a half-life of log 2 over theta so the two agree by construction.'
+    concept: quant-time-series.mean-reversion-and-ou
+
+  TestOUEstimation.test_non_reverting_series_raises:
+    condition: 'a straight upward trend, which regresses on itself at a slope of one'
+    hints:
+      - 'A trending line never comes back to a mean, so there is no reversion rate to estimate and no half-life to quote.'
+      - 'At a slope of one the logarithm is zero and theta collapses to nothing, which is an infinite half-life. A slope at or below zero is oscillation, not reversion, and its logarithm is undefined.'
+      - 'Require the fitted slope to fall strictly inside the open interval from zero to one, and raise ValueError there rather than after theta has been computed.'
+    concept: quant-time-series.mean-reversion-and-ou

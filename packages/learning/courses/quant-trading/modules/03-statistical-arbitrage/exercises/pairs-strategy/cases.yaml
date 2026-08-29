@@ -1,0 +1,25 @@
+version: 1
+cases:
+  TestPairsStrategy.test_entry_from_flat:
+    condition: 'a flat book seeing a z of 0.2, then one of -2.1, then one of 2.3'
+    hints:
+      - 'A z of 0.2 is noise. Entering there is how a pairs book ends up paying the spread twenty times a day for nothing.'
+      - 'The sign runs opposite to the trade. A spread two deviations cheap is the one you buy, so a z at or below the negative threshold is a long and one at or above the positive threshold is a short.'
+      - 'From flat, test the z against the entry threshold on each side and return 0 when it falls between the two.'
+    concept: quant-stat-arb.pairs-trading
+
+  TestPairsStrategy.test_long_spread_exit_and_stop:
+    condition: 'a long spread held through a z of -1.5, then -0.4, then -3.6'
+    hints:
+      - 'A long spread has two ways out and they sit on opposite sides of it. Coming back toward zero is the take profit; running further negative is the stop.'
+      - 'Reversion means the z climbing back into the exit band, so -0.4 closes the trade at an exit threshold of 0.5 even though it is still a negative number.'
+      - 'Hold the long only while the z sits strictly between the negative stop and the negative exit threshold, and return 0 the moment it reaches either.'
+    concept: quant-stat-arb.pairs-trading
+
+  TestPairsStrategy.test_short_spread_exit_and_stop:
+    condition: 'a short spread held through a z of 1.5, then 0.3, then 3.8'
+    hints:
+      - 'The short mirrors the long, so the two comparisons flip sign rather than repeat unchanged.'
+      - 'A short comes off when the z drops back into the exit band from above, and stops out when it keeps widening past the positive stop.'
+      - 'Hold the short while the z sits strictly between the positive exit threshold and the positive stop, and return 0 at or above the stop or at or below the exit threshold.'
+    concept: quant-stat-arb.pairs-trading

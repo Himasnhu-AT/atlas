@@ -1,0 +1,185 @@
+version: 1
+cases:
+  TestExtractBitfield.test_extract_basic:
+    condition: 'a field that starts partway up the word rather than at bit zero'
+    hints:
+      - 'The field is not sitting at the bottom of the word, so masking on its own keeps the wrong bits.'
+      - 'Bring the field down to bit zero first, then discard everything above it.'
+      - 'Shift the value right by the start position, then and it with a mask holding as many ones as the field is wide.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestExtractBitfield.test_extract_zero_length:
+    condition: 'a field declared zero bits wide'
+    hints:
+      - 'A width of nothing is not bad input. It is a field with no bits in it.'
+      - 'A mask built for a width of zero has no bits set, so nothing survives the and.'
+      - 'The answer is 0, which the general mask gives you without a special case.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestExtractBitfield.test_extract_single_bit:
+    condition: 'a one bit field, read once where that bit is set and once where it is clear'
+    hints:
+      - 'A single bit is the same operation as any other width, not a case of its own.'
+      - 'A width of one gives a mask of one bit, so the result can only be 0 or 1.'
+      - 'Shift the word down by the bit position and keep the lowest bit of what is left.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestExtractBitfield.test_extract_negative_input:
+    condition: 'a negative source value, whose two''s complement bits run on without end'
+    hints:
+      - 'A Python integer has no fixed width, so a negative value behaves like an unbounded run of leading ones.'
+      - 'Shifting a negative number right keeps feeding sign bits in at the top, so the result stays negative.'
+      - 'The and with the width mask is what forces the value back into the unsigned range, so it has to happen after the shift.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestExtractBitfield.test_invalid_parameters:
+    condition: 'a negative start position, or a negative width'
+    hints:
+      - 'Neither a negative shift nor a negative width means anything in a register, and Python raises its own confusing error for one of them.'
+      - 'Both arguments have to be checked before the value is touched.'
+      - 'Raise ValueError when either the start position or the length is below zero.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_pack_empty:
+    condition: 'no flags at all, which still has to produce a word'
+    hints:
+      - 'Zero flags is an ordinary input rather than a mistake.'
+      - 'The accumulator starts at zero and the loop body never runs.'
+      - 'Return the untouched accumulator, which is 0.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_pack_single:
+    condition: 'one flag, set in one call and clear in the other'
+    hints:
+      - 'A false flag contributes nothing, and it does not shift anything else along either.'
+      - 'The bit position comes from the index in the list, not from how many flags were true so far.'
+      - 'Set bit i only when the flag at index i is true, and leave the word alone otherwise.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_pack_multiple:
+    condition: 'a run of flags with a false one in the middle of it'
+    hints:
+      - 'The false flag at index 1 still owns bit 1. It leaves a hole rather than closing the gap.'
+      - 'Every flag maps to a fixed bit position given by where it sits in the list.'
+      - 'Or in a 1 shifted left by the index for each true flag, and skip the false ones entirely.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_unpack_basic:
+    condition: 'a packed word read back into the same number of flags it was built from'
+    hints:
+      - 'Bit zero is the first element of the list, not the last. The word does not read left to right.'
+      - 'Walk the positions in order and test one bit on each pass.'
+      - 'For index i, shift the word right by i and take the lowest bit as a bool.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_unpack_with_padding:
+    condition: 'a count larger than the position of the highest set bit'
+    hints:
+      - 'How many flags there are is the caller''s decision, not something the word can tell you.'
+      - 'A position above the last set bit reads as zero, which is a false flag, not the end of the list.'
+      - 'Produce exactly count entries and let the high positions come out false.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_unpack_zero_count:
+    condition: 'a count of zero against a word that does have bits set'
+    hints:
+      - 'Bits in the word do not force entries into the list.'
+      - 'A range over a count of zero is empty, so nothing gets read.'
+      - 'Return an empty list without inspecting the word at all.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_unpack_invalid_count:
+    condition: 'a negative number of flags to read out of the word'
+    hints:
+      - 'A range over a negative count quietly produces nothing, which hides the caller''s mistake instead of reporting it.'
+      - 'This is bad input, so it has to be rejected rather than absorbed.'
+      - 'Raise ValueError before the loop when the count is below zero.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestPackUnpackFlags.test_pack_unpack_roundtrip:
+    condition: 'eight flags packed and then unpacked, which must come back identical'
+    hints:
+      - 'The two directions have to agree on which bit carries which index, or part of the list comes back reversed.'
+      - 'Both use index i for bit i. Neither counts down from the top of the word.'
+      - 'Pack with a left shift by the index and unpack with a right shift by the same index.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestSignExtend.test_positive_values_unchanged:
+    condition: 'a value whose top bit is clear, at four, eight and sixteen bits wide'
+    hints:
+      - 'Not every value needs extending. A clear sign bit means the number already reads as itself.'
+      - 'The sign bit is the highest bit of the declared width, not the highest bit that happens to be set.'
+      - 'When that bit is clear, hand back the masked value as it stands.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestSignExtend.test_negative_values_extended:
+    condition: 'a value whose top bit is set, so the declared width makes it negative'
+    hints:
+      - '0xFF is 255 as a byte of storage and -1 as a signed char. The bits alone do not say which.'
+      - 'In two''s complement the top bit carries a negative weight equal to the whole span of the width.'
+      - 'Subtract two to the power of the width from the masked value whenever the sign bit is set.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestSignExtend.test_single_bit_width:
+    condition: 'a width of one, where the only bit there is is the sign bit'
+    hints:
+      - 'At a width of one there is no magnitude left, only a sign.'
+      - 'The lone bit is the sign bit, so a 1 in it means the value is negative.'
+      - 'The general rule holds: 1 at a width of 1 is 1 minus 2, which is -1.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestSignExtend.test_raw_negative_input:
+    condition: 'a value that arrived already negative rather than as raw bits'
+    hints:
+      - 'A caller may hand you -1 where another hands you 0xFF, and both describe the same byte.'
+      - 'Cut the value down to the declared width before deciding anything about its sign.'
+      - 'Mask first, so the input is always a plain unsigned pattern by the time the sign test runs.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestSignExtend.test_invalid_bit_width:
+    condition: 'a declared width of zero, and a negative width'
+    hints:
+      - 'A field of no bits cannot carry a sign, so there is nothing to extend.'
+      - 'The shifts in the body assume at least one bit exists to shift by.'
+      - 'Raise ValueError when the width is not positive, before any masking happens.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestComputeParity.test_zero:
+    condition: 'a word with no bits set anywhere in it'
+    hints:
+      - 'No set bits is an even count, and an even count means the parity bit is 0.'
+      - 'The count starts at zero and never rises.'
+      - 'The general count gives 0 here without needing a case of its own.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestComputeParity.test_single_bits:
+    condition: 'words with exactly one bit set, at four different positions'
+    hints:
+      - 'Parity counts set bits. Where they sit makes no difference to it.'
+      - 'One set bit is an odd count wherever in the word it lands.'
+      - 'All four inputs answer 1, because the count is 1 in every one of them.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestComputeParity.test_even_parity:
+    condition: 'words holding an even number of set bits'
+    hints:
+      - 'Parity is about how many bits are set, not about how large the number is.'
+      - 'An even count of set bits makes the parity bit 0.'
+      - 'Take the count of set bits modulo two.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestComputeParity.test_odd_parity:
+    condition: 'words with an odd number of set bits, one of them wider than a byte'
+    hints:
+      - '0x1FF has nine set bits, so the count runs past the width of a byte.'
+      - 'Nothing here limits the scan to eight bits. Every set bit in the value counts.'
+      - 'Count the set bits across the whole integer and return the remainder modulo two.'
+    concept: intro-c-memory.bits-bytes-and-integers
+
+  TestComputeParity.test_negative_value_raises:
+    condition: 'a negative value, which has no finite number of set bits'
+    hints:
+      - 'A negative Python integer carries an unbounded run of leading ones, so there is no count to take.'
+      - 'Parity is only defined over a known width, and this function was given none.'
+      - 'Raise ValueError for a value below zero rather than returning a parity bit for it.'
+    concept: intro-c-memory.bits-bytes-and-integers

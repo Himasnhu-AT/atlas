@@ -1,0 +1,89 @@
+version: 1
+cases:
+  TestFrame.test_frame_initialization:
+    condition: 'a frame built with arguments but no locals supplied'
+    hints:
+      - 'A function that has just been entered still has a locals area. It is empty, not absent.'
+      - 'Leaving the default as None means the first assignment into the frame crashes instead of binding a name.'
+      - 'When no locals are given, start the frame with an empty dict.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestFrame.test_frame_custom_locals:
+    condition: 'a frame handed a locals mapping at the moment it is built'
+    hints:
+      - 'The locals area is not always empty at entry. A caller may hand one in already populated.'
+      - 'Take the supplied mapping in place of the empty default when one arrives.'
+      - 'Copy the supplied dict into the frame so the caller''s own dict is not aliased by it.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_push_and_depth:
+    condition: 'two nested calls pushed on, with the depth read before, between and after'
+    hints:
+      - 'Depth counts the frames that are live, and it is zero before anything has been called.'
+      - 'Pushing both records the frame and hands it back, because the caller wants to read its arguments.'
+      - 'Append a new Frame to the list, return it, and report the depth as the length of that list.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_pop_frame:
+    condition: 'two frames returned from in turn, each naming where execution resumes'
+    hints:
+      - 'A return has to give back the address the caller was suspended at, or execution has nowhere to go.'
+      - 'The stack is last in first out, so the frame that comes off is the one pushed most recently.'
+      - 'Remove the last frame and return its function name and return address together.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_pop_empty_raises:
+    condition: 'a return attempted with no frame left to return from'
+    hints:
+      - 'Returning from nothing is not an empty result, it is a broken program.'
+      - 'The frame list has to be tested before anything is taken off it.'
+      - 'Raise IndexError yourself rather than letting the list decide what the failure means.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_stack_overflow_limit:
+    condition: 'a fourth call made against a stack whose depth limit is three'
+    hints:
+      - 'The limit counts live frames, so the push that would make it four is the one that has to fail.'
+      - 'The depth has to be checked before the frame is built, not after it has been appended.'
+      - 'Raise RecursionError once the number of frames has already reached max_depth.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_invalid_max_depth:
+    condition: 'a depth limit of zero, and a negative limit'
+    hints:
+      - 'A stack that can hold no frames cannot run a program at all, so this is broken configuration rather than an unusual case.'
+      - 'The check belongs in the constructor, before any state is built.'
+      - 'Raise ValueError when max_depth is not positive.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_variable_lookup_and_mutation:
+    condition: 'a lookup that must find an argument, then a local written over that same name'
+    hints:
+      - 'Arguments and locals share one frame, and a name written locally has to win over the argument it shadows.'
+      - 'Search the locals area first and only fall back to the arguments.'
+      - 'Look the name up in locals then in args, and have set_local write into locals alone.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_variable_lookup_isolation:
+    condition: 'a name that exists in the caller''s frame while the callee is the one running'
+    hints:
+      - 'A callee cannot see the caller''s names. There is no chain of frames to search, only the frame on top.'
+      - 'Once the callee returns, the caller''s frame is on top again and its names resolve once more.'
+      - 'Resolve every lookup against the last frame alone, and raise KeyError when the name is not in it.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_empty_stack_variable_access_raises:
+    condition: 'a read and a write attempted while no frame is on the stack'
+    hints:
+      - 'With nothing running there is no frame to hold a variable, so this is not a missing name.'
+      - 'The read and the write need the same guard, and it is easy to put it only on the read.'
+      - 'Raise IndexError from get_local and set_local alike when the frame list is empty.'
+    concept: intro-c-memory.stack-frames-and-variables
+
+  TestCallStack.test_unwind_trace:
+    condition: 'four nested calls traced, then traced again after one of them returns'
+    hints:
+      - 'A trace reads from the outermost caller down to the frame currently running, which is the order the frames were pushed in.'
+      - 'An empty stack traces to an empty list rather than to an error.'
+      - 'Return the function name of each frame in list order, with no reversing.'
+    concept: intro-c-memory.stack-frames-and-variables

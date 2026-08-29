@@ -1,0 +1,257 @@
+version: 1
+cases:
+  TestBuildIndex.test_stores_one_vector_per_document:
+    condition: 'a corpus of five documents that has to yield five vectors'
+    hints:
+      - 'The index holds two parallel lists, and they have to stay the same length.'
+      - 'A response carries one entry per input, so nothing should be dropped or added.'
+      - 'Store the documents alongside the embeddings the provider returned for them.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestBuildIndex.test_vectors_have_the_model_dimensions:
+    condition: 'embeddings whose length is fixed by the model rather than by the text'
+    hints:
+      - 'Every embedding from one model has the same number of dimensions, whatever the text length.'
+      - 'The vector lives on each entry of the response data, not on the response itself.'
+      - 'Read the embedding off each data entry rather than reshaping anything yourself.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestBuildIndex.test_embeds_the_whole_batch_in_one_call:
+    condition: 'five documents that must cost one request rather than five'
+    hints:
+      - 'Embedding APIs are rate limited per request as well as per token.'
+      - 'A loop calling the API per document turns an ingest of ten thousand documents into ten thousand round trips.'
+      - 'Send every document text in one request as a list.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestBuildIndex.test_sends_every_document_text:
+    condition: 'a batch request that has to carry the text of each document in order'
+    hints:
+      - 'What goes on the wire is the text, not the document objects.'
+      - 'Sending anything other than the text, such as the id or a repr, embeds the wrong thing.'
+      - 'Build the list of texts from the documents and pass it as the input.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestBuildIndex.test_an_empty_corpus_costs_nothing:
+    condition: 'an ingest with no documents in it'
+    hints:
+      - 'An empty batch is still a round trip, and some providers reject it outright.'
+      - 'The index still has to be a valid empty index rather than a failure.'
+      - 'Return an empty index before making the request when there is nothing to embed.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestBuildIndex.test_vectors_are_paired_with_the_right_documents:
+    condition: 'a search for one document''s own text, which has to return that document'
+    hints:
+      - 'A pairing that slips one place makes every search return the neighbour of the right answer.'
+      - 'The response entries carry their own position, and trusting the order of the list instead is a whole class of bug.'
+      - 'Sort the response entries by the index they report before reading the embeddings off them.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_empty_index_returns_nothing:
+    condition: 'a search against an index that has had nothing added to it'
+    hints:
+      - 'An empty index is an ordinary state, not an error.'
+      - 'Embedding the query first spends money to search nothing.'
+      - 'Return an empty list before the query is embedded.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_zero_k_returns_nothing:
+    condition: 'a request for zero results'
+    hints:
+      - 'Asking for nothing is a legitimate request, and it should cost nothing.'
+      - 'Slicing to zero after embedding still pays for the embedding.'
+      - 'Check the requested count alongside the empty index at the top of the function.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_k_larger_than_the_index:
+    condition: 'a request for ninety nine results from an index of five'
+    hints:
+      - 'Asking for more than exists is a request for everything, not an error.'
+      - 'Slicing past the end of a list simply stops.'
+      - 'Take the slice without checking whether that many results exist.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_returns_k_hits:
+    condition: 'a request for two results from an index of five'
+    hints:
+      - 'Every document is scored, and only the top few are returned.'
+      - 'Returning everything pushes the truncation onto every caller.'
+      - 'Sort the scored documents and slice to the requested count.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_ranks_best_first:
+    condition: 'five results whose scores have to come back in descending order'
+    hints:
+      - 'The caller reads the first hit as the best one.'
+      - 'A higher cosine similarity means closer, so the sort runs downwards rather than upwards.'
+      - 'Sort on the negated score, or reverse the sort, so the largest score comes first.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_finds_the_relevant_document:
+    condition: 'a question about resetting a password against a corpus that documents it'
+    hints:
+      - 'The match is decided by the angle between the two vectors, not by any word matching you write.'
+      - 'Comparing raw text here would work on this corpus and fail on a paraphrase.'
+      - 'Score each stored vector against the query vector with the cosine similarity.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_embeds_the_query_through_the_same_client:
+    condition: 'a query that has to be embedded by the same model the documents were'
+    hints:
+      - 'Two different models produce vectors that are not in the same space, so the similarity means nothing.'
+      - 'Reusing a stored document vector, or comparing text, sidesteps the embedding entirely.'
+      - 'Call the same embedding endpoint with the query and read the single vector back.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_is_deterministic:
+    condition: 'the same query run twice, which must produce the same ranking'
+    hints:
+      - 'A retriever that reorders itself between runs makes every test above it flaky.'
+      - 'Anything derived from set iteration or an unspecified tie break introduces drift.'
+      - 'Make the sort key fully determined by the score and the stored position.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_ties_break_toward_the_document_added_first:
+    condition: 'two documents with identical text, which score exactly the same'
+    hints:
+      - 'Equal scores have to resolve the same way every run, and the ordering has to come from somewhere.'
+      - 'Sorting on the score alone leaves ties in whatever order the sort happened to produce.'
+      - 'Carry each document''s position in the index into the sort key as the tie break.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearch.test_ranks_without_judging:
+    condition: 'a query about biology against a corpus about billing and logins'
+    hints:
+      - 'There is always a least bad document, and this function is not the place that decides it is bad.'
+      - 'Filtering weak hits here would make it impossible to see the scores that motivate the threshold.'
+      - 'Return the requested number of hits whatever they scored, and leave the judging to the caller.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearchAbove.test_drops_the_weak_hits:
+    condition: 'a clear question whose second and third results are not really about it'
+    hints:
+      - 'The ranking always fills the requested count, so the weak hits arrive alongside the good one.'
+      - 'Passing them into a prompt gives the model three sources when only one answers the question.'
+      - 'Keep only the hits scoring at or above the threshold.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearchAbove.test_returns_nothing_rather_than_the_least_bad_match:
+    condition: 'a question no document in the corpus answers'
+    hints:
+      - 'There is always a least bad document, and returning it is how an unanswerable question becomes a confident wrong answer.'
+      - 'An empty result is the honest answer and the caller can act on it.'
+      - 'Let the filter remove everything rather than falling back to the top hit.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearchAbove.test_a_hit_exactly_on_the_line_survives:
+    condition: 'a hit whose score is exactly the threshold it is being tested against'
+    hints:
+      - 'The threshold is the lowest score you are willing to call a match, so a score on it is a match.'
+      - 'A strict comparison drops the boundary case and makes the threshold mean something slightly different.'
+      - 'Compare with greater than or equal.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearchAbove.test_k_is_applied_before_the_threshold:
+    condition: 'a request for one result where several documents clear the threshold'
+    hints:
+      - 'The count is how much context you can afford and the threshold is what counts as a match.'
+      - 'Filtering first and then taking the count gives the same answer here and a different one when several weak hits precede a strong one.'
+      - 'Rank and truncate to the count, then apply the threshold to what is left.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestSearchAbove.test_a_threshold_of_zero_keeps_everything_scoring_anything:
+    condition: 'a threshold of zero, which is the caller turning the filter off'
+    hints:
+      - 'Zero is a real threshold, not a signal to use the default.'
+      - 'Treating it as falsy and substituting the default silently ignores what the caller asked for.'
+      - 'Compare against the threshold as given, whatever its value.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_confident_on_a_single_clear_hit:
+    condition: 'a question with exactly one document above the threshold'
+    hints:
+      - 'One good hit and nothing else is the clearest outcome there is.'
+      - 'The verdict carries the label and the hits together, so the caller does not have to re-derive either.'
+      - 'Return the confident label with the hits that survived the threshold.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_a_single_hit_has_no_margin:
+    condition: 'a verdict with one hit, where there is no second score to compare against'
+    hints:
+      - 'With one hit there is nothing to subtract, so there is no gap to report.'
+      - 'A margin of zero would be read as the top two being a dead heat, which is the opposite of what happened.'
+      - 'Report the margin as absent rather than as a number when fewer than two hits survive.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_confident_when_the_top_hit_is_clear_of_the_second:
+    condition: 'a question whose best document scores well above the runner up'
+    hints:
+      - 'Several hits above the threshold is not the same as an ambiguous result.'
+      - 'What separates them is the gap between the first and second scores.'
+      - 'Subtract the second score from the first and compare that gap against the minimum.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_ambiguous_when_the_top_two_are_close:
+    condition: 'a question where three documents share the same phrase and score alike'
+    hints:
+      - 'Scoring above the threshold does not mean the retriever knows which document is right.'
+      - 'A narrow gap between the top two is the retriever saying it cannot tell them apart.'
+      - 'Label the verdict ambiguous when the gap falls below the minimum margin.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_the_ambiguous_query_ranks_the_right_document_third:
+    condition: 'a question about invoices where both refund documents outrank the invoice one'
+    hints:
+      - 'This is worth seeing rather than reading about: shared words beat shared meaning here.'
+      - 'The ranking is not being fixed, it is being reported honestly.'
+      - 'Return the hits in score order and let the margin say the ranking cannot be trusted.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_no_match_on_an_unrelated_query:
+    condition: 'a question about biology against a corpus about billing and logins'
+    hints:
+      - 'Nothing cleared the threshold, so there are no hits and no margin either.'
+      - 'Returning the top hit anyway is how an unanswerable question becomes a confident wrong answer.'
+      - 'Return the no match label with an empty hit list and no margin.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_a_paraphrased_question_finds_nothing:
+    condition: 'a question phrased as money back against a document that says refunds'
+    hints:
+      - 'These are the same idea and share no words, so hashed embeddings score them at zero.'
+      - 'A trained embedding model would put them close, and this one cannot.'
+      - 'The behaviour to notice is not the miss, it is what the code does about it.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_the_paraphrased_question_reports_no_match_rather_than_guessing:
+    condition: 'a paraphrase whose best scoring document is about session expiry'
+    hints:
+      - 'The top document matched on filler words, and it answers nothing.'
+      - 'Without a threshold that document reaches a prompt and the model answers from it.'
+      - 'Let the threshold reject it and report no match rather than passing the best available.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_lowering_the_threshold_lets_the_wrong_document_through:
+    condition: 'the same paraphrase assessed with a much lower threshold'
+    hints:
+      - 'The threshold is the only thing standing between this and an answer about sessions to a question about refunds.'
+      - 'The caller''s value has to be honoured, even when it produces a confidently wrong result.'
+      - 'Pass the supplied threshold through to the filter rather than clamping it to a minimum of your own.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_min_margin_is_configurable:
+    condition: 'a clear result assessed with a minimum margin high enough to reject it'
+    hints:
+      - 'How large a gap counts as decisive depends on the corpus, so the caller sets it.'
+      - 'A hardcoded margin makes the verdict meaningless on a corpus of near duplicates.'
+      - 'Compare the gap against the supplied minimum rather than a constant.'
+    concept: ai-memory-and-rag.embeddings-and-similarity
+
+  TestAssess.test_never_calls_the_chat_api:
+    condition: 'a full assessment that must not reach a language model'
+    hints:
+      - 'Retrieval is arithmetic over vectors. No model is involved in ranking or judging.'
+      - 'Asking a model whether a hit is relevant costs a call per query and produces a different answer each time.'
+      - 'Decide the label from the scores alone.'
+    concept: ai-memory-and-rag.embeddings-and-similarity

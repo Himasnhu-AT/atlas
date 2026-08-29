@@ -1,0 +1,177 @@
+version: 1
+cases:
+  TestReadingTheChoice.test_finish_reason_of_a_text_reply:
+    condition: 'an ordinary finished reply, where the reason is the plain one'
+    hints:
+      - 'The reason lives on the choice, not on the message and not on the completion itself.'
+      - 'choices is a list because a request can ask for several candidate replies. Nothing here asks for more than one.'
+      - 'Read the finish reason off the first entry of choices and hand it back unchanged.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_finish_reason_of_a_truncated_reply:
+    condition: 'a reply cut off at the output cap partway through a sentence'
+    hints:
+      - 'Nothing about the text says it was cut. The evidence is on the choice.'
+      - 'The same accessor works for every kind of turn, so there is no branch to write here.'
+      - 'Return the value the provider set, without translating it into a word of your own.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_finish_reason_of_a_tool_call:
+    condition: 'a turn where the model asked for a tool instead of answering'
+    hints:
+      - 'A tool call turn is a normal completion. It reaches the same field.'
+      - 'The content is empty here, so anything deciding on the text alone gets this wrong.'
+      - 'Read the finish reason from the first choice as before, whatever the message holds.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_stopped_early_is_true_only_for_length:
+    condition: 'a reply that hit the output cap and needs to be flagged as cut off'
+    hints:
+      - 'Truncation is one specific finish reason, not a guess from the shape of the text.'
+      - 'A trailing sentence that reads as unfinished proves nothing, and a cut can land on a full stop.'
+      - 'Compare the finish reason against the value the provider uses for hitting the cap and return that comparison.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_stopped_early_is_false_for_a_finished_reply:
+    condition: 'a complete answer that must not be reported as truncated'
+    hints:
+      - 'The common case is a reply that finished, and it has to come back false.'
+      - 'Anything other than the cap reason is not a truncation.'
+      - 'A single equality test covers both this and the truncated case, so no extra branch is needed.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_stopped_early_is_false_for_a_tool_call:
+    condition: 'a tool call turn, which is unfinished business but not a truncation'
+    hints:
+      - 'The model finished the turn it meant to take. It just did not answer in words.'
+      - 'Treating everything that is not a plain answer as truncated makes the flag mean nothing.'
+      - 'Only the cap reason counts as stopping early, so a tool call turn returns false.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_answer_text_returns_the_content:
+    condition: 'a finished turn whose text is the thing the caller asked for'
+    hints:
+      - 'When the turn genuinely finished there is nothing to refuse.'
+      - 'The text sits on the message inside the choice, one level below the finish reason.'
+      - 'After the guard passes, return the content of the first choice message.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_answer_text_refuses_a_truncated_reply:
+    condition: 'a cut off reply whose partial text must not be handed back as an answer'
+    hints:
+      - 'Half a sentence looks like an answer and reads like one. Passing it on is how the truncation reaches the user.'
+      - 'The caller has to decide whether to retry or shorten the request, and that decision needs the reason.'
+      - 'Raise IncompleteReply and store the finish reason on the exception so the caller can branch on it.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_answer_text_refuses_a_tool_call_turn:
+    condition: 'a turn that asked for a tool and carries no text to return'
+    hints:
+      - 'There is no answer here yet. The model is waiting on a tool result.'
+      - 'Returning an empty string would look like the model had nothing to say.'
+      - 'Raise the same error as any other unfinished turn, carrying the tool call reason.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_answer_text_refuses_an_unknown_finish_reason:
+    condition: 'a finish reason such as content_filter that this code has never seen'
+    hints:
+      - 'The set of finish reasons is open. Providers add new ones and you will not have written a branch for them.'
+      - 'A guard listing the reasons you refuse lets tomorrow''s new reason through as an answer.'
+      - 'Shape the guard the other way round: refuse everything that is not the finished reason.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_answer_text_of_an_empty_stop_turn_is_a_string:
+    condition: 'a finished turn whose content came back as None rather than text'
+    hints:
+      - 'A turn can finish properly and still carry no text.'
+      - 'Handing back the None means the failure surfaces three functions later, far from where it came from.'
+      - 'Substitute an empty string when the content is absent, so the return type stays a string.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_tool_names_is_empty_on_a_text_reply:
+    condition: 'a text turn where the tool calls field is None rather than an empty list'
+    hints:
+      - 'Most turns request no tools, and the field is missing rather than empty.'
+      - 'Looping over None raises a TypeError, so the absence has to be handled before the loop starts.'
+      - 'Substitute an empty list when the field is absent, then the comprehension produces nothing.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_tool_names_reads_a_single_call:
+    condition: 'one requested tool, whose name sits under a function attribute'
+    hints:
+      - 'The name is not on the call object directly. There is a layer between.'
+      - 'Each entry describes a call: which function, and with what arguments.'
+      - 'Reach through the function attribute of each call to get its name.'
+    concept: ai-foundations.reading-a-completion
+
+  TestReadingTheChoice.test_tool_names_keeps_call_order:
+    condition: 'two tools requested in one turn, where the order carries meaning'
+    hints:
+      - 'Call order is the model describing a sequence it wants run.'
+      - 'Sorting the names or collecting them into a set throws that sequence away.'
+      - 'Build the list in the order the calls arrive and return it as it is.'
+    concept: ai-foundations.reading-a-completion
+
+  TestUsage.test_total_tokens_adds_both_halves:
+    condition: 'a single call billed for both what was sent and what came back'
+    hints:
+      - 'Two numbers are billed per call, and only their sum is the cost of that call.'
+      - 'Both live on the usage object hanging off the completion.'
+      - 'Add the prompt half and the completion half and return the sum.'
+    concept: ai-foundations.reading-a-completion
+
+  TestUsage.test_usage_totals_of_nothing_is_zeroes:
+    condition: 'an empty list of completions, before any call has been made'
+    hints:
+      - 'A run that made no calls still has to report a total, and it is zero rather than an error.'
+      - 'All three keys have to be present, so an empty mapping is not the answer.'
+      - 'Summing over an empty list gives zero, which fills all three fields without a special case.'
+    concept: ai-foundations.reading-a-completion
+
+  TestUsage.test_usage_totals_sums_every_turn:
+    condition: 'two completions from one run, where both were billed'
+    hints:
+      - 'Every call is billed separately, so the last one does not carry the running total.'
+      - 'The provider does not accumulate for you. Each completion reports only itself.'
+      - 'Sum each half across the whole list rather than reading the final entry.'
+    concept: ai-foundations.reading-a-completion
+
+  TestUsage.test_prompt_tokens_grow_as_the_conversation_does:
+    condition: 'a second call whose prompt carries the whole history the first one did not'
+    hints:
+      - 'Nothing is remembered between calls, so the whole conversation is re-sent every turn.'
+      - 'That makes the prompt half grow with the history while the completion half stays small.'
+      - 'Keep the three totals consistent by deriving the total from the two halves rather than summing it separately.'
+    concept: ai-foundations.reading-a-completion
+
+  TestDescribe.test_describes_a_finished_reply:
+    condition: 'a finished answer that should be logged with its text quoted'
+    hints:
+      - 'The line names the reason first, so a reader scanning a log can see what kind of turn it was.'
+      - 'The text is quoted and the token count is in brackets after it.'
+      - 'Branch on the finished reason and build the line from the answer text and the token total.'
+    concept: ai-foundations.reading-a-completion
+
+  TestDescribe.test_describes_a_truncated_reply_without_pretending_it_is_an_answer:
+    condition: 'a cut off reply whose partial text must not appear as though it were the answer'
+    hints:
+      - 'Quoting the fragment in the log makes it look like the model said something short.'
+      - 'The useful fact is that it was cut and how many tokens it took to get there.'
+      - 'Give the truncated case its own branch that names the cut and the token count, with no text in it.'
+    concept: ai-foundations.reading-a-completion
+
+  TestDescribe.test_describes_a_tool_call_turn:
+    condition: 'a turn requesting two tools, both of which belong in the line'
+    hints:
+      - 'The interesting content of a tool call turn is which tools were asked for.'
+      - 'Both names go in, separated so they read as a list, in the order the model gave them.'
+      - 'Join the tool names with a comma and a space, then add the token count in brackets.'
+    concept: ai-foundations.reading-a-completion
+
+  TestDescribe.test_names_a_finish_reason_it_does_not_know:
+    condition: 'a finish reason with no branch written for it, such as content_filter'
+    hints:
+      - 'A chain of branches ending in the answer case reads a value you have never seen as an answer.'
+      - 'The log line is what sends someone to the provider changelog, so it has to carry the unrecognised value itself.'
+      - 'Make the fallback branch the last one, and have it name the reason it did not recognise alongside the token count.'
+    concept: ai-foundations.reading-a-completion

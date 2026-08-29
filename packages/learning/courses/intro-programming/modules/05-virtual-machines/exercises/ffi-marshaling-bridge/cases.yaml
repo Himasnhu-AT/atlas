@@ -1,0 +1,73 @@
+version: 1
+cases:
+  TestFFIBridge.test_pack_unpack_int32:
+    condition: 'an int32 marshalled out and back, including a negative value'
+    hints:
+      - 'A Python integer is as wide as it needs to be. The C side expects exactly four bytes in an agreed order.'
+      - 'The negative value has to survive the round trip, so the encoding has to be signed rather than unsigned.'
+      - 'Pack and unpack as a little endian signed four byte integer.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_pack_unpack_float64:
+    condition: 'a double marshalled out and back, compared to ten decimal places'
+    hints:
+      - 'A double crosses as eight bytes in IEEE 754 layout, not as a decimal string.'
+      - 'The round trip has to be lossless, so nothing may pass through text on the way.'
+      - 'Pack and unpack as a little endian eight byte double.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_pack_unpack_cstring:
+    condition: 'text marshalled into a C string, whose bytes have to end in a terminator'
+    hints:
+      - 'A C string carries no length field. The zero byte at the end is the only thing saying where it stops.'
+      - 'Coming back the other way, that terminator is not part of the text.'
+      - 'Encode to UTF-8 and append a zero byte, and strip the trailing zero before decoding.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_foreign_addition:
+    condition: 'two integers handed to a foreign function that only ever sees bytes'
+    hints:
+      - 'The far side never sees Python values. Each argument crosses the boundary as a packed buffer.'
+      - 'Arguments are packed according to the signature that was registered, not guessed from their Python types.'
+      - 'Pack each argument by its declared type in order, pass the list of buffers to the callable, and unpack the result by the declared return type.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_foreign_hypot:
+    condition: 'doubles crossing the boundary, with a double coming back'
+    hints:
+      - 'The same machinery carries floats as carries integers. Only the declared types change.'
+      - 'The return type is fixed at registration rather than inferred from the bytes that come back.'
+      - 'Unpack the returned buffer using the return type recorded against that function.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_foreign_string_transform:
+    condition: 'a string sent across and a different string returned through the same boundary'
+    hints:
+      - 'Both directions travel as terminated byte buffers, while the caller sees a Python string at either end.'
+      - 'The bytes coming back carry a terminator of their own, which is not part of the value.'
+      - 'Pack the argument as a terminated buffer and strip the terminator off the returned bytes before decoding.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_multi_type_signature:
+    condition: 'a signature mixing an integer, a double and a string in one call'
+    hints:
+      - 'Each argument is packed by the type sitting in the matching position of the signature, not by what the value looks like.'
+      - 'The buffers come out different lengths, and their order is what tells the far side where each one begins.'
+      - 'Pair the arguments with the declared argument types in order and pack each pair.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_unregistered_function_error:
+    condition: 'a call naming a symbol that was never registered'
+    hints:
+      - 'This is the failure a linker would report, and it has to happen before anything is marshalled.'
+      - 'With no signature there is no way even to pack the arguments.'
+      - 'Raise KeyError when the name is not in the registry, ahead of any packing.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges
+
+  TestFFIBridge.test_argument_count_mismatch:
+    condition: 'one argument supplied to a function whose signature declares two'
+    hints:
+      - 'The far side reads a fixed number of buffers, so a short list is a crash across the boundary rather than a Python exception.'
+      - 'Pairing the arguments against the types would quietly swallow the mismatch and pack only what lines up.'
+      - 'Compare the number of arguments against the length of the signature and raise TypeError when they disagree.'
+    concept: intro-virtual-machines.foreign-function-interfaces-and-bridges

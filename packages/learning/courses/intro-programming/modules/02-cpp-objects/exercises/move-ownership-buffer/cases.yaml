@@ -1,0 +1,73 @@
+version: 1
+cases:
+  TestOwnedBufferInitialization.test_allocate_empty_buffer:
+    condition: 'an allocation given no initial data, whose bytes have to read back as zeros'
+    hints:
+      - 'A fresh allocation here is defined to be zeroed, unlike malloc, which hands back whatever the memory held before.'
+      - 'The object owns its memory from the moment it is built, so it is valid straight away.'
+      - 'Allocate the requested number of bytes, mark the object as owning them, and report the size as the length of the allocation.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferInitialization.test_allocate_with_initial_data:
+    condition: 'seed bytes shorter than the buffer they are being copied into'
+    hints:
+      - 'The seed does not decide the capacity. The buffer is the size that was asked for, and the rest of it stays zero.'
+      - 'The seed bytes go at the front of the allocation.'
+      - 'Allocate the full size first, then overwrite the leading bytes with the seed.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferInitialization.test_invalid_arguments:
+    condition: 'a negative size, a size of 10.5, a seed longer than the buffer, and a str seed'
+    hints:
+      - 'A size that is not a whole number of bytes and a size below zero are different mistakes, and the caller is told them apart.'
+      - 'Seed data longer than the allocation would run off the end of it.'
+      - 'Raise TypeError for a non integer size or a seed that is not bytes, and ValueError for a negative size or a seed that will not fit.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferReadWrite.test_write_and_read:
+    condition: 'bytes written at an offset, with the untouched bytes ahead of them checked as well'
+    hints:
+      - 'A write at offset 4 changes seven bytes and nothing else. The zeros in front of it stay zero.'
+      - 'Both operations work from the offset they are given, not from the start of the buffer.'
+      - 'Assign the data into the slice that begins at the offset, and read a slice back out the same way.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferReadWrite.test_out_of_bounds_write:
+    condition: 'a write whose data runs past the end, and a write at a negative offset'
+    hints:
+      - 'The offset is inside the buffer but the data is not, so checking only where the write starts lets the overrun through.'
+      - 'What matters is where the write ends, which is the offset plus the length of the data.'
+      - 'Raise IndexError when the offset is below 0, or when the offset plus the data length exceeds the size.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferReadWrite.test_out_of_bounds_read:
+    condition: 'a read running past the end, one at a negative offset, and one of a negative length'
+    hints:
+      - 'A negative length slices backwards and hands back fewer bytes than were asked for, without complaining.'
+      - 'Three things can be wrong: where the read starts, how far it runs, and where it ends up.'
+      - 'Raise IndexError when the offset is below 0, when the length is below 0, or when the two together exceed the size.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferClone.test_clone_independence:
+    condition: 'a copy written to after it is made, with the original then checked for damage'
+    hints:
+      - 'Copying only the reference to the allocation leaves two objects sharing one buffer, and a write through either is visible through both.'
+      - 'A copy owns memory of its own, which means a second allocation of the same size.'
+      - 'Allocate a new buffer and copy the bytes into it, so the two objects share nothing at all.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferMove.test_move_transfers_ownership:
+    condition: 'a buffer moved out of, leaving the source empty but still a usable object'
+    hints:
+      - 'A move is not a copy. The bytes are not duplicated, the ownership of them changes hands.'
+      - 'The source is left valid but empty, so tearing it down later releases nothing a second time.'
+      - 'Give the allocation to the new object, then mark this one as owning nothing and have it report a size of 0.'
+    concept: intro-cpp-objects.copy-move-and-ownership
+
+  TestOwnedBufferMove.test_moved_from_buffer_rejects_operations:
+    condition: 'a read, a write, a clone and a second move, all attempted after the move'
+    hints:
+      - 'A moved from object still exists. What it no longer has is the memory, so anything that touches memory has to refuse.'
+      - 'Reporting a size of 0 is not enough on its own, because a zero byte read would then quietly succeed.'
+      - 'Test the ownership flag first in all four operations and raise RuntimeError when it is clear.'
+    concept: intro-cpp-objects.copy-move-and-ownership

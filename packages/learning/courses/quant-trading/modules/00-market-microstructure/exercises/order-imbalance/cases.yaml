@@ -1,0 +1,33 @@
+version: 1
+cases:
+  TestOrderImbalance.test_effective_spread:
+    condition: 'a print 20 cents above a 100.00 midpoint, and a second one exactly at the mid'
+    hints:
+      - 'Effective spread measures what a trade actually paid away from the midpoint, doubled so it sits on the same scale as the quoted bid-ask spread.'
+      - 'The side does not enter into it. A buy 20 cents above the mid and a sell 20 cents below it cost the same, so the distance is taken without sign.'
+      - 'Take the absolute distance from the midpoint and multiply it by two, which leaves a trade printed at the mid costing nothing.'
+    concept: quant-microstructure.spread-and-imbalance
+
+  TestOrderImbalance.test_imbalance_empty_or_zero:
+    condition: 'a book with no levels at all, and one whose top levels are quoted at zero size'
+    hints:
+      - 'Both of these divide by zero on the way to a ratio, and neither is a lopsided book.'
+      - 'An empty side and a side holding a level with no size are two separate checks, and only the first can be caught by looking at the list length.'
+      - 'Return 0.0 when either side has no levels, and again when the weighted denominator comes out at zero after the levels are summed.'
+    concept: quant-microstructure.spread-and-imbalance
+
+  TestOrderImbalance.test_level1_imbalance:
+    condition: 'a top of book showing 300 bid against 100 offered'
+    hints:
+      - 'Imbalance is normalised into the range -1 to 1, so 300 against 100 is not a difference of 200. It is the share of the resting size that sits on the bid.'
+      - 'The numerator is bid size minus ask size and the denominator is the two added together.'
+      - 'With a depth of one there is a single level carrying full weight, so the weighting cancels and the answer is 200 over 400.'
+    concept: quant-microstructure.spread-and-imbalance
+
+  TestOrderImbalance.test_multilevel_weighted_imbalance:
+    condition: 'two levels a side where the second level holds twice the size of the touch'
+    hints:
+      - 'Weighting the levels equally lets size resting a tick away count as much as size at the touch, and that is not what it is worth.'
+      - 'The weight falls linearly with depth. Level i takes (k - i) / k, where k is how many levels both sides actually supply, not the depth that was asked for.'
+      - 'Accumulate the weighted differences and the weighted sums separately across the k levels and divide once at the end, rather than averaging a ratio per level.'
+    concept: quant-microstructure.spread-and-imbalance

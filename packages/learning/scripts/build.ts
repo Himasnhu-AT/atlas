@@ -42,7 +42,10 @@ import { unified } from 'unified'
 import matter from 'gray-matter'
 import { parse as parseYaml } from 'yaml'
 
+import type { Challenge, CompiledChallengeSet } from '@atlas/core'
+
 import { browserSupportFor } from '../src/browser'
+import { lintChallengeSet } from '../src/challenges/lint'
 import { CONTENT_TOKENS } from '../src/links'
 import { validateWidgetProps } from '../src/widgets/schema'
 import {
@@ -335,6 +338,12 @@ let lastDiscoveredTests: string[] = []
 const caseMapCoverage = { mapped: 0, total: 0 }
 
 /**
+ * Stage 1 coverage, and how much of it is still the superseded single-widget
+ * spec. Printed at the end so the conversion has a number rather than a vibe.
+ */
+const stageOneCoverage = { authored: 0, lowered: 0, total: 0 }
+
+/**
  * Read and check an exercise's case map.
  *
  * Three states, driven by the file rather than by a flag. No `cases.yaml` is
@@ -574,6 +583,7 @@ async function buildModule(
     exerciseFiles?: Record<string, string>
     exerciseHash?: string
     exerciseCases?: Record<string, ExerciseCase>
+    stage1?: CompiledChallengeSet
     interactive?: {
       type: string
       props: Record<string, any>
@@ -684,6 +694,9 @@ async function buildModule(
       }
     }
 
+    stageOneCoverage.total += 1
+    let stage1: CompiledChallengeSet | undefined
+
     if (front.interactive) {
       const validation = validateWidgetProps(front.interactive.type, front.interactive.props)
       if (!validation.success) {
@@ -692,6 +705,45 @@ async function buildModule(
         }
       } else {
         front.interactive.props = validation.data
+      }
+    }
+
+    if (front.challenges) {
+      stageOneCoverage.authored += 1
+      const problems = lintChallengeSet(front.challenges)
+      for (const problem of problems) fail(where, problem)
+
+      // A `custom` step names a bespoke component, and its props answer to
+      // that component's own schema. Everything else is checked by the kit.
+      for (const step of front.challenges.steps) {
+        if (step.kind !== 'custom') continue
+        const validation = validateWidgetProps(step.component, step.props)
+        if (!validation.success) {
+          for (const err of validation.errors) fail(where, `challenge "${step.id}": ${err}`)
+        } else {
+          step.props = validation.data
+        }
+      }
+
+      if (problems.length === 0) stage1 = front.challenges
+    } else if (front.interactive) {
+      // Lowered rather than special-cased downstream: one runtime concept, a
+      // lesson has a stage 1 and a stage 1 is a list of challenges. The apps
+      // never learn that the old spec existed.
+      stageOneCoverage.lowered += 1
+      stage1 = {
+        goal: `Work through ${front.title.toLowerCase()}.`,
+        steps: [
+          {
+            kind: 'custom',
+            id: 'sandbox',
+            component: front.interactive.type,
+            props: front.interactive.props,
+            prompt: 'Explore this until the behaviour is predictable.',
+            hints: ['Everything you need is on the screen.'],
+            reveal: 'Move on when you can say what each control changes.',
+          } satisfies Challenge,
+        ],
       }
     }
 
@@ -709,6 +761,7 @@ async function buildModule(
       html,
       exerciseFiles,
       exerciseHash: hashFiles(exerciseFiles),
+      stage1,
       interactive: front.interactive,
       exerciseCases,
     })
@@ -1027,6 +1080,12 @@ async function main() {
   // has got. An exercise that HAS a map is held to covering all of it.
   console.log(
     `Case maps: ${caseMapCoverage.mapped} of ${caseMapCoverage.total} exercises name their conditions.`,
+  )
+  console.log(
+    `Stage 1: ${stageOneCoverage.authored} of ${stageOneCoverage.total} lessons open on challenges` +
+      (stageOneCoverage.lowered > 0
+        ? `, ${stageOneCoverage.lowered} still on the deprecated interactive spec.`
+        : '.'),
   )
 }
 

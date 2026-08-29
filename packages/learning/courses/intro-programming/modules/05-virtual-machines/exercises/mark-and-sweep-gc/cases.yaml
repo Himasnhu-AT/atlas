@@ -1,0 +1,57 @@
+version: 1
+cases:
+  TestMarkAndSweepGC.test_empty_collection:
+    condition: 'a collection run over a heap that has never allocated anything'
+    hints:
+      - 'A collector with nothing to trace is not an error. It is the ordinary state at the start of a program.'
+      - 'Both phases run over empty collections and neither finds anything to do.'
+      - 'Report a count of 0 alongside an empty list of freed ids.'
+    concept: intro-virtual-machines.garbage-collection-and-cycle-detection
+
+  TestMarkAndSweepGC.test_direct_unreachable_cleanup:
+    condition: 'an allocation that no root and no other node ever refers to'
+    hints:
+      - 'Reachability is what decides, not allocation order. Nothing at all points at the second node.'
+      - 'The surviving node keeps its payload, so the sweep must not disturb the objects it keeps.'
+      - 'Mark outward from the roots, then sweep away every node the mark never reached, reporting their ids.'
+    concept: intro-virtual-machines.garbage-collection-and-cycle-detection
+
+  TestMarkAndSweepGC.test_reachable_chain:
+    condition: 'a chain of references where only the first node is in the root set'
+    hints:
+      - 'Reachability is transitive. Anything a marked node refers to is reachable too.'
+      - 'Marking only the roots themselves would free everything the program is still using.'
+      - 'Walk outward from each root through its references, marking as you go, until nothing reachable is left unmarked.'
+    concept: intro-virtual-machines.garbage-collection-and-cycle-detection
+
+  TestMarkAndSweepGC.test_disconnect_chain:
+    condition: 'a reference dropped from the root, cutting off everything behind the node it pointed to'
+    hints:
+      - 'The last node in the chain still has something pointing at it, and that does not save it, because nothing reaches the node doing the pointing.'
+      - 'This is where tracing beats reference counting: the incoming count is one and the object is still garbage.'
+      - 'Trace only from the roots, so a node whose only referrers are themselves unreachable is swept along with them.'
+    concept: intro-virtual-machines.garbage-collection-and-cycle-detection
+
+  TestMarkAndSweepGC.test_cyclic_graph_cleanup:
+    condition: 'a ring of nodes referring to each other after the last root is removed'
+    hints:
+      - 'Every node in the ring has something pointing at it, so counting references would keep all three alive forever.'
+      - 'Nothing in the root set reaches the ring, and that is the only question a trace asks.'
+      - 'Begin marking from the roots alone, and sweep the whole ring because the mark never arrived there.'
+    concept: intro-virtual-machines.garbage-collection-and-cycle-detection
+
+  TestMarkAndSweepGC.test_mixed_cyclic_and_reachable:
+    condition: 'one ring reachable from a root beside another ring reachable from nothing'
+    hints:
+      - 'A cycle is not garbage by being a cycle. It is garbage when nothing outside it points in.'
+      - 'The mark has to follow references into a cycle without walking round it forever.'
+      - 'Skip a node that is already marked while traversing, which both ends the walk and leaves the unreached ring for the sweep.'
+    concept: intro-virtual-machines.garbage-collection-and-cycle-detection
+
+  TestMarkAndSweepGC.test_multiple_collection_cycles:
+    condition: 'a second collection run over survivors the first run already marked'
+    hints:
+      - 'The marks left by the previous run are stale, and a node still carrying one survives a run it should not.'
+      - 'Survivors keep their identity between runs. They are not reallocated, only traced again.'
+      - 'Clear every mark at the start of a run, or clear it on each survivor during the sweep, so the next run begins from nothing marked.'
+    concept: intro-virtual-machines.garbage-collection-and-cycle-detection

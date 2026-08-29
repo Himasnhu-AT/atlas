@@ -1,0 +1,49 @@
+version: 1
+cases:
+  TestDoublyLinkedList.test_empty_list:
+    condition: 'a list holding no nodes, walked and then popped from both ends'
+    hints:
+      - 'With no sentinel nodes there is nothing standing in for the ends. Head and tail are simply absent and a walk from the head stops at once.'
+      - 'Popping either end of an empty list is a failure, not an empty answer.'
+      - 'Start head and tail as None with a size of 0, and raise IndexError from both pops while the list is empty.'
+    concept: intro-c-data-structures.pointers-and-linked-nodes
+
+  TestDoublyLinkedList.test_push_and_pop_front:
+    condition: 'the first node inserted, which is head and tail at once, then taken back off'
+    hints:
+      - 'Without sentinels the first insert is its own case: the new node sits at both ends of the list.'
+      - 'The node coming off has to be unlinked in both directions, and when it was the last one the far end reference has to be cleared too.'
+      - 'When the head is absent on insert, set the tail as well. When the new head is absent on removal, clear the tail, and clear the removed node''s own links either way.'
+    concept: intro-c-data-structures.pointers-and-linked-nodes
+
+  TestDoublyLinkedList.test_push_and_pop_back:
+    condition: 'three nodes appended, whose prev links have to be threaded as well as their next links'
+    hints:
+      - 'A doubly linked list needs both directions written. Setting only next leaves a walk backward broken and the test checks it.'
+      - 'The old tail gains a next, the new node gains a prev, and the tail reference moves along.'
+      - 'Point the new node''s prev at the current tail, point that tail''s next at the new node, then make the new node the tail.'
+    concept: intro-c-data-structures.pointers-and-linked-nodes
+
+  TestDoublyLinkedList.test_remove_middle_node:
+    condition: 'a node unlinked while it still has a live neighbour on either side'
+    hints:
+      - 'Both neighbours have to learn about each other, or a walk in one direction still runs through the node that was removed.'
+      - 'This splice is what makes removal constant time: no search, only a handful of pointer writes.'
+      - 'Point the previous node''s next at the following node and the following node''s prev back at the previous one, then clear the removed node''s own links.'
+    concept: intro-c-data-structures.pointers-and-linked-nodes
+
+  TestDoublyLinkedList.test_remove_head_and_tail:
+    condition: 'the head unlinked, then the tail, then the one node still left'
+    hints:
+      - 'A node at an end has a missing neighbour, so writing through that neighbour without checking crashes.'
+      - 'Where the neighbour is absent, the list''s own head or tail reference is what has to move instead.'
+      - 'When prev is absent update the head, when next is absent update the tail, and the last node removed ends up clearing both.'
+    concept: intro-c-data-structures.pointers-and-linked-nodes
+
+  TestDoublyLinkedList.test_move_to_front:
+    condition: 'the tail promoted to the head, then a middle node, then the head that is already there'
+    hints:
+      - 'A move is an unlink followed by an insert. Doing only the insert leaves the node reachable from two places at once.'
+      - 'Moving the node that is already the head has to change nothing, and unlinking it first would break the list on the way.'
+      - 'Return early when the node is already the head, otherwise splice it out of its neighbours, fix the tail if it was the tail, and link it in ahead of the current head.'
+    concept: intro-c-data-structures.pointers-and-linked-nodes

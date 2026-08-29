@@ -1,0 +1,193 @@
+version: 1
+cases:
+  TestBuildContext.test_has_four_messages_in_order:
+    condition: 'a transcript that has to run instructions, question, tool request, tool result'
+    hints:
+      - 'This is the ordinary shape of a turn where the agent looked something up.'
+      - 'The tool result cannot come before the assistant turn that asked for it.'
+      - 'Build the four messages in that order with the roles the provider expects.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestBuildContext.test_the_assistant_turn_carries_a_tool_call:
+    condition: 'an assistant turn whose content is empty because it only requested a tool'
+    hints:
+      - 'A tool call turn carries no text, and the request lives in a separate field.'
+      - 'Each call names the function and declares its kind.'
+      - 'Put the call into a tool calls list on the assistant message.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestBuildContext.test_arguments_are_a_json_string_not_a_dict:
+    condition: 'call arguments that must be text rather than a parsed mapping'
+    hints:
+      - 'Providers send a JSON string, and your loop already has to parse it.'
+      - 'Building a mapping here makes the fixture unlike anything a real provider produces.'
+      - 'Serialise the arguments to JSON before putting them on the call.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestBuildContext.test_the_tool_result_names_the_call_it_answers:
+    condition: 'a tool result whose id has to match the call on the assistant turn'
+    hints:
+      - 'A tool result that does not name its call is rejected by every real provider.'
+      - 'The id has to be the same value in both places, not two values that look similar.'
+      - 'Use one id for the call and reuse it on the result.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestTheInjectionReachesTheModel.test_the_injected_sentence_is_in_the_array:
+    condition: 'a hostile sentence hidden inside an otherwise ordinary document'
+    hints:
+      - 'The attack has to actually land for this to be a lesson, so nothing here filters it.'
+      - 'The search walks the messages and reports the one carrying the text.'
+      - 'Return the message whose content holds the sentence, and None when nothing does.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestTheInjectionReachesTheModel.test_nothing_in_the_structure_marks_it_as_untrusted:
+    condition: 'a tool message whose fields are only the role, the content and the call id'
+    hints:
+      - 'The message format has nowhere to record that content came from outside.'
+      - 'Adding a field of your own would be inventing a protocol the provider ignores.'
+      - 'Build the tool message with exactly the three fields the format defines.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestTheInjectionReachesTheModel.test_it_survives_all_the_way_into_the_provider_request:
+    condition: 'a request whose serialised body still carries the injected sentence'
+    hints:
+      - 'The point is what was sent, not what came back, because the reply is scripted.'
+      - 'Nothing between building the messages and the request touches the content.'
+      - 'Pass the message list to the call unchanged.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestTheInjectionReachesTheModel.test_a_clean_document_carries_no_injection:
+    condition: 'an ordinary policy sentence with nothing hostile in it'
+    hints:
+      - 'A search that always finds something proves nothing about the one that did.'
+      - 'The absence has to be reported rather than guessed at.'
+      - 'Return None after the walk when no message contains the text.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestDetector.test_catches_the_loud_attack:
+    condition: 'the obvious attack that says to ignore previous instructions'
+    hints:
+      - 'This is the phrase every scanner looks for, and it is the easiest half of the problem.'
+      - 'The detector reports which patterns matched rather than a yes or no.'
+      - 'Return the matching patterns so the caller can see why something was flagged.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestDetector.test_catches_the_quiet_attack:
+    condition: 'a policy sentence addressed to automated agents, written in the document''s own register'
+    hints:
+      - 'This attack contains nothing that looks like an attack. It reads as documentation.'
+      - 'What gives it away is that it addresses the agent and removes a confirmation step.'
+      - 'Add patterns for that register, and accept what they will do to ordinary documents.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestDetector.test_the_loud_patterns_alone_would_miss_the_quiet_attack:
+    condition: 'a quiet attack containing none of the phrases everyone scans for'
+    hints:
+      - 'The obvious patterns catch the obvious attack and nothing else.'
+      - 'A detector built only from them reports clean on the attack that actually works.'
+      - 'Keep the loud patterns and the quiet ones as separate entries, so this comparison stays meaningful.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestDetector.test_is_case_insensitive:
+    condition: 'an attack written entirely in capitals'
+    hints:
+      - 'Capitalisation is free to change and changes nothing about the meaning.'
+      - 'Matching the raw text lets any change of case slip past.'
+      - 'Fold the text once before testing the patterns against it.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestDetector.test_returns_sorted_unique_matches:
+    condition: 'a document where one pattern appears three times'
+    hints:
+      - 'A pattern reported three times says the same thing three times.'
+      - 'The order also has to be stable, or two runs over one document disagree.'
+      - 'Collect the matched patterns into a set and return them sorted.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestDetector.test_says_nothing_about_ordinary_text:
+    condition: 'a plain sentence about a billing cycle'
+    hints:
+      - 'A detector that flags everything is a detector nobody reads.'
+      - 'An empty list is the honest report for text that matched nothing.'
+      - 'Return the empty result rather than a placeholder entry.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestFalsePositives.test_the_detector_flags_real_documentation:
+    condition: 'a corpus of genuine refund and escalation runbooks, some of which the detector fires on'
+    hints:
+      - 'This assertion is the point of the exercise rather than a bug to fix.'
+      - 'A refund policy page and an escalation runbook are instructions, because that is what documentation is.'
+      - 'Do not tune the patterns to make this pass. Report the rate as it is.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestFalsePositives.test_it_does_not_flag_everything_either:
+    condition: 'a corpus where at least one document has to come back clean'
+    hints:
+      - 'You are choosing a point on a curve, not falling off the end of it.'
+      - 'Patterns broad enough to match every document make the detector useless in the other direction.'
+      - 'Keep the patterns specific enough that ordinary prose passes.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestFalsePositives.test_an_empty_corpus_is_zero_not_a_crash:
+    condition: 'a corpus with no documents to measure against'
+    hints:
+      - 'An empty corpus happens whenever a filter upstream matched nothing.'
+      - 'Dividing by the document count raises here.'
+      - 'Return zero before computing the ratio.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestWrapUntrusted.test_labels_the_region_and_its_source:
+    condition: 'content that has to be marked as data and attributed to the tool it came from'
+    hints:
+      - 'The model can only be told where the untrusted region starts and ends in prose.'
+      - 'Naming the source tells the model how much to trust it, which is not much.'
+      - 'Put an opening marker naming the source and a closing marker around the content.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestWrapUntrusted.test_neutralises_forged_role_markers:
+    condition: 'tool output containing a forged system turn written as a role and a colon'
+    hints:
+      - 'An injection that can forge a message boundary does not need to persuade anybody.'
+      - 'The colon is what makes it look like a role marker rather than a word.'
+      - 'Replace the colon after each role word with a space, leaving the word itself in place.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestWrapUntrusted.test_neutralises_them_whatever_the_case:
+    condition: 'a forged assistant turn with a capital letter'
+    hints:
+      - 'Capitalising the role word costs the attacker nothing.'
+      - 'A literal replacement misses every variant of case.'
+      - 'Match the role markers case insensitively.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestWrapUntrusted.test_truncates_to_the_limit:
+    condition: 'five thousand characters of tool output against a limit of a hundred'
+    hints:
+      - 'A tool can return far more than the context can hold, and the attack often hides at the end.'
+      - 'The limit applies to the content, not to the wrapper around it.'
+      - 'Cut the content to the limit before assembling the wrapper.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestWrapUntrusted.test_marks_that_it_truncated:
+    condition: 'content that was cut, where the model must be able to tell'
+    hints:
+      - 'Silently truncating makes the model treat a fragment as the whole document.'
+      - 'A visible marker is enough, and it costs one character.'
+      - 'Append the ellipsis when and only when something was removed.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestWrapUntrusted.test_leaves_short_content_unmarked:
+    condition: 'content well inside the limit, which must not look truncated'
+    hints:
+      - 'Adding the marker unconditionally tells the model every document is incomplete.'
+      - 'Slicing to the limit is harmless here, but the marker is not.'
+      - 'Only add the marker when the content was longer than the limit.'
+    concept: ai-agent-security.injection-through-a-tool-result
+
+  TestWrapUntrusted.test_is_mitigation_and_not_a_fix:
+    condition: 'a wrapped document whose injected sentence is still present inside it'
+    hints:
+      - 'Wrapping is text arguing with text, and the hostile sentence is still in the prompt.'
+      - 'Stripping the sentence would break the exercise and would not generalise to the next phrasing.'
+      - 'Leave the content intact and let the label be the only defence at this layer.'
+    concept: ai-agent-security.injection-through-a-tool-result

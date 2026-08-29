@@ -7,10 +7,154 @@ estimatedMinutes: 35
 exercise:
   id: structured-output
   timeboxMinutes: 35
-interactive:
-  type: structured-output
-  props:
-    initialPreset: type_mismatch
+challenges:
+  goal: Turn a chatty model reply into a payload your code can trust, and repair it when it is wrong.
+
+  steps:
+    - id: isolate-the-payload
+      kind: text-contract
+      prompt: >-
+        This is what the model actually returned. Cut it down until it is the order
+        object and nothing a JSON parser would choke on.
+      lang: json
+      initial: |
+        Sure! Here is the extracted order data you asked for:
+        ```json
+        {
+          "customer_name": "Ana Silva",
+          "order_id": "ORD-401",
+          "quantity": 3,
+          "status": "open"
+        }
+        ```
+        Hope this helps with your processing!
+      rules:
+        - message: There is still prose wrapped around the payload. A parser reads the whole string, not the part of it that looks like JSON.
+          check: { op: notMatches, pattern: "Sure!|Hope this helps" }
+        - message: The markdown fence is still there, and three backticks are not JSON.
+          check: { op: notContains, text: "```" }
+        - message: What is left does not parse yet. Check that every brace and quote is balanced.
+          check: { op: parses, as: json }
+        - message: That parses, but it is not the order object. Keep customer_name, order_id, quantity and status.
+          check: { op: equals, path: customer_name, value: Ana Silva }
+      hints:
+        - Two different things are wrapped around the payload, and they are not the same kind of thing. One is English and one is markdown.
+        - Delete the first line and the last line, then the two fence lines.
+        - The buffer should begin with an opening brace and end with a closing one, with nothing before or after either.
+      reveal: >-
+        This is why json.loads(reply) fails in production. Every parser you write has to
+        find the payload before it can parse it, and the model being helpful is exactly
+        what breaks it.
+      solution: |
+        {
+          "customer_name": "Ana Silva",
+          "order_id": "ORD-401",
+          "quantity": 3,
+          "status": "open"
+        }
+
+    - id: satisfy-the-contract
+      kind: text-contract
+      prompt: >-
+        This payload parses, and it is still wrong. Repair it until it satisfies the
+        order contract.
+      context:
+        as: pairs
+        items:
+          - { k: customer_name, v: a non-empty string }
+          - { k: order_id, v: a string, or null when the reply carried none }
+          - { k: quantity, v: a whole number, at least 1 }
+          - { k: status, v: one of open, shipped, closed }
+      lang: json
+      initial: |
+        {
+          "customer_name": "Ana Silva",
+          "quantity": "two",
+          "status": "pending"
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: quantity is a string. "two" is a word, and the contract asks for the number 2.
+          check: { op: type, path: quantity, is: integer }
+        - message: quantity must be at least 1. An order for zero items is not an order.
+          check: { op: range, path: quantity, min: 1 }
+        - message: The value "pending" is not in the contract. status must be open, shipped or closed.
+          check: { op: oneOf, path: status, values: [open, shipped, closed] }
+        - message: order_id is missing. The contract permits null; it does not permit absent.
+          check: { op: exists, path: order_id }
+        - message: customer_name must be a non-empty string.
+          check: { op: length, path: customer_name, min: 1 }
+      hints:
+        - Four fields in the contract and three in the payload. Start by counting.
+        - One field holds the right value in the wrong type, one holds a value outside its enum, and one is not there at all.
+        - The missing field is allowed to be null. Write it as null rather than leaving it out.
+      reveal: >-
+        Constrained decoding would have given you the shape. It would not have given you
+        quantity of at least 1, because that is a fact about your business rather than
+        about JSON. This is the layer that has to exist whatever the provider promises.
+      solution: |
+        {
+          "customer_name": "Ana Silva",
+          "order_id": null,
+          "quantity": 2,
+          "status": "open"
+        }
+
+    - id: the-retry-that-works
+      kind: choice
+      prompt: Validation failed and you have one retry. What do you send back?
+      context:
+        as: log
+        lines:
+          - 'ValidationError: quantity: expected integer, got "two"'
+          - 'ValidationError: status: "pending" not in [open, shipped, closed]'
+      options:
+        - id: try-again
+          label: '"That was wrong, try again."'
+          note: The model cannot see what was wrong, so its second attempt is drawn from the same distribution as its first. This is how a retry loop burns a budget without converging.
+        - id: error-only
+          label: The two ValidationError lines on their own.
+          note: Closer, but the model no longer has the reply it is being asked to repair. It regenerates from the original prompt and often reproduces the same error.
+        - id: reply-plus-error
+          label: The previous reply, the two ValidationError lines, and the contract.
+          correct: true
+          note: The model has what it wrote, what was wrong with it, and what right looks like. That is the smallest complete repair request, and it usually converges in one turn.
+        - id: whole-schema
+          label: The full schema again, with no mention of what failed.
+          note: It already had the schema and violated it anyway. Repeating it without naming the violation changes nothing.
+      hints:
+        - Ask what you would need in front of you to fix this by hand.
+        - A repair needs three things, and one of them is the broken thing itself.
+        - It cannot edit a reply it can no longer see.
+      reveal: >-
+        A retry is a repair request, not a second roll of the dice. Send the artefact, the
+        diagnosis and the target. Cap it at two attempts and fail loudly after that,
+        because a loop that retries forever is an outage that bills.
+
+    - id: where-validation-goes
+      kind: order
+      prompt: Put the path a model reply takes before your code is allowed to trust it in order.
+      items:
+        - { id: instruct, label: Ask for the shape in the prompt }
+        - { id: constrain, label: Constrain decoding to the schema }
+        - { id: extract, label: Find the payload inside the reply }
+        - { id: parse, label: Parse it }
+        - { id: validate, label: Validate it against the domain contract }
+        - { id: retry, label: Feed the failure back and retry once }
+      solution: [instruct, constrain, extract, parse, validate, retry]
+      because:
+        extract: Extraction comes before parsing, because the reply is a string before it is a document.
+        validate: Constrained decoding gives you the shape. Only your contract knows that quantity cannot be zero.
+        retry: The retry is the last resort rather than the first. Everything above it is cheaper than another round trip.
+      hints:
+        - Two of these happen before the model generates anything at all.
+        - You cannot parse what you have not found, and you cannot validate what you have not parsed.
+        - Only one of these costs another round trip, and it goes last.
+      reveal: >-
+        Every layer above the retry makes the retry rarer. That is the whole design: push
+        the work to the cheapest layer that can do it, and keep the expensive layer for
+        the cases that genuinely need a second opinion.
 ---
 
 Agent workflows require machine-readable data structures to execute conditional logic, call external tools, and update database state. Generating predictable structured output requires combining prompt instructions, decoding constraints, schema validation, and targeted error recovery.

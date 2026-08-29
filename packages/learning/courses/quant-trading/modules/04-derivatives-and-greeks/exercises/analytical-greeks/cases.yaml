@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestAnalyticalGreeks.test_standard_atm_call_greeks:
+    condition: 'a one year at the money call whose vega is asked for per one point of vol'
+    hints:
+      - 'The maths produces Greeks in per unit terms and the caller wants trading units. A vega of 37.52 per unit of sigma is the same sensitivity as 0.3752 per one point of implied vol.'
+      - 'Gamma and vega both come off the normal density at d1, not the cumulative. Theta is negative for a long option, and it is asked for per calendar day rather than per year.'
+      - 'Divide vega and rho by one hundred for a one point move and theta by 365 for one day, and leave delta and gamma in their natural units.'
+    concept: quant-options.the-greeks
+
+  TestAnalyticalGreeks.test_standard_atm_put_greeks:
+    condition: 'the same strike priced as a put and compared with the call on every Greek'
+    hints:
+      - 'Put delta is not the call delta with a minus sign in front. The two differ by exactly one, which puts this at the money put near -0.36 rather than -0.64.'
+      - 'Gamma and vega are the same number for a call and a put on the same strike, so any branch that flips their sign for a put is wrong.'
+      - 'Take put delta as the negative of N(-d1), which is what makes the difference against N(d1) come out at one, and compute gamma and vega without consulting is_call at all.'
+    concept: quant-options.the-greeks

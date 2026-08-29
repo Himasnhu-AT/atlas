@@ -1,0 +1,137 @@
+version: 1
+cases:
+  TestChunkStream.test_even_chunks:
+    condition: 'a stream whose length divides evenly by the chunk size'
+    hints:
+      - 'A chunk goes out the moment it fills, not once the whole stream has been read.'
+      - 'The buffer has to be replaced after each emission rather than cleared in place, or the consumer is left holding a list that keeps changing under it.'
+      - 'Collect into a list, yield it once it reaches the size, and begin a new list.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestChunkStream.test_partial_final_chunk:
+    condition: 'a stream that runs out while the buffer is still half full'
+    hints:
+      - 'The last chunk is short, and dropping it quietly loses the tail of the stream.'
+      - 'When the loop ends the buffer may still hold items that never triggered an emission.'
+      - 'Yield whatever is left in the buffer once the stream is exhausted, but only when there is something in it.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestChunkStream.test_empty_stream:
+    condition: 'a stream that yields nothing at all'
+    hints:
+      - 'No items means no chunks, not one empty chunk.'
+      - 'The loop body never runs and the buffer is still empty at the end.'
+      - 'Guard the trailing emission on the buffer being non empty.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestChunkStream.test_single_element_chunk_size:
+    condition: 'a chunk size of one, so each item becomes a chunk of its own'
+    hints:
+      - 'A size of one is not a case apart. The buffer fills and empties on every item.'
+      - 'Each chunk is still a list, holding a single element.'
+      - 'The ordinary fill and yield covers it, since the length reaches the size after one append.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestChunkStream.test_invalid_chunk_size_raises_value_error:
+    condition: 'a chunk size of zero, and a negative chunk size'
+    hints:
+      - 'A size of zero fills a buffer that never reaches its limit, so nothing is ever emitted and the caller waits on an empty result.'
+      - 'A generator body does not run until the first item is pulled, so the check only fires when the caller starts consuming.'
+      - 'Raise ValueError when the chunk size is not positive.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestSlidingWindow.test_step_one:
+    condition: 'windows advancing one element at a time, so consecutive windows overlap heavily'
+    hints:
+      - 'Neighbouring windows share all but one element, and the shared part is never re-read from the stream.'
+      - 'The window is filled once and then edited: one element leaves the front and one joins the back.'
+      - 'Hold the window in a deque, pop from the left and append the new item, yielding a copy so the consumer is not handed the live buffer.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestSlidingWindow.test_step_two:
+    condition: 'a step of two against a window of three, so the windows overlap by one'
+    hints:
+      - 'The step decides how far the window travels, not how wide it is.'
+      - 'Two elements leave the front and two join the back on each advance.'
+      - 'Drop step items from the left and pull step new ones in, which works as long as the step is no wider than the window.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestSlidingWindow.test_step_greater_than_window_size:
+    condition: 'a step of three against a window of two, so elements fall between the windows'
+    hints:
+      - 'With a step wider than the window, some elements belong to no window at all and still have to be pulled off the stream.'
+      - 'Nothing of the old window survives, so shifting it item by item gets you nowhere.'
+      - 'Pull step items and keep the last window_size of them as the new window.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestSlidingWindow.test_stream_shorter_than_window:
+    condition: 'a stream holding fewer elements than one full window needs'
+    hints:
+      - 'Only complete windows go out, so a short stream yields nothing rather than a short window.'
+      - 'The initial fill runs out of items part way through.'
+      - 'End the generator when the fill cannot be completed, without yielding what was gathered so far.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestSlidingWindow.test_invalid_parameters_raises_value_error:
+    condition: 'a window size of zero, and a step of zero'
+    hints:
+      - 'A window of nothing has nothing to emit, and a step of zero never advances, so the generator would run forever.'
+      - 'Both are configuration errors and both are caught in the same place.'
+      - 'Raise ValueError when either the window size or the step is not positive.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestFilterTransformPipeline.test_filtering_and_transforming:
+    condition: 'two predicates that both have to pass before the transform is applied'
+    hints:
+      - 'The predicates combine with and, so failing either one drops the item.'
+      - 'The transform applies only to what survives, not to everything that arrives.'
+      - 'Run every predicate against the item and yield the transform of it only when all of them pass.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestFilterTransformPipeline.test_empty_predicates_transforms_all:
+    condition: 'an empty list of predicates, which filters nothing out'
+    hints:
+      - 'No conditions means no rejections, not no output.'
+      - 'An and across an empty collection is true, which is what makes this fall out without a special case.'
+      - 'Ask whether all the predicates pass, which answers yes when there are none.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestFilterTransformPipeline.test_no_matches:
+    condition: 'a predicate that rejects every item in the stream'
+    hints:
+      - 'An empty result is a legitimate answer, not a reason to emit something.'
+      - 'The transform is never called when nothing gets through.'
+      - 'Let the loop finish having yielded nothing at all.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestMergeSortedStreams.test_merges_multiple_sorted_streams:
+    condition: 'three already sorted streams merged into one ascending sequence'
+    hints:
+      - 'Reading everything into a list and sorting it defeats the point, since the streams may be far larger than memory.'
+      - 'Only the current front element of each stream needs to be in play at any moment.'
+      - 'Keep one entry per stream in a heap, pop the smallest, yield it, then push that stream''s next element.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestMergeSortedStreams.test_handles_empty_streams:
+    condition: 'one of the streams having nothing in it at all'
+    hints:
+      - 'A stream that is empty from the outset has no front element to seed the heap with.'
+      - 'Its exhaustion shows up on the first pull, not at the end of the merge.'
+      - 'Catch the exhaustion while seeding and leave that stream out, rather than pushing a placeholder for it.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestMergeSortedStreams.test_all_empty_streams:
+    condition: 'every stream exhausted before the merge has pulled anything'
+    hints:
+      - 'Nothing seeds the heap, so the merge is over before it begins.'
+      - 'An empty heap is already the loop''s stopping condition, so no extra check is needed.'
+      - 'Let the loop over the heap run zero times and yield nothing.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines
+
+  TestMergeSortedStreams.test_custom_key_function:
+    condition: 'streams ordered by distance from ten rather than by the values themselves'
+    hints:
+      - 'The elements are not in ascending order on their own. What is sorted is the key drawn out of each of them.'
+      - 'The key settles the heap order while the original element is what gets yielded.'
+      - 'Store the key beside the value in each heap entry, order on the key, and yield the value.'
+    concept: intro-python-runtime.iterators-generators-and-coroutines

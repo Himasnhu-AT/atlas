@@ -1,0 +1,41 @@
+version: 1
+cases:
+  TestPerformanceMetrics.test_steady_positive_returns:
+    condition: 'ten identical daily returns of one percent, which have no dispersion at all'
+    hints:
+      - 'A constant return series has a standard deviation of zero, and the ratio divides by it.'
+      - 'An infinite Sharpe is not a useful answer, and neither is a division error. A series with no variation earns no risk-adjusted score.'
+      - 'Guard on the dispersion being at or within a tolerance of zero and return 0.0 for that ratio instead of dividing.'
+    concept: quant-risk.risk-adjusted-performance
+
+  TestPerformanceMetrics.test_insufficient_history:
+    condition: 'an empty series and a series of one return, neither of which has any spread'
+    hints:
+      - 'A single observation has no variation around its own mean, so neither ratio is defined on it.'
+      - 'The caller gets a dict back either way, so this is zeros rather than a raise or a None.'
+      - 'Check for fewer than two observations before any arithmetic and return both ratios at 0.0.'
+    concept: quant-risk.risk-adjusted-performance
+
+  TestPerformanceMetrics.test_known_excess_return_ratio:
+    condition: 'returns of 1 and 3 percent against a 1 percent per period risk free rate, unannualised'
+    hints:
+      - 'The risk free rate comes off every observation first, so the series being measured is 0 and 2 percent rather than 1 and 3.'
+      - 'The dispersion here is the population standard deviation, divided by n. The sample estimator with n minus one gives 0.707 on these two points instead of the 1.0 the test wants.'
+      - 'Divide the mean of the excess series by its population standard deviation, then multiply by the square root of the annualisation factor, which is one in this call.'
+    concept: quant-risk.risk-adjusted-performance
+
+  TestPerformanceMetrics.test_no_downside_gives_finite_sortino:
+    condition: 'a hurdle of a 0.5 percent risk free rate plus a 1 percent MAR, which the first return misses'
+    hints:
+      - 'The hurdle is the risk free rate and the MAR together, so a 1 percent return against 0.5 percent risk free and a 1 percent MAR is half a point short, not a gain.'
+      - 'The Sortino numerator is the mean excess return less the MAR, and the squared shortfalls are averaged over every observation rather than over the count of observations that fell short.'
+      - 'Take the negative part of each return minus the risk free rate minus the MAR, square it, average across all n, take the square root, and divide the MAR-adjusted mean excess by that.'
+    concept: quant-risk.risk-adjusted-performance
+
+  TestPerformanceMetrics.test_skewed_returns_sortino_exceeds_sharpe:
+    condition: 'eight returns whose losses are half a point each while the gains run to five'
+    hints:
+      - 'Sharpe charges for dispersion in both directions, so the 5 percent up day counts against it exactly as much as a half point down day does.'
+      - 'Sortino only counts what fell short of the hurdle, so a series whose volatility is mostly upside scores higher on it. That gap between the two is why both get quoted.'
+      - 'Square only the part of each excess return that lies below the hurdle and leave everything else at zero, so the upside never enters the downside deviation.'
+    concept: quant-risk.risk-adjusted-performance

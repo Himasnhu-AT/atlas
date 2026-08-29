@@ -1,0 +1,89 @@
+version: 1
+cases:
+  TestBlock.test_block_init:
+    condition: 'a block header built before it has been spliced in beside any neighbour'
+    hints:
+      - 'A block records where it starts, how many bytes it spans including its header, and whether it is free.'
+      - 'The links to the blocks either side of it are absent until the block joins the list.'
+      - 'Keep all five arguments on the instance and let next and prev stay None when they are not supplied.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_initial_state:
+    condition: 'a fresh pool that has never been allocated from'
+    hints:
+      - 'A new heap is one free block covering everything, not an empty list of blocks.'
+      - 'The whole pool counts as free, header space included, because no header has been carved out yet.'
+      - 'Build a single free block at offset 0 whose size is the whole pool, so the count is 1 and the free bytes are the total.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_invalid_init:
+    condition: 'a pool of zero bytes, an alignment of three, and a pool too small for one block'
+    hints:
+      - 'An alignment of 3 is not a power of two, so rounding a size up to it cannot be done with a mask.'
+      - 'The pool has to be large enough for one header plus one aligned payload, or the first request can never be served.'
+      - 'Raise ValueError for a non positive size, for an alignment with more than one bit set, and for a pool smaller than the header plus the alignment.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_malloc_single:
+    condition: 'the first request against an untouched pool, which has to be carved out of the one free block'
+    hints:
+      - 'The address handed back names the payload, not the header sitting in front of it.'
+      - 'The block spans the header plus the payload, and the remainder of the old free block stays free.'
+      - 'Take header plus aligned payload off the front, mark that block allocated, and return its offset plus the header size.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_malloc_alignment:
+    condition: 'requests of five and then twelve bytes, neither of them a multiple of the alignment'
+    hints:
+      - 'Five bytes of payload still occupies eight, because the block after it has to begin on an aligned boundary.'
+      - 'Round the requested size up to the alignment first, and add the header to the rounded figure.'
+      - 'The second address lands at 24 because the first block spans a header plus eight rounded up bytes.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_malloc_invalid_size:
+    condition: 'a request for zero bytes, and a request for a negative number of them'
+    hints:
+      - 'A zero byte allocation would still consume a header, and a negative one means nothing at all.'
+      - 'Reject the size before the free list is searched.'
+      - 'Raise ValueError when the requested size is not positive.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_out_of_memory:
+    condition: 'a request larger than any single free block left in the pool'
+    hints:
+      - 'Running out is an ordinary outcome for a fixed pool, and it has to be reported rather than answered with a bogus address.'
+      - 'The search can walk every block and reach the end without finding one that fits.'
+      - 'Raise MemoryError once the walk has run off the end of the list with nothing large enough found.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_free_and_coalesce_single:
+    condition: 'a block freed while the block sitting after it is already free'
+    hints:
+      - 'Marking the block free is not enough. Two free blocks side by side cannot serve a request that neither one alone is big enough for.'
+      - 'The neighbour after it is free, so the two regions are really one and the block count has to say so.'
+      - 'Absorb the next block''s size into this one and unlink it, which brings the pool back to a single free block.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_coalesce_middle_block:
+    condition: 'a block freed with a free neighbour on each side of it'
+    hints:
+      - 'Merging in one direction only leaves the heap fragmented, and the block count is what catches it.'
+      - 'Each neighbour is a candidate only while it is itself free, so both sides have to be tested.'
+      - 'Merge forward into the next block, then merge the result backward into the previous one, repairing the prev links as you go.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_invalid_free_and_double_free:
+    condition: 'an address partway into a block, an address in no block at all, and a block freed twice'
+    hints:
+      - 'Only the exact payload address a request handed back names a block. Four bytes past it names nothing.'
+      - 'Finding a block is not enough, because a block that is already free cannot be freed again.'
+      - 'Subtract the header from the address, look for a block starting exactly there, and raise ValueError when there is none or the one found is already free.'
+    concept: intro-c-memory.manual-heap-allocation
+
+  TestFreeListAllocator.test_first_fit_reuse:
+    condition: 'a hole left by an earlier free that is larger than the request now arriving'
+    hints:
+      - 'First fit takes the earliest block that is big enough, not the tightest one and not fresh space at the end of the pool.'
+      - 'The forty byte hole holds a twenty four byte block, and the sixteen bytes left over stay free behind it.'
+      - 'Walk from the head, take the first free block whose size covers the need, and split it when the remainder can still hold a header and an aligned payload.'
+    concept: intro-c-memory.manual-heap-allocation

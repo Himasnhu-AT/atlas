@@ -1,0 +1,25 @@
+version: 1
+cases:
+  TestKellySizing.test_even_odds_sixty_percent_win:
+    condition: 'a 60 percent win rate at even money, sized at half Kelly'
+    hints:
+      - 'Full Kelly on this edge is 20 percent of the bank. The multiplier scales that number, not the win rate that went into it.'
+      - 'The formula needs the payoff ratio as well as the probability. At even money b is one, which is where the familiar 2p minus 1 shortcut comes from.'
+      - 'Work out (p * (b + 1) - 1) / b, then apply the fraction multiplier to the result before anything is clamped.'
+    concept: quant-stat-arb.position-sizing-and-kelly
+
+  TestKellySizing.test_negative_expectation:
+    condition: 'a 40 percent win rate at even money, so the edge is against the trader'
+    hints:
+      - 'Kelly comes out negative here, and a negative fraction reads as an instruction to take the other side of a bet nobody offered.'
+      - 'The honest answer to a losing edge is no position, not an inverted one.'
+      - 'Return 0.0 as soon as the full Kelly fraction is at or below zero, before the multiplier or the cap is reached.'
+    concept: quant-stat-arb.position-sizing-and-kelly
+
+  TestKellySizing.test_asymmetric_payoff_with_cap:
+    condition: 'a coin flip paying three to one, taken at full Kelly against a cap of 0.25'
+    hints:
+      - 'Full Kelly is a third of the bank here, and a multiplier of 1.0 leaves it exactly there. The cap is what brings it down.'
+      - 'The cap is a ceiling, not a suggestion. Kelly is derived from a win rate and a payoff that were both estimated, and being slightly wrong about them is what the ceiling exists for.'
+      - 'Apply the multiplier first, then take the smaller of that and max_cap, with a floor at zero.'
+    concept: quant-stat-arb.position-sizing-and-kelly

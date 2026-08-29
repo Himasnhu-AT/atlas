@@ -1,0 +1,145 @@
+version: 1
+cases:
+  TestDaysBetween.test_is_inclusive_at_both_ends:
+    condition: 'a range from the 5th to the 7th, where all three days have to be run'
+    hints:
+      - 'Somebody asking to backfill the 5th to the 7th means those three days. Dropping either end leaves a hole they will not notice for weeks.'
+      - 'The walk starts on the first day and has to emit the last one before it stops.'
+      - 'Loop while the cursor is at or before the end date, emitting the day and stepping forward.'
+    concept: de-pipelines.backfills
+
+  TestDaysBetween.test_one_day_is_one_day:
+    condition: 'a range whose start and end are the same date'
+    hints:
+      - 'Repairing one bad day is the commonest backfill there is, and it has to produce exactly that day.'
+      - 'The start is already at or before the end, so the loop runs once.'
+      - 'Emit the day before stepping, so a single day range is not skipped by a check that steps first.'
+    concept: de-pipelines.backfills
+
+  TestDaysBetween.test_crosses_a_month_boundary:
+    condition: 'a range running from 27 February into 2 March'
+    hints:
+      - 'Adding one to a day number gives you 32 February. Calendars are not arithmetic on the last field.'
+      - 'The date library already knows how long every month is.'
+      - 'Advance with a one day timedelta on a real date object rather than incrementing the day part of the string.'
+    concept: de-pipelines.backfills
+
+  TestDaysBetween.test_handles_a_leap_day:
+    condition: 'a range across 29 February 2024, a day that exists in some years and not others'
+    hints:
+      - 'A hand written month length table gets February wrong every four years, and the backfill silently skips a day.'
+      - 'Nothing extra is needed here if the walk is done on date objects.'
+      - 'Let the date arithmetic produce the 29th; no leap year rule belongs in your code.'
+    concept: de-pipelines.backfills
+
+  TestDaysBetween.test_crosses_a_year_boundary:
+    condition: 'a range from 31 December into 1 January'
+    hints:
+      - 'The year has to roll over too, and this is the boundary that gets hard coded away most often.'
+      - 'Same mechanism as the month boundary: the date type handles it.'
+      - 'Step by one day and let the year change itself.'
+    concept: de-pipelines.backfills
+
+  TestDaysBetween.test_a_backwards_range_is_empty_not_an_error:
+    condition: 'an end date that falls before the start date'
+    hints:
+      - 'A backfill over an empty range is a no-op, not an error. Two swapped arguments in a script should do nothing rather than take the run down.'
+      - 'Without a guard the loop simply never runs, but a loop written the other way round would run forever.'
+      - 'Return an empty list when the start is after the end, before starting the walk.'
+    concept: de-pipelines.backfills
+
+  TestRunPartition.test_writes_the_day:
+    condition: 'two orders for the 5th written into an empty table'
+    hints:
+      - 'The report says what happened, and on a first run nothing was deleted and two rows were written.'
+      - 'Both numbers are counted rather than assumed.'
+      - 'Return the day, the rows the delete removed, and the rows you inserted.'
+    concept: de-pipelines.backfills
+
+  TestRunPartition.test_running_it_twice_changes_nothing:
+    condition: 'the same day run a second time with the same source rows'
+    hints:
+      - 'A backfill gets re-run because the first attempt was wrong, so running it twice must not double the day.'
+      - 'Clearing the partition first is what makes the second run land on the same state as the first.'
+      - 'Delete the day and then insert it, rather than inserting on top of what is there.'
+    concept: de-pipelines.backfills
+
+  TestRunPartition.test_replaces_rather_than_accumulating:
+    condition: 'a day first loaded with a total of 10.00 and re-run with 99.00'
+    hints:
+      - 'A re-run repairs a partition loaded wrong. An upsert on the key would work here and would not handle a row that has since been deleted upstream.'
+      - 'The old contents of the day go before the new contents arrive.'
+      - 'Delete every row for the day, count what the delete removed, and insert the new rows after.'
+    concept: de-pipelines.backfills
+
+  TestRunPartition.test_an_empty_day_empties_the_partition:
+    condition: 'a day that used to have two orders and now has none in the source'
+    hints:
+      - 'Data that used to exist and should stop existing is the case most likely to be missed. An upsert-only load leaves the old rows there forever.'
+      - 'The delete has to run whether or not there is anything to insert.'
+      - 'Do the delete unconditionally rather than skipping the partition when the incoming rows are empty.'
+    concept: de-pipelines.backfills
+
+  TestRunPartition.test_does_not_touch_another_day:
+    condition: 'the 6th emptied while the 5th has to stay exactly as it was'
+    hints:
+      - 'A run owns one partition. A delete with no filter would wipe the whole table on the way to repairing one day.'
+      - 'The day is the boundary of what this run may change.'
+      - 'Scope the delete to rows whose date equals the day being run.'
+    concept: de-pipelines.backfills
+
+  TestRunPartition.test_ignores_rows_belonging_to_another_day:
+    condition: 'a batch for the 5th that also carries a row dated the 6th'
+    hints:
+      - 'Writing outside its partition is how a backfill corrupts a day nobody asked it to touch, and the 6th will not be re-run to fix it.'
+      - 'The rows are filtered on the way in, not trusted because of which day they were handed to.'
+      - 'Keep only the rows whose date matches the day, and report that count as written.'
+    concept: de-pipelines.backfills
+
+  TestBackfill.test_runs_every_day_in_the_range:
+    condition: 'three days of source data asked for as one range'
+    hints:
+      - 'A backfill is the daily run in a loop, not a different kind of load.'
+      - 'The day list and the per-partition run already exist; this joins them.'
+      - 'Walk the days in the range and call the partition run for each, summing what comes back.'
+    concept: de-pipelines.backfills
+
+  TestBackfill.test_reports_per_day_in_order:
+    condition: 'a report somebody will read to find which day of a long range went wrong'
+    hints:
+      - 'A single total across thirty days tells you nothing when one day is short. The per-day breakdown is what gets looked at.'
+      - 'The entries have to be in date order, which they already are if you append as you go.'
+      - 'Collect each partition result into a list in the order the days were run, and return that alongside the totals.'
+    concept: de-pipelines.backfills
+
+  TestBackfill.test_running_it_twice_leaves_the_table_identical:
+    condition: 'the same range backfilled a second time'
+    hints:
+      - 'A backfill is the daily run in a loop, and has to be as re-runnable.'
+      - 'Nothing extra is needed here if every partition replaces itself.'
+      - 'Let the per-partition delete and insert give the whole range its re-runnability, rather than adding a guard at this level.'
+    concept: de-pipelines.backfills
+
+  TestBackfill.test_a_day_with_no_source_rows_is_emptied:
+    condition: 'a second backfill over the same range where one day has vanished from the source'
+    hints:
+      - 'A day missing from the source dict is a day with no rows, not a day to skip. Skipping it leaves the old rows in the table.'
+      - 'Every day in the range gets a run, whether or not the source has anything for it.'
+      - 'Fetch the day''s rows with an empty list as the default and run the partition anyway.'
+    concept: de-pipelines.backfills
+
+  TestBackfill.test_days_outside_the_range_are_untouched:
+    condition: 'a one day backfill run against a table holding three days'
+    hints:
+      - 'The range is the whole promise. A backfill that reaches outside it is worse than one that fails.'
+      - 'Only the days the range produced are ever passed to a partition run.'
+      - 'Drive the loop from the day list rather than from the keys of the source dict.'
+    concept: de-pipelines.backfills
+
+  TestBackfill.test_an_empty_range_does_nothing:
+    condition: 'a range whose end falls before its start'
+    hints:
+      - 'Nothing was asked for, so nothing is written and nothing is deleted.'
+      - 'The day list comes back empty and the loop never runs.'
+      - 'Return the report built from the empty accumulators, with a day count of zero.'
+    concept: de-pipelines.backfills

@@ -1,0 +1,121 @@
+version: 1
+cases:
+  TestExplain.test_returns_plan_lines:
+    condition: 'a plan that has to come back as readable text rather than as raw driver rows'
+    hints:
+      - 'The caller is going to look for the word SCAN in these lines, so they have to be strings.'
+      - 'Each plan row is a tuple whose last column holds the human readable description.'
+      - 'Take the final element of every returned row and build a list of strings out of them.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestExplain.test_an_unindexed_filter_scans:
+    condition: 'a filter on customer when no index covers that column'
+    hints:
+      - 'With nothing to look the value up in, the database has one option: read all two thousand rows.'
+      - 'The database will tell you this itself, if you ask it to plan rather than to run.'
+      - 'Prefix the caller''s SQL with EXPLAIN QUERY PLAN and execute that.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestExplain.test_does_not_run_the_query:
+    condition: 'a DELETE handed to the explainer, with every row expected to still be there afterwards'
+    hints:
+      - 'A profiling helper that executes what it was asked to describe is a helper nobody can run against production.'
+      - 'The plan prefix makes the database describe the statement instead of carrying it out.'
+      - 'Never execute the caller''s SQL on its own. The only statement that runs is the prefixed one.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestReadsEveryRow.test_recognises_a_scan:
+    condition: 'a plan line reading SCAN orders'
+    hints:
+      - 'A scan is the database saying it will read the whole table, which is the thing worth catching before it reaches production.'
+      - 'The verdict comes from the text of the plan, not from timing the query.'
+      - 'Look for the word SCAN in the line, upper casing first so a lower case plan is not missed.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestReadsEveryRow.test_recognises_a_search:
+    condition: 'a plan line that says SEARCH using an index'
+    hints:
+      - 'A search means the database went straight to the matching rows, which is the outcome you wanted.'
+      - 'The two words are different verbs in the plan, and only one of them is bad news.'
+      - 'Return False when nothing in the plan says SCAN, rather than testing for the absence of an index name.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestReadsEveryRow.test_any_scan_counts:
+    condition: 'a two table plan that searches customers and scans orders'
+    hints:
+      - 'A multi-table plan may search one table and scan another, and the scan is still what will hurt.'
+      - 'Every line has to be considered, not only the first.'
+      - 'Return True when any line in the plan carries a scan.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestReadsEveryRow.test_an_empty_plan_reads_nothing:
+    condition: 'a plan with no lines in it'
+    hints:
+      - 'No plan is not evidence of a scan, and returning True here would report a problem that nobody can find.'
+      - 'A check across an empty sequence has a natural answer.'
+      - 'Let any() over the empty list give False rather than adding a special case that guesses.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestCreateIndex.test_turns_a_scan_into_a_search:
+    condition: 'the same customer filter, explained before the index exists and again after'
+    hints:
+      - 'This is the only proof that an index did anything. The query is unchanged and the plan is not.'
+      - 'The index has to be committed before the planner will consider it.'
+      - 'Execute the create statement naming the table and the column, then commit so the next plan sees it.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestCreateIndex.test_is_safe_to_run_twice:
+    condition: 'a second call creating an index that is already there'
+    hints:
+      - 'Migrations get re-run, and an index create that raises on the second pass fails a deploy that changed nothing.'
+      - 'The database can skip the create itself rather than being asked first.'
+      - 'Add IF NOT EXISTS to the create statement.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestCreateIndex.test_creates_a_composite_index_in_order:
+    condition: 'a query filtering on customer and placed_at together'
+    hints:
+      - 'One index over both columns serves this query, and the order the columns are named in is part of what the index is.'
+      - 'The column list arrives as a list because it can hold more than one name.'
+      - 'Join the column names into the create statement in the order they were given, without sorting or deduplicating them.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestCreateIndex.test_a_composite_index_does_not_help_its_second_column_alone:
+    condition: 'a filter on placed_at only, against an index built on customer then placed_at'
+    hints:
+      - 'A phone book sorted by surname then first name cannot find every Aditi. The index is only sorted by its leftmost column.'
+      - 'Nothing in the code has to make this happen. It follows from building the index in the order asked for.'
+      - 'As long as the columns go into the statement in the given order, this plan scans and the previous one does not.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestCreateIndex.test_refuses_an_identifier_it_cannot_vouch_for:
+    condition: 'an index name of "orders; DROP TABLE orders", a name with a space in it, an empty name, and a column carrying a comment marker'
+    hints:
+      - 'Index, table and column names cannot be parameterised, so they end up in the statement text and have to be checked before they get there.'
+      - 'Deciding what is dangerous by looking for bad characters is a game you lose. Deciding what is acceptable is not.'
+      - 'Match each identifier against a pattern of a leading letter or underscore followed by letters, digits and underscores, and raise ValueError on anything else.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestSameRows.test_an_index_changes_the_speed_and_nothing_else:
+    condition: 'the same query run before and after an index was added to the table'
+    hints:
+      - 'A query returning different rows with an index than without means something is wrong with the query, not the index.'
+      - 'This is the check that lets you add an index without arguing about whether it was safe.'
+      - 'Run the query and return every row, in a form two runs can be compared with directly.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestSameRows.test_sorts_so_order_is_not_part_of_the_comparison:
+    condition: 'a query with no ORDER BY, whose row order the planner is free to change'
+    hints:
+      - 'Row order is not part of a query''s meaning unless the query says ORDER BY, and it changes when the plan changes. Comparing unsorted results reports a difference that is not one.'
+      - 'The comparison has to be about which rows came back, not about the sequence they arrived in.'
+      - 'Sort the rows before returning them.'
+    concept: de-storage.indexes-and-the-plan
+
+  TestSameRows.test_returns_tuples:
+    condition: 'driver rows that may not compare equal across two runs unless they are normalised'
+    hints:
+      - 'A row object from the driver can carry more than its values, and two of them are not necessarily equal even when the data is.'
+      - 'The comparison should be on values alone.'
+      - 'Convert each row to a plain tuple as you collect it.'
+    concept: de-storage.indexes-and-the-plan

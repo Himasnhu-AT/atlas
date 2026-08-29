@@ -1,0 +1,65 @@
+version: 1
+cases:
+  TestPyObject.test_initial_state:
+    condition: 'a freshly allocated object whose header the runtime has just filled in'
+    hints:
+      - 'Every object carries a type, a payload and a reference count, and the count is not zero at the moment of birth.'
+      - 'Something is already holding the object as soon as it exists, which is the name the allocation was bound to.'
+      - 'Keep the type name, the value and the id, and start the reference count at 1.'
+    concept: intro-python-runtime.everything-is-an-object
+
+  TestPyObject.test_incref_and_decref:
+    condition: 'a count raised twice and then walked back down to zero'
+    hints:
+      - 'Incrementing records that another name refers to the object. Decrementing frees nothing here, it only reports.'
+      - 'The caller needs the new count back from a decrement, because reaching zero is what triggers deallocation in CPython.'
+      - 'Move the count by one either way, and return the updated value from the decrement.'
+    concept: intro-python-runtime.everything-is-an-object
+
+  TestSmallIntegerCache.test_cached_integers_share_identity:
+    condition: 'a small integer boxed twice, which has to come back as the very same object'
+    hints:
+      - 'CPython preallocates the small integers, so 42 is one object however many times it is written in the source.'
+      - 'The cache is built once up front, not filled on demand, and boxing a small value is a lookup rather than an allocation.'
+      - 'Return the object already sitting in the cache for a value from -5 through 256, without minting a new id for it.'
+    concept: intro-python-runtime.everything-is-an-object
+
+  TestSmallIntegerCache.test_uncached_integers_get_fresh_allocations:
+    condition: 'an integer outside the cached window, boxed twice'
+    hints:
+      - '257 is one past the end of the preallocated range, so every mention of it allocates.'
+      - 'Two objects holding the same number are still two objects at two addresses.'
+      - 'Allocate a new object with a new id whenever the value falls outside the cached range.'
+    concept: intro-python-runtime.everything-is-an-object
+
+  TestBoxingAndEquality.test_box_str_allocates_fresh_objects:
+    condition: 'the same text boxed twice, giving two objects that compare equal'
+    hints:
+      - 'Strings get no cache here, so identical text does not mean an identical object.'
+      - 'Identity and equality answer differently for this pair, which is the reason both functions exist.'
+      - 'Allocate a new object with a new id each time, and have equality compare the payloads rather than the addresses.'
+    concept: intro-python-runtime.everything-is-an-object
+
+  TestBoxingAndEquality.test_equality_matching_types_and_values:
+    condition: 'two separately allocated integers that hold the same number'
+    hints:
+      - '500 lies outside the cached range, so these are two allocations and identity has to say so.'
+      - 'Equality asks about the payload, identity asks about the address.'
+      - 'Compare ids for identity, and compare type together with value for equality.'
+    concept: intro-python-runtime.everything-is-an-object
+
+  TestBoxingAndEquality.test_equality_different_values:
+    condition: 'two integers of the same type holding different numbers'
+    hints:
+      - 'A matching type is not enough on its own.'
+      - 'Both halves of the comparison have to hold before the answer is yes.'
+      - 'Answer false when the payloads differ, even though the type names agree.'
+    concept: intro-python-runtime.everything-is-an-object
+
+  TestBoxingAndEquality.test_equality_different_types:
+    condition: 'the integer 42 compared against the string that spells it'
+    hints:
+      - 'The two boxes carry the same digits under different types, and the type is part of what the value is.'
+      - 'Identity is out of the question for two separate allocations, but equality has to refuse them as well.'
+      - 'Require the type names to match before the payloads are compared at all.'
+    concept: intro-python-runtime.everything-is-an-object

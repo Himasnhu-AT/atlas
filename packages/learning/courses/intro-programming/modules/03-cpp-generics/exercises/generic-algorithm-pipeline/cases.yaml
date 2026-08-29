@@ -1,0 +1,49 @@
+version: 1
+cases:
+  TestGenericAlgorithmPipeline.test_transform_empty_and_types:
+    condition: 'an empty sequence, ints, strings, and a generator that can only be walked once'
+    hints:
+      - 'The algorithm knows nothing about what it is holding. Numbers, strings and a generator all go through the same code.'
+      - 'A generator has no length and cannot be indexed, so anything that reaches for either of those breaks on it.'
+      - 'Walk the input a single time and collect the results into a list.'
+    concept: intro-cpp-generics.templates-and-compile-time-generics
+
+  TestGenericAlgorithmPipeline.test_filter_if_scenarios:
+    condition: 'a predicate applied over nothing, over numbers, and over strings of differing length'
+    hints:
+      - 'Filtering keeps elements, it does not change them. Whatever passes comes out exactly as it went in.'
+      - 'The kept elements stay in the order they arrived in.'
+      - 'Walk the input once and collect every element the predicate answers true for.'
+    concept: intro-cpp-generics.templates-and-compile-time-generics
+
+  TestGenericAlgorithmPipeline.test_accumulate_operations:
+    condition: 'a fold over nothing, over numbers, over strings, and one building a dict out of pairs'
+    hints:
+      - 'With no elements the answer is the initial value untouched, and the operator is never called at all.'
+      - 'The accumulator''s type comes from the initial value rather than from the elements, which is how a list of pairs folds into a dict.'
+      - 'Start from the initial value and replace it with the operator applied to the accumulator and the element, in that order.'
+    concept: intro-cpp-generics.templates-and-compile-time-generics
+
+  TestGenericAlgorithmPipeline.test_partition_mechanics:
+    condition: 'everything passing, nothing passing, and a mix whose original order has to survive'
+    hints:
+      - 'Both halves come back even when one of them is empty.'
+      - 'The predicate runs once per element and the element lands on exactly one side.'
+      - 'Append to one list or the other as you walk, which keeps each side in arrival order, and return the pair.'
+    concept: intro-cpp-generics.templates-and-compile-time-generics
+
+  TestGenericAlgorithmPipeline.test_binary_search_standard_cases:
+    condition: 'an empty list, a one element list, and targets below, above and between the values'
+    hints:
+      - 'A miss is reported as -1 rather than raised, so the empty list has to fall out of the loop instead of failing inside it.'
+      - 'The window closes from both ends, and the loop stops when the low end passes the high end.'
+      - 'Compare against the middle element, move low above it or high below it, and return -1 once the window is empty.'
+    concept: intro-cpp-generics.templates-and-compile-time-generics
+
+  TestGenericAlgorithmPipeline.test_binary_search_with_key_fn:
+    condition: 'records searched on one of their fields rather than on the whole record'
+    hints:
+      - 'Comparing a dict against 305 means nothing. The comparison needs a key pulled out of each element first.'
+      - 'The key function applies to the element being inspected, never to the target, which is already a key.'
+      - 'Project the middle element through the key function when one was given, and compare that against the target.'
+    concept: intro-cpp-generics.templates-and-compile-time-generics
