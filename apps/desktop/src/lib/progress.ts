@@ -33,7 +33,14 @@ const STORAGE_KEY = 'atlas.progress.v1'
 
 interface LocalProgress {
   completed: Record<string, string>
-  attempts: Record<string, { passed: boolean; at: string }>
+  /**
+   * `count` is how many times this exercise has been run, and it is optional
+   * on purpose. The reader spreads over EMPTY, so a record written before this
+   * field existed reads back with it absent rather than throwing, and bumping
+   * the storage key to add a counter would have discarded everybody's
+   * completions.
+   */
+  attempts: Record<string, { passed: boolean; at: string; count?: number }>
   /** When the learner revealed the reference, by exercise id. Sticky. */
   peeked: Record<string, string>
 }
@@ -148,7 +155,11 @@ export function useProgress() {
           ...previous,
           attempts: {
             ...previous.attempts,
-            [exerciseId]: { passed: report.passed, at: new Date().toISOString() },
+            [exerciseId]: {
+              passed: report.passed,
+              at: new Date().toISOString(),
+              count: (previous.attempts[exerciseId]?.count ?? 0) + 1,
+            },
           },
         }
         write(next)

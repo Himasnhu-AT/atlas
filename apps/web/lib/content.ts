@@ -48,6 +48,8 @@ export interface CompiledLesson {
   courseId: string
   html: string
   exerciseFiles?: Record<string, string>
+  /** What each test is checking, keyed on `ClassName.test_method`. */
+  exerciseCases?: Record<string, { condition: string; hints: string[]; concept?: string }>
   interactive?: {
     type: string
     props: Record<string, any>
