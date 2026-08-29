@@ -1,0 +1,233 @@
+version: 1
+cases:
+  TestRetrieve.test_returns_k_chunks_best_first:
+    condition: 'a request for three chunks whose scores must descend'
+    hints:
+      - 'The caller reads the first result as the best one.'
+      - 'The score has to travel with the chunk, because the grading step needs it later.'
+      - 'Score every chunk, sort downwards, and return the top few with their scores attached.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRetrieve.test_finds_the_right_chunk_for_the_corpus_phrasing:
+    condition: 'a query written in the same words the document uses'
+    hints:
+      - 'This is the easy case, and it has to work before the corrective loop means anything.'
+      - 'The match is the angle between the two embeddings, not a substring search.'
+      - 'Embed the query and each chunk and compare them with the cosine similarity.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRetrieve.test_returns_something_even_for_an_unanswerable_question:
+    condition: 'a question about neural networks against a corpus about billing'
+    hints:
+      - 'Similarity search always returns something, with no signal that the corpus does not cover the question.'
+      - 'That is the property the grading step exists to make up for.'
+      - 'Return the requested number of chunks whatever they scored.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRetrieve.test_an_empty_corpus_returns_nothing:
+    condition: 'a search against a corpus with no documents in it'
+    hints:
+      - 'An empty corpus is an ordinary state, usually a misconfigured ingest.'
+      - 'Embedding the query first spends work to search nothing.'
+      - 'Return an empty list before scoring anything.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRetrieve.test_is_stable_across_runs:
+    condition: 'the same off topic query run twice, where several chunks score alike'
+    hints:
+      - 'A loop that behaves differently between runs cannot be debugged.'
+      - 'Sorting on the score alone leaves near ties in whatever order the sort produced.'
+      - 'Carry the corpus position into the sort key as the tie break.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestGrade.test_the_corpus_phrasing_is_relevant:
+    condition: 'a query and a chunk that share the document''s own vocabulary'
+    hints:
+      - 'The grade is a band, not a number, so the caller does not have to know the thresholds.'
+      - 'Three bands rather than two, because there is a middle worth keeping.'
+      - 'Compare the similarity against the upper threshold first.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestGrade.test_the_users_phrasing_is_not:
+    condition: 'a user''s wording of a question whose answering chunk scores below the bar'
+    hints:
+      - 'The chunk that answers the question does not score like it, which is exactly why the rewrite exists.'
+      - 'Lowering the threshold to make this pass removes the signal the loop runs on.'
+      - 'Report it as irrelevant and let the second attempt fix the wording.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestGrade.test_an_unrelated_chunk_is_irrelevant:
+    condition: 'an office hours document graded against a payment error query'
+    hints:
+      - 'The bottom band has to be reachable, or nothing is ever dropped.'
+      - 'Everything below the middle threshold is irrelevant.'
+      - 'Fall through to the irrelevant label when neither threshold is met.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestGrade.test_thresholds_are_honoured:
+    condition: 'a good match graded against thresholds high enough to demote it twice'
+    hints:
+      - 'What counts as relevant depends on the corpus and the embedding, so the caller sets it.'
+      - 'Hardcoding the bands makes the grader useless on any other corpus.'
+      - 'Compare against the supplied thresholds rather than constants.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestFilterResults.test_keeps_what_helps_and_drops_the_rest:
+    condition: 'three retrieved chunks of which only some are about the question'
+    hints:
+      - 'The retriever always fills the requested count, so the weak chunks arrive alongside the good ones.'
+      - 'The caller needs to know how many were discarded, not just what survived.'
+      - 'Grade each result, keep the ones above the bottom band, and count the drops.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestFilterResults.test_every_kept_chunk_carries_its_grade:
+    condition: 'kept chunks whose band has to travel with them'
+    hints:
+      - 'A chunk kept as ambiguous is different from one kept as relevant, and the caller may treat them differently.'
+      - 'Throwing the grade away means the work of grading is repeated downstream.'
+      - 'Attach the grade to each kept result alongside its text and score.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestFilterResults.test_notices_when_nothing_survives:
+    condition: 'an off topic question whose retrieved chunks all grade as irrelevant'
+    hints:
+      - 'This is the pipeline discovering its corpus does not cover the question, which the plain version could never find out.'
+      - 'Without a flag saying so, the caller sees an empty list and cannot tell why.'
+      - 'Set the flag when results came back and none of them were kept.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestFilterResults.test_empty_results_are_not_all_irrelevant:
+    condition: 'a filter run over no results at all'
+    hints:
+      - 'Nothing was retrieved, which is a different fact from everything retrieved being useless.'
+      - 'A flag that fires on both leaves the caller unable to tell an empty corpus from an unanswerable question.'
+      - 'Require that there were results before reporting them all irrelevant.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRewriteQuery.test_says_the_question_the_way_the_documents_do:
+    condition: 'a user phrasing that has a known mapping into the corpus vocabulary'
+    hints:
+      - 'The corpus says one thing and users say another, and the gap is what the first attempt fell into.'
+      - 'The mapping is supplied rather than inferred, so nothing has to be guessed.'
+      - 'Replace each mapped phrase with the corpus wording.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRewriteQuery.test_the_rewrite_actually_crosses_the_threshold:
+    condition: 'a rewrite that has to turn an irrelevant grade into a relevant one'
+    hints:
+      - 'A rewrite that changes the words without changing the score buys nothing.'
+      - 'The measured jump is what makes the second attempt worth its cost.'
+      - 'Substitute the corpus phrasing into the query rather than appending to it.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRewriteQuery.test_is_case_insensitive:
+    condition: 'a question typed entirely in capitals'
+    hints:
+      - 'People type in whatever case they like, and the mapping is written in one.'
+      - 'A literal replacement misses every variant of case.'
+      - 'Match the mapped phrases case insensitively.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestRewriteQuery.test_leaves_a_question_it_has_no_mapping_for_alone:
+    condition: 'an off topic question that matches nothing in the vocabulary'
+    hints:
+      - 'Returning something different anyway would send the second attempt somewhere arbitrary.'
+      - 'The unchanged query is also the signal the loop uses to stop.'
+      - 'Return the question as it was when no mapping applied.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestNeedsRetrieval.test_a_real_question_needs_it:
+    condition: 'an ordinary question about an error code'
+    hints:
+      - 'The default has to be retrieving, because the cost of not retrieving is a wrong answer.'
+      - 'A check that looks for question marks misses questions written as statements.'
+      - 'Report true for anything that is not clearly conversational.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestNeedsRetrieval.test_thanks_does_not:
+    condition: 'short pleasantries such as thanks, hello, and ok great'
+    hints:
+      - 'Retrieving for a thank you spends money and pastes irrelevant documents into the reply.'
+      - 'These messages are short and made entirely of conversational or filler words.'
+      - 'Report false only when every word is known and at least one is genuinely conversational.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestNeedsRetrieval.test_when_unsure_it_retrieves:
+    condition: 'a two word question that is short but not conversational'
+    hints:
+      - 'An unnecessary retrieval costs tokens; a skipped necessary one costs a wrong answer delivered confidently.'
+      - 'Deciding on length alone treats every short message as chat.'
+      - 'Require the words themselves to be recognised, not just the message to be short.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestNeedsRetrieval.test_a_long_message_always_retrieves:
+    condition: 'a message made of four conversational words in a row'
+    hints:
+      - 'Past a few words a message is doing something, whatever the words are.'
+      - 'Checking only the vocabulary lets a long message of stock phrases skip retrieval.'
+      - 'Return true immediately once the message runs past the word limit.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestNeedsRetrieval.test_empty_retrieves:
+    condition: 'an empty message with no words in it at all'
+    hints:
+      - 'An empty message is not a greeting, and treating it as one skips the pipeline silently.'
+      - 'A check that every word is conversational passes vacuously on no words.'
+      - 'Return true when no words were found.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestTheCorrectiveLoop.test_a_first_attempt_that_works_does_not_re_query:
+    condition: 'a query already in the corpus vocabulary, which succeeds first time'
+    hints:
+      - 'The rewrite is a recovery, not a routine step, and it costs a second search.'
+      - 'Rewriting unconditionally doubles the work on every question that was fine.'
+      - 'Return as soon as the filter kept anything.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestTheCorrectiveLoop.test_a_bad_first_attempt_is_rescued_by_the_rewrite:
+    condition: 'a user phrasing that fails, then succeeds once rewritten'
+    hints:
+      - 'The second search is the whole point, and the loop has to actually make it.'
+      - 'Grading against the original question would throw away exactly what the rewrite bought.'
+      - 'Grade the results against the query that retrieved them, not against the original question.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestTheCorrectiveLoop.test_it_says_it_does_not_know_rather_than_answering_anyway:
+    condition: 'a question the corpus genuinely does not cover'
+    hints:
+      - 'This is the answer nobody implements, and the correct one when the corpus genuinely lacks the fact.'
+      - 'Returning the least bad chunks turns an unanswerable question into a confident wrong answer.'
+      - 'Return the no answer status with no chunks when nothing was ever kept.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestTheCorrectiveLoop.test_conversational_messages_skip_the_pipeline:
+    condition: 'a thank you that should not reach the retriever at all'
+    hints:
+      - 'Skipping is its own outcome, distinct from searching and finding nothing.'
+      - 'A skipped message made no attempts, so the count is zero rather than one.'
+      - 'Check whether retrieval is needed before the loop and return the skipped status.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestTheCorrectiveLoop.test_the_loop_is_bounded:
+    condition: 'a generous attempt budget against a question nothing will answer'
+    hints:
+      - 'A loop that keeps rewriting until it finds something will eventually find something.'
+      - 'What it finds after five rewrites has nothing to do with what was asked.'
+      - 'Bound the loop by the attempt budget.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestTheCorrectiveLoop.test_it_stops_when_the_rewrite_changes_nothing:
+    condition: 'a question the vocabulary has no mapping for, under a budget of five'
+    hints:
+      - 'Searching the same thing again would give the same nothing, at the same cost.'
+      - 'The unchanged query is the signal that the rewrite had nothing left to offer.'
+      - 'Break out of the loop when the rewritten query equals the one you just ran.'
+    concept: ai-self-correction.retrieval-that-corrects-itself
+
+  TestTheCorrectiveLoop.test_it_records_what_it_actually_searched_for:
+    condition: 'a run whose first recorded query has to be the original wording'
+    hints:
+      - 'The query list is the only way to see afterwards what the loop drifted into.'
+      - 'Recording only the successful query hides the attempt that failed.'
+      - 'Append each query to the record before running it.'
+    concept: ai-self-correction.retrieval-that-corrects-itself

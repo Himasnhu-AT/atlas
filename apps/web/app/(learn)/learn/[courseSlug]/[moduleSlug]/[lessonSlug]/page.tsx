@@ -13,7 +13,7 @@ import { accessFor, blockedBy, canOpen } from '@/lib/server/access'
 import { currentUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
 import { Locked } from '@/components/locked'
-import { LessonStageController, WidgetRegistry } from '@atlas/ui'
+import { ChallengeRunner, LessonStageController } from '@atlas/ui'
 
 type Params = Promise<{ courseSlug: string; moduleSlug: string; lessonSlug: string }>
 
@@ -97,9 +97,10 @@ export default async function LessonPage({ params }: { params: Params }) {
           </div>
         ) : (
           (() => {
-            const InteractiveComponent = compiled.interactive
-              ? WidgetRegistry[compiled.interactive.type]
-              : null
+            // One path for stage 1. A lesson still on the superseded
+            // single-widget spec was lowered into a sequence of one by the
+            // content build, so nothing here needs to know that spec existed.
+            const stage1 = compiled.stage1
 
             const headerNode = (
               <div>
@@ -201,11 +202,11 @@ export default async function LessonPage({ params }: { params: Params }) {
             return (
               <main id="main" className="w-full">
                 <LessonStageController
-                  hasInteractive={Boolean(InteractiveComponent)}
+                  hasInteractive={Boolean(stage1)}
                   hasExercise={Boolean(lesson.exercise)}
                   interactiveNode={
-                    InteractiveComponent ? (
-                      <InteractiveComponent {...(compiled.interactive?.props || {})} />
+                    stage1 ? (
+                      <ChallengeRunner set={stage1} hasExercise={Boolean(lesson.exercise)} />
                     ) : null
                   }
                   headerNode={headerNode}

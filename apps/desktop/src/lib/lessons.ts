@@ -7,6 +7,8 @@
  * does not parse nineteen documents nobody asked for.
  */
 
+import type { CompiledChallengeSet } from '@atlas/core'
+
 export interface CompiledLesson {
   id: string
   moduleId: string
@@ -25,6 +27,12 @@ export interface CompiledLesson {
    * into the learner's workspace nor counted in `exerciseHash`.
    */
   exerciseCases?: Record<string, { condition: string; hints: string[]; concept?: string }>
+  /** Stage 1, normalised by the content build. */
+  stage1?: CompiledChallengeSet
+  /**
+   * The superseded single-widget spec. Still emitted, and no longer read: the
+   * build lowers it into `stage1` so there is one path at render time.
+   */
   interactive?: {
     type: string
     props: Record<string, any>

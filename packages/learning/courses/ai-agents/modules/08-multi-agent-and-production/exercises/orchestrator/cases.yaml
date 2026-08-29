@@ -1,0 +1,313 @@
+version: 1
+cases:
+  TestParsePlan.test_parses_the_subtasks_in_order:
+    condition: 'a plan of two subtasks that must come back in the order the planner wrote them'
+    hints:
+      - 'The order is the order the workers run in and the order the report reads.'
+      - 'Building a mapping keyed on the id loses the sequence.'
+      - 'Walk the entries in order and build one record each.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestParsePlan.test_depends_on_defaults_to_an_empty_tuple:
+    condition: 'a subtask written with no dependency field at all'
+    hints:
+      - 'Most subtasks depend on nothing, so leaving the field out is the normal case.'
+      - 'A missing field reaching the checks as None is something they cannot iterate.'
+      - 'Default to an empty sequence when the field is absent.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestParsePlan.test_depends_on_becomes_a_tuple:
+    condition: 'a subtask declaring one dependency in a list'
+    hints:
+      - 'The plan is a frozen record, so its fields have to be immutable.'
+      - 'Keeping the parsed list means anything holding the plan can edit it afterwards.'
+      - 'Convert the dependency list into a tuple as the record is built.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestParsePlan.test_rejects_prose:
+    condition: 'a planner that described its plan in a sentence instead of JSON'
+    hints:
+      - 'A plan you cannot parse is a plan you cannot check, and an unchecked plan costs one call per subtask.'
+      - 'Searching the sentence for something plan shaped guesses at a structure nobody produced.'
+      - 'Raise PlanError when the reply does not parse.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestParsePlan.test_rejects_a_reply_with_no_subtasks_list:
+    condition: 'a valid object using a different key for the list of steps'
+    hints:
+      - 'The parse succeeded, so it is easy to move straight on to iterating.'
+      - 'Reading a missing key gives None, and iterating that raises far from here.'
+      - 'Check the list is present and is a list before walking it.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestParsePlan.test_rejects_a_blank_goal:
+    condition: 'a subtask whose goal is only whitespace'
+    hints:
+      - 'A blank goal becomes a worker prompt with nothing in it, which is a call paid for and wasted.'
+      - 'A truthiness check passes here, because a string of spaces is not empty.'
+      - 'Strip each required field and reject anything with nothing left.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestParsePlan.test_rejects_a_missing_key:
+    condition: 'a subtask with an id and a goal but no answer key'
+    hints:
+      - 'The key is what the worker''s answer is checked against and what the aggregation groups on.'
+      - 'Without it a result cannot be matched to the question that produced it.'
+      - 'Require all three fields to be present non-blank strings.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestParsePlan.test_rejects_a_depends_on_that_is_not_a_list_of_ids:
+    condition: 'a dependency written as a bare string rather than a list'
+    hints:
+      - 'A string is iterable, so this silently becomes a dependency per character.'
+      - 'The plan then reports two dependencies on subtasks named t and 0.'
+      - 'Check the field is a list and that every entry in it is a string.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_a_runnable_plan_has_no_problems:
+    condition: 'two independent subtasks well inside the worker cap'
+    hints:
+      - 'The checks only report problems, so a good plan produces an empty list.'
+      - 'Reporting something on every plan makes the caller unable to tell good from bad.'
+      - 'Return the empty list when nothing was appended.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_an_empty_plan_is_a_problem:
+    condition: 'a plan with no subtasks in it'
+    hints:
+      - 'Fanning out to zero workers would otherwise produce a confident empty report.'
+      - 'The loops below all run zero times and find nothing wrong.'
+      - 'Report the empty plan as a problem of its own.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_duplicate_ids_are_a_problem:
+    condition: 'the same subtask id used twice in one plan'
+    hints:
+      - 'The id is how a result is matched back to its subtask, so a repeat makes the report ambiguous.'
+      - 'The sentence has to name the repeated id, or a reader has to go back to the plan.'
+      - 'Find the ids that occur more than once and report each by name.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_goals_that_differ_only_in_word_order_overlap:
+    condition: 'two subtasks whose goals use the same words in a different order'
+    hints:
+      - 'Same tokens, same work, so one answer would be paid for twice.'
+      - 'The fingerprint drops word order on purpose, which is what makes the overlap visible.'
+      - 'Compare every pair of goals by fingerprint and name both ids in the problem.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_a_dependency_is_a_problem:
+    condition: 'a subtask that needs another subtask''s output before it can run'
+    hints:
+      - 'A subtask needing another''s output cannot run in the same fan out. This plan is a pipeline.'
+      - 'Running it anyway gives a worker a goal it cannot answer, at full price.'
+      - 'Report any subtask with dependencies, naming the dependent id and what it depends on.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_more_subtasks_than_workers_is_a_problem:
+    condition: 'a plan of two subtasks against a cap of one'
+    hints:
+      - 'The cap is what bounds the bill, and a plan over it is a bill nobody agreed to.'
+      - 'The sentence has to name both numbers, the subtask count and the cap it exceeded.'
+      - 'Compare the plan length against the cap and report both figures.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_every_problem_is_reported_at_once:
+    condition: 'a plan carrying both a duplicate id and a dependency'
+    hints:
+      - 'Fixing them one call at a time is how a planning loop gets expensive.'
+      - 'Returning on the first problem hides the second until the next round trip.'
+      - 'Collect every problem into the list and return them together.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestPlanProblems.test_problems_come_back_sorted:
+    condition: 'a plan with several problems whose report must not reorder between runs'
+    hints:
+      - 'A report that reorders itself cannot be diffed against the previous attempt.'
+      - 'The order the checks happen to run in is not a meaningful order.'
+      - 'Sort the problem sentences before returning them.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_an_answered_subtask_is_ok:
+    condition: 'a worker that returned a value with a confidence and a source'
+    hints:
+      - 'The result is a checkable claim, not a paragraph, which is what lets the aggregation work.'
+      - 'All four fields matter downstream: the key groups it, the value is the answer, the confidence settles conflicts, the evidence justifies it.'
+      - 'Return a successful result carrying every field the reply provided.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_sends_the_system_prompt_and_the_goal_alone:
+    condition: 'a request that must be the system prompt and this subtask''s goal, nothing more'
+    hints:
+      - 'A worker''s context is the thing being kept small.'
+      - 'Adding the original question or a preamble puts the orchestrator''s framing back into every worker.'
+      - 'Send exactly two messages, the second being the goal as written.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_a_worker_never_sees_another_subtask:
+    condition: 'two workers run in turn, where neither request may mention the other''s goal'
+    hints:
+      - 'Isolation is the whole point of a worker.'
+      - 'A prompt carrying every subtask buys you one wide question asked twice, at twice the price.'
+      - 'Build the messages from this subtask alone, holding no state between calls.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_a_provider_failure_does_not_raise:
+    condition: 'a provider error on one worker while others are still to run'
+    hints:
+      - 'Letting it escape abandons the answers the other workers already paid for.'
+      - 'A failure with no note is not debuggable afterwards.'
+      - 'Catch the provider error here and return a failed result carrying the message.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_a_reply_that_is_not_json_fails:
+    condition: 'a worker that answered in prose rather than a structured claim'
+    hints:
+      - 'A paragraph cannot be checked against the question that produced it.'
+      - 'Letting the parse error escape takes the whole run down with one chatty worker.'
+      - 'Catch the parse failure and return a failed result.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_answering_the_wrong_key_fails:
+    condition: 'a worker that returned a well formed answer to a different question'
+    hints:
+      - 'A structured result can be checked against the request that produced it, and this one does not match.'
+      - 'Accepting it files an answer under a key nobody asked about.'
+      - 'Compare the returned key against the subtask key and put both into the note when they differ.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_an_empty_value_is_unknown_not_failed:
+    condition: 'a well formed reply whose value came back empty'
+    hints:
+      - 'A worker that looked and found nothing did its job.'
+      - 'Marking it as failed makes a working pipeline look broken and hides the real failures.'
+      - 'Give the empty answer its own status, distinct from a failure.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestRunWorker.test_a_value_with_no_evidence_is_unknown:
+    condition: 'a highly confident value with no source behind it'
+    hints:
+      - 'Confidence is not evidence.'
+      - 'Treating it as a finding is how an unsourced number reaches a report with a citation shaped hole where its source should be.'
+      - 'Require both the value and the evidence to be non-blank before calling it a finding.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_a_single_claim_settles:
+    condition: 'one key answered by exactly one worker'
+    hints:
+      - 'Nothing disagrees, so there is nothing to adjudicate.'
+      - 'Reporting a conflict on a single claim would fill the report with noise.'
+      - 'Take the value straight into the findings and append no conflict.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_agreeing_claims_are_not_a_conflict:
+    condition: 'two workers returning the same value at different confidences'
+    hints:
+      - 'Different confidences on the same answer is agreement, not disagreement.'
+      - 'Grouping by claim rather than by distinct value reports a conflict here.'
+      - 'Compare the set of distinct values and settle when there is only one.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_a_disagreement_is_settled_by_confidence:
+    condition: 'two workers giving different values, one much more confident than the other'
+    hints:
+      - 'Contradictions are ordinary, and the run still has to produce an answer where it can.'
+      - 'The higher confidence wins, but the disagreement still happened and belongs in the report.'
+      - 'Record the winner in the findings and the whole disagreement in the conflicts.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_a_settled_conflict_is_still_reported:
+    condition: 'a settled conflict whose claims have to be ordered and its key kept out of the unresolved list'
+    hints:
+      - 'A reader deciding whether to trust the winner needs to see what it beat.'
+      - 'Claims sort by confidence descending, then by subtask id, so the order does not move between runs.'
+      - 'Sort the claims on that pair and leave the key out of the unresolved list when a winner was found.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_a_tie_does_not_reach_findings:
+    condition: 'two different values reported at exactly the same confidence'
+    hints:
+      - 'Nothing separated the two, so this run did not establish the answer.'
+      - 'A guessed winner is indistinguishable from a real one downstream.'
+      - 'Require the top confidence to beat the second strictly, and record the key as unresolved otherwise.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_repeating_a_value_does_not_outvote_a_higher_confidence:
+    condition: 'two low confidence workers agreeing against one high confidence worker'
+    hints:
+      - 'Three workers reading the same wrong source is one wrong source, counted three times.'
+      - 'Counting votes makes the answer depend on how the planner happened to split the work.'
+      - 'Score each distinct value by the best confidence anybody gave it rather than by how many said it.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_other_keys_are_unaffected_by_a_conflict:
+    condition: 'an unresolved key alongside another key that was answered cleanly'
+    hints:
+      - 'One contradiction should not invalidate the rest of the run.'
+      - 'Bailing out on the first conflict throws away answers that were paid for and are still good.'
+      - 'Handle each key independently and keep the findings for the ones that settled.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_unknown_and_failed_are_collected_and_sorted:
+    condition: 'a mix of failed workers, an unknown result, and one good answer'
+    hints:
+      - 'Failed and unknown are different states, and a report that merges them hides which workers broke.'
+      - 'The order they arrived in is not a meaningful order for a report.'
+      - 'Partition on the status and sort each list of subtask ids.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestAggregate.test_conflicts_are_sorted_by_key:
+    condition: 'two separate conflicts whose order in the report must be stable'
+    hints:
+      - 'A report that reorders itself between runs cannot be diffed.'
+      - 'Iterating a mapping gives whatever order the results happened to arrive in.'
+      - 'Walk the keys in sorted order when building the conflicts.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestOrchestrator.test_one_call_to_plan_and_one_per_worker:
+    condition: 'a two subtask run whose reported call count has to be three'
+    hints:
+      - 'Two workers is three conversations, and that is the number to look at before adding a third worker.'
+      - 'The count belongs on the report rather than in a log somebody has to go and find.'
+      - 'Report the planning call plus one per subtask.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestOrchestrator.test_a_bad_plan_costs_exactly_one_call:
+    condition: 'a plan whose only subtask declares a dependency'
+    hints:
+      - 'The plan is checked before the fan out, so a pipeline dressed as a fan out costs one call and not one per subtask.'
+      - 'Discovering the problem while the workers run means paying for every one of them first.'
+      - 'Run the checks immediately after parsing and raise PlanError before any worker starts.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestOrchestrator.test_the_plan_error_names_every_problem:
+    condition: 'a plan with a duplicate id and more subtasks than the cap allows'
+    hints:
+      - 'Reporting one problem at a time costs a planning call per problem.'
+      - 'The message has to carry both problems, including both numbers from the cap one.'
+      - 'Join every problem sentence into the raised message.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestOrchestrator.test_workers_run_in_plan_order_with_their_own_goals:
+    condition: 'a run whose requests and results must follow the plan order'
+    hints:
+      - 'The results are matched back to subtasks by position as well as by id, so the order has to hold.'
+      - 'Each request carries its own subtask''s goal and no other.'
+      - 'Iterate the subtasks in order, running one worker per subtask.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestOrchestrator.test_one_broken_worker_does_not_sink_the_run:
+    condition: 'a gateway timeout on the first worker with the second still to run'
+    hints:
+      - 'The second worker''s answer was paid for and is still good.'
+      - 'Letting the failure escape the fan out throws it away and returns nothing.'
+      - 'Let each worker absorb its own failure so the loop always produces one result per subtask.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers
+
+  TestOrchestrator.test_the_report_carries_the_plan:
+    condition: 'a report whose reader needs the original question and the subtasks it became'
+    hints:
+      - 'A findings mapping alone cannot be checked against what was actually asked.'
+      - 'The plan is what somebody reviews when the findings look wrong.'
+      - 'Put the question and the subtasks onto the report alongside the results.'
+    concept: ai-multi-agent-and-production.orchestrator-and-workers

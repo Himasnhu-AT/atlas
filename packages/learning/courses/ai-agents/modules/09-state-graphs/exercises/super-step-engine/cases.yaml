@@ -1,0 +1,233 @@
+version: 1
+cases:
+  TestLinearRun.test_one_node_per_super_step_in_order:
+    condition: 'three nodes chained by edges, which must not run together'
+    hints:
+      - 'Each node is woken by the edge into it, so each gets its own super-step.'
+      - 'Running everything that exists on the first pass ignores the edges entirely.'
+      - 'Only run the nodes whose subscribed channels have moved since they last read.'
+    concept: ai-state-graphs.the-super-step
+
+  TestLinearRun.test_step_indices_start_at_zero:
+    condition: 'a step log whose entries have to be numbered from zero'
+    hints:
+      - 'The index is what a checkpoint and a resume line up against.'
+      - 'Numbering from one makes the log disagree with the position in the list.'
+      - 'Use the current length of the step list as the index.'
+    concept: ai-state-graphs.the-super-step
+
+  TestLinearRun.test_produces_the_expected_values:
+    condition: 'three nodes appending to one channel in order'
+    hints:
+      - 'The final values are what the state holds after every step has merged.'
+      - 'Reporting the last step''s updates alone loses everything written before it.'
+      - 'Return a snapshot of the whole state at the end of the run.'
+    concept: ai-state-graphs.the-super-step
+
+  TestLinearRun.test_an_edge_to_end_finishes_the_run:
+    condition: 'a final node whose edge points at the end marker'
+    hints:
+      - 'Reaching the end marker is a deliberate finish, distinct from running out of work.'
+      - 'Treating it as an ordinary target would look for a node by that name.'
+      - 'Set the finished flag when an edge names the end marker and write no trigger for it.'
+    concept: ai-state-graphs.the-super-step
+
+  TestLinearRun.test_an_edge_writes_the_targets_trigger_channel:
+    condition: 'an edge whose effect has to be a write rather than a direct call'
+    hints:
+      - 'An edge into a node is a write to a channel that node subscribes to.'
+      - 'Calling the target directly bypasses the scheduler and the versioning with it.'
+      - 'Give each node a trigger channel named after it and have edges write to it.'
+    concept: ai-state-graphs.the-super-step
+
+  TestLinearRun.test_start_names_the_entry_point:
+    condition: 'an edge drawn from the start marker rather than an entry point being set'
+    hints:
+      - 'The start marker is not a real node, so there is nothing to run for it.'
+      - 'Treating it as a source would look for a node by that name and fail.'
+      - 'Intercept an edge whose source is the start marker and set the entry point instead.'
+    concept: ai-state-graphs.the-super-step
+
+  TestLinearRun.test_updated_lists_what_the_nodes_wrote:
+    condition: 'a step record that must name the channels the node updates touched'
+    hints:
+      - 'Updated is the channels the nodes'' own updates touched.'
+      - 'Including the trigger writes the scheduler made afterwards fills the log with plumbing.'
+      - 'Collect the names returned by applying the node outputs, before writing any triggers.'
+    concept: ai-state-graphs.the-super-step
+
+  TestInputs.test_inputs_go_through_the_reducer:
+    condition: 'a seeded counter that a node then increments'
+    hints:
+      - 'Seeding is an ordinary write, so the summing reducer adds rather than overwrites.'
+      - 'Assigning the inputs straight into the values bypasses the reducers and the versions.'
+      - 'Apply the inputs through the same write path any node uses.'
+    concept: ai-state-graphs.the-super-step
+
+  TestInputs.test_a_node_returning_none_writes_nothing:
+    condition: 'a node that ran and chose to write nothing'
+    hints:
+      - 'A node that only reads, or that decided there was nothing to do, returns nothing.'
+      - 'Passing None to the write path raises rather than doing nothing.'
+      - 'Skip the write when the node returned nothing, and record an empty update list.'
+    concept: ai-state-graphs.the-super-step
+
+  TestInputs.test_a_run_with_nothing_left_to_do_is_not_finished:
+    condition: 'a single node with no outgoing edge, so the run simply runs dry'
+    hints:
+      - 'Running out of eligible nodes is quiescence, not reaching the end.'
+      - 'Telling them apart is how you notice a graph that stopped early.'
+      - 'Only set the finished flag when the end marker was actually reached.'
+    concept: ai-state-graphs.the-super-step
+
+  TestFanOutAndFanIn.test_both_branches_run_in_one_super_step:
+    condition: 'two nodes woken by the same source in one pass'
+    hints:
+      - 'Both were triggered by the same write, so both are eligible at the same time.'
+      - 'Running them in separate steps makes the second one see the first one''s writes.'
+      - 'Collect every eligible node and run them all as one step.'
+    concept: ai-state-graphs.the-super-step
+
+  TestFanOutAndFanIn.test_both_branches_read_the_pre_step_value:
+    condition: 'two parallel nodes that must both see the counter as it was before the step'
+    hints:
+      - 'Both nodes get the snapshot taken before the step, so neither can see the other''s write.'
+      - 'Reading the live state means the second node''s answer depends on the order they ran in.'
+      - 'Take one snapshot at the top of the step and pass it to every node.'
+    concept: ai-state-graphs.the-super-step
+
+  TestFanOutAndFanIn.test_writes_merge_in_node_name_order:
+    condition: 'two branches appending to one channel, where the order must be stable'
+    hints:
+      - 'Two runs of the same graph should produce the same list.'
+      - 'The order the nodes happened to be collected in is not a meaningful order.'
+      - 'Sort the eligible nodes, and merge their updates in that order.'
+    concept: ai-state-graphs.the-super-step
+
+  TestFanOutAndFanIn.test_both_writes_land:
+    condition: 'two branches each contributing to the same counter in one step'
+    hints:
+      - 'Every update in the step is merged, not just the last one.'
+      - 'Overwriting the state with the final node''s output loses the other branch entirely.'
+      - 'Apply each node''s update in turn through the reducers.'
+    concept: ai-state-graphs.the-super-step
+
+  TestFanOutAndFanIn.test_the_fan_in_node_runs_in_the_next_super_step:
+    condition: 'a node subscribed to a channel both branches wrote'
+    hints:
+      - 'It becomes eligible because the channel it subscribes to moved, not because an edge points at it.'
+      - 'Running it in the same step would show it only one branch''s write.'
+      - 'Recompute eligibility after the step''s writes have merged.'
+    concept: ai-state-graphs.the-super-step
+
+  TestFanOutAndFanIn.test_the_fan_in_node_sees_both_branches:
+    condition: 'a fan in node reading the accumulated writes of both branches'
+    hints:
+      - 'The merge happens before the next step, which is what makes both writes visible.'
+      - 'Waking the node on the first branch''s write alone would show it half the answer.'
+      - 'Merge every output of the step before computing the next step''s eligible nodes.'
+    concept: ai-state-graphs.the-super-step
+
+  TestFanOutAndFanIn.test_the_step_reports_every_channel_it_wrote:
+    condition: 'a step whose two nodes between them touched two different channels'
+    hints:
+      - 'The record covers the whole step, not one node in it.'
+      - 'The same channel written twice should appear once.'
+      - 'Collect the names across every node in the step and report them sorted and deduplicated.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConditionalEdges.test_only_the_chosen_branch_runs:
+    condition: 'a router picking one of two possible targets'
+    hints:
+      - 'The router picked one branch, so the other never ran at all.'
+      - 'Triggering both and letting one do nothing costs a step and a node call.'
+      - 'Write the trigger channel only for the target the router named.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConditionalEdges.test_the_router_reads_the_merged_values:
+    condition: 'a router branching on a channel the node in that same step just set'
+    hints:
+      - 'Routing on the pre-step snapshot is the classic bug: the router reads the value from before the node ran.'
+      - 'The router runs after the step''s writes are merged.'
+      - 'Pass the current state to the router rather than the snapshot the nodes read.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConditionalEdges.test_routing_to_end_finishes_the_run:
+    condition: 'a router that returned the end marker'
+    hints:
+      - 'A router can end a run just as a static edge can.'
+      - 'Looking the end marker up as a node finds nothing and raises.'
+      - 'Handle the end marker in the router branch before checking whether the target is a node.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConditionalEdges.test_an_unknown_route_is_an_error:
+    condition: 'a router returning a name that is neither a node nor the end marker'
+    hints:
+      - 'Ignoring it leaves the run silently quiescent with no explanation.'
+      - 'A typo in a router is one of the easiest mistakes to make and the hardest to see.'
+      - 'Raise ValueError naming the router and what it returned.'
+    concept: ai-state-graphs.the-super-step
+
+  TestSubscriptions.test_an_unsubscribed_channel_does_not_wake_a_node:
+    condition: 'a node whose downstream neighbour writes a channel it does not subscribe to'
+    hints:
+      - 'A node not subscribed to a channel has no business being woken when it moves.'
+      - 'Waking every node on every write turns any graph into a loop.'
+      - 'Include only the declared subscriptions and the node''s own trigger in what wakes it.'
+    concept: ai-state-graphs.the-super-step
+
+  TestSubscriptions.test_subscribing_to_it_wakes_the_node_again:
+    condition: 'the same graph with one extra subscription, which turns it into a cycle'
+    hints:
+      - 'Subscriptions are the whole of the wiring, and one more of them changes the shape of the run.'
+      - 'The cycle has to be bounded rather than hung on.'
+      - 'Let the subscription wake the node and let the step budget stop the run.'
+    concept: ai-state-graphs.the-super-step
+
+  TestLimits.test_a_cycle_raises_super_step_limit:
+    condition: 'two nodes whose edges point at each other'
+    hints:
+      - 'A cycle runs forever, and forever costs a model call per pass in a real graph.'
+      - 'The shape of a runaway graph is the only useful thing about it.'
+      - 'Attach the step records collected so far to the raised limit.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConstruction.test_rejects_a_duplicate_node_name:
+    condition: 'the same node name registered twice'
+    hints:
+      - 'The name is how an edge names a target, so a duplicate makes one node unreachable.'
+      - 'A mapping silently overwrites and the loser disappears.'
+      - 'Check the name is not already present and raise ValueError.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConstruction.test_rejects_a_subscription_to_an_unknown_channel:
+    condition: 'a subscription naming a channel that is spelled slightly wrong'
+    hints:
+      - 'A misspelled subscription means the node never wakes and nothing says why.'
+      - 'The failure appears as a graph that stops early rather than as an error.'
+      - 'Check every subscribed channel exists at registration and raise ValueError.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConstruction.test_rejects_an_edge_to_an_unknown_node:
+    condition: 'an edge pointing at a node that was never added'
+    hints:
+      - 'The edge would write a trigger channel nobody subscribes to.'
+      - 'The run then goes quiet at that point with no explanation.'
+      - 'Check the target is a node or the end marker and raise ValueError.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConstruction.test_rejects_static_and_conditional_edges_on_one_node:
+    condition: 'a node given a static edge and then a router'
+    hints:
+      - 'A node routes statically or dynamically, not both.'
+      - 'Allowing both makes the target depend on which mechanism happens to run first.'
+      - 'Check for the other kind of edge in each registration and raise ValueError.'
+    concept: ai-state-graphs.the-super-step
+
+  TestConstruction.test_rejects_a_run_with_no_entry_point:
+    condition: 'a graph with nodes but nothing marking where to start'
+    hints:
+      - 'With no entry point nothing is ever triggered and the run goes quiet immediately.'
+      - 'An empty result looks like a graph that finished rather than one that never began.'
+      - 'Check the entry point is set at the top of the run and raise ValueError.'
+    concept: ai-state-graphs.the-super-step

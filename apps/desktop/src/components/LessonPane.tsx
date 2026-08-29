@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { InteractiveRenderer, LessonStageController, WidgetRegistry } from '@atlas/ui'
+import { ChallengeRunner, InteractiveRenderer, LessonStageController } from '@atlas/ui'
 
 import { findLessonRefById, formatDuration, type LessonRef } from '../lib/content'
 import { type CompiledLesson, loadLesson } from '../lib/lessons'
@@ -106,17 +106,18 @@ export function LessonPane({ lessonRef, done, onNavigate }: LessonPaneProps) {
           <p className="text-sm text-muted">Loading…</p>
         ) : (
           (() => {
-            const InteractiveComponent = compiled.interactive
-              ? WidgetRegistry[compiled.interactive.type]
-              : null
+            // One path for stage 1, the same as the web. A lesson still on
+            // the superseded single-widget spec was lowered into a sequence of
+            // one by the content build.
+            const stage1 = compiled.stage1
 
             return (
               <LessonStageController
-                hasInteractive={Boolean(InteractiveComponent)}
+                hasInteractive={Boolean(stage1)}
                 hasExercise={Boolean(lesson.exercise)}
                 interactiveNode={
-                  InteractiveComponent ? (
-                    <InteractiveComponent {...(compiled.interactive?.props || {})} />
+                  stage1 ? (
+                    <ChallengeRunner set={stage1} hasExercise={Boolean(lesson.exercise)} />
                   ) : null
                 }
                 proseNode={

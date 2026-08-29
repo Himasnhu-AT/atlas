@@ -1,0 +1,209 @@
+version: 1
+cases:
+  TestNumberNotes.test_tags_run_from_s1_in_order:
+    condition: 'four notes that need short tags the model can write into its prose'
+    hints:
+      - 'The model cites by tag, so the tags have to be short and unambiguous.'
+      - 'Numbering from zero gives a first source labelled zero, which nobody writes.'
+      - 'Enumerate the ordered notes from one and build a tag from each position.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestNumberNotes.test_notes_are_ordered_by_doc_id:
+    condition: 'notes arriving from workers in an order unrelated to their documents'
+    hints:
+      - 'Notes must be numbered in document order so a brief''s sources read in order.'
+      - 'Leaving them in arrival order makes the tags depend on which worker finished first.'
+      - 'Sort the notes by document id before numbering them.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestNumberNotes.test_ties_break_on_first_appearance:
+    condition: 'two notes from the same document, which need a defined order between them'
+    hints:
+      - 'Sorting on the document id alone leaves same document notes in an unspecified order.'
+      - 'The order they arrived in is the only meaningful tie break available.'
+      - 'Carry each note''s original position into the sort key as the second element.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestNumberNotes.test_numbering_is_stable_across_calls:
+    condition: 'the same notes numbered twice, which must agree'
+    hints:
+      - 'Two runs over the same notes must produce the same tags.'
+      - 'Otherwise a citation means something different every time you regenerate the brief.'
+      - 'Make the sort key fully determined by the notes themselves.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSynthesisMessages.test_each_note_is_rendered_with_its_tag:
+    condition: 'notes that have to appear beside the tag the model will cite them with'
+    hints:
+      - 'The model can only cite a tag it was shown.'
+      - 'The document id beside the quote is what lets a reader trace the claim afterwards.'
+      - 'Render one line per note carrying the bracketed tag, the document id and the quote.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSynthesisMessages.test_the_question_is_in_the_prompt:
+    condition: 'a prompt of notes with no question to organise them around'
+    hints:
+      - 'A pile of quotes with no question produces a summary of the notes, not an answer.'
+      - 'The sub questions the workers answered are not the question the reader asked.'
+      - 'Put the original research question into the user message.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSynthesisMessages.test_the_model_is_told_to_tag_and_to_invent_nothing:
+    condition: 'a system prompt that has to produce tagged sentences and no invented ones'
+    hints:
+      - 'Without the tagging instruction the model writes fluent prose with no citations to check.'
+      - 'Without the constraint it fills gaps in the notes with what it already knows.'
+      - 'Say both in the system message: tag every factual sentence, and write nothing the notes do not support.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSplitSentences.test_splits_on_terminators_and_keeps_them:
+    condition: 'four sentences ending in a full stop, an exclamation mark and a question mark'
+    hints:
+      - 'Each sentence becomes a claim, so the split decides what gets verified separately.'
+      - 'Splitting on the terminator alone removes it and changes the text.'
+      - 'Split on the whitespace that follows a terminator, so the terminator stays with its sentence.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSplitSentences.test_a_decimal_does_not_end_a_sentence:
+    condition: 'a figure written as fifteen point five inside a sentence'
+    hints:
+      - 'A decimal point has no whitespace after it, which is what separates it from a sentence end.'
+      - 'Splitting on every full stop cuts the number in half and produces two broken claims.'
+      - 'Require whitespace after the terminator before treating it as a boundary.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSplitSentences.test_an_abbreviation_does_not_end_a_sentence:
+    condition: 'a sentence containing an abbreviation followed by a space'
+    hints:
+      - 'An abbreviation does have whitespace after it, so the whitespace rule alone splits here.'
+      - 'The result is a fragment nobody can verify and a second fragment with no subject.'
+      - 'After splitting, merge a piece back onto the one before it when that one ends in a known abbreviation.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSplitSentences.test_newlines_are_boundaries_too:
+    condition: 'two sentences separated by a newline rather than a space'
+    hints:
+      - 'Models write paragraphs, so a terminator is often followed by a newline.'
+      - 'Matching only a literal space leaves the two sentences joined as one claim.'
+      - 'Treat any whitespace after a terminator as the boundary.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestSplitSentences.test_empty_text_gives_no_sentences:
+    condition: 'a string containing only spaces'
+    hints:
+      - 'An empty reply reaches this, and it has no sentences in it.'
+      - 'Splitting an empty string still yields one piece, which becomes a claim of nothing.'
+      - 'Strip the text and drop the empty pieces.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestParseClaims.test_two_tags_in_one_sentence_keep_their_order:
+    condition: 'a sentence citing two notes, tagged in an order the model chose'
+    hints:
+      - 'A sentence can draw on more than one note, and each tag is a separate thing to verify.'
+      - 'Keeping only the first tag loses half the support for the claim.'
+      - 'Collect every tag in the sentence, in the order they appear.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestParseClaims.test_an_unknown_tag_is_routed_away_from_tags:
+    condition: 'a sentence citing a tag that names no note'
+    hints:
+      - 'A tag the model invented names no note, so it cites nothing.'
+      - 'Mixing it in with the real tags makes the claim look supported when it is not.'
+      - 'Compare each tag against the known set and put the rest in their own list.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestParseClaims.test_an_untagged_sentence_has_neither:
+    condition: 'a sentence saying plainly that the notes do not cover something'
+    hints:
+      - 'The prompt asks for exactly this when the notes fall short, so it is not an error.'
+      - 'It has no real tags and no invented ones, which is how it is told apart from a fabrication.'
+      - 'Leave both lists empty for a sentence with no markers.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestParseClaims.test_a_repeated_tag_is_recorded_once:
+    condition: 'a sentence citing the same note twice'
+    hints:
+      - 'One note supporting a sentence twice is one note.'
+      - 'A repeat means the verification pass judges the same quote against the same claim twice.'
+      - 'Skip a tag you have already recorded for this sentence.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestParseClaims.test_every_sentence_becomes_a_claim:
+    condition: 'a brief of four sentences, some tagged and some not'
+    hints:
+      - 'Every sentence is a claim, including the ones with no citation.'
+      - 'Keeping only the tagged sentences hides the uncited ones the report exists to surface.'
+      - 'Build a claim for each sentence the split produced.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_the_synthesis_call_goes_on_the_meter:
+    condition: 'a synthesis call whose cost must appear under its own stage'
+    hints:
+      - 'The supervisor call is a model call like any other.'
+      - 'A run that meters the workers and not the synthesis reports a total smaller than the invoice, and the stage it loses is the one carrying every note at once.'
+      - 'Charge the response usage against a synthesis stage.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_exactly_one_model_call:
+    condition: 'a brief written from four notes that must cost one call'
+    hints:
+      - 'The supervisor formats once, seeing all the notes together.'
+      - 'Per worker formatting is the overhead this design exists to remove.'
+      - 'Render every note into one request and make a single call.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_the_prose_survives_verbatim:
+    condition: 'model prose that has to appear unedited inside the brief'
+    hints:
+      - 'The verification pass edits this text later, so it has to be the model''s words unchanged.'
+      - 'Rewriting or reflowing it means the sentences no longer match the claims parsed from them.'
+      - 'Insert the prose into the document as it came back, stripped only at the ends.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_a_two_tag_sentence_records_both:
+    condition: 'the first sentence of the brief, which cites two different notes'
+    hints:
+      - 'The claims on the brief are what the verification pass walks.'
+      - 'Recording one tag per sentence means half the citations are never checked.'
+      - 'Carry the parsed claims through onto the brief unchanged.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_an_unknown_tag_surfaces_on_the_brief:
+    condition: 'a sentence citing a tag that was never handed to the model'
+    hints:
+      - 'An invented tag is the clearest evidence of a fabricated claim, and it has to be visible on the report.'
+      - 'Leaving it only on the individual claim means nobody looking at the brief sees it.'
+      - 'Collect the unknown tags across every claim, deduplicated, onto the brief.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_an_uncited_sentence_is_reported_and_kept:
+    condition: 'a sentence saying the notes do not cover something, with no tag'
+    hints:
+      - 'Deleting the sentence would hide the problem instead of reporting it.'
+      - 'It is also sometimes exactly what the prompt asked for.'
+      - 'Record it in the uncited list and leave it in the prose.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_the_sources_block_lists_cited_documents_once:
+    condition: 'two notes from one document, both cited in the brief'
+    hints:
+      - 'Two notes from one document is still one source.'
+      - 'A note carries a document id and nothing else, so the title has to come from the corpus.'
+      - 'Walk the tagged notes in order, keep the documents that were cited, and skip a document already listed.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_the_sources_block_omits_uncited_documents:
+    condition: 'a document in the corpus that no sentence in the brief cited'
+    hints:
+      - 'Nothing cited the wind document, so listing it claims support that is not there.'
+      - 'Listing the whole corpus makes the sources block decoration rather than evidence.'
+      - 'Filter the sources by which tags actually appeared in the claims.'
+    concept: ai-research-briefing.writing-the-brief
+
+  TestWriteBrief.test_the_title_line_carries_the_question:
+    condition: 'a brief whose first line has to name what was asked'
+    hints:
+      - 'A brief read on its own has to say what question it answers.'
+      - 'Burying the question inside the prose leaves the first line saying nothing.'
+      - 'Put a title line carrying the question at the top of the document, and the question on the brief record.'
+    concept: ai-research-briefing.writing-the-brief

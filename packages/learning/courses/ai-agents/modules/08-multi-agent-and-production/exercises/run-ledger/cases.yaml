@@ -1,0 +1,289 @@
+version: 1
+cases:
+  TestRedact.test_replaces_a_secret_value:
+    condition: 'a payload holding an api key beside an ordinary field'
+    hints:
+      - 'The trace is stored and pasted into tickets, so anything sensitive in it stays sensitive.'
+      - 'Blanking the whole payload leaves a trace nobody can debug from.'
+      - 'Replace only the values whose keys are named as secret.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestRedact.test_matches_keys_case_insensitively:
+    condition: 'a key spelled with different capitalisation from the secret list'
+    hints:
+      - 'Header and field names arrive in whatever case the producer used.'
+      - 'An exact match leaves the same secret exposed under a different spelling.'
+      - 'Fold the key before comparing it against the secret set, while keeping the original key in the output.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestRedact.test_reaches_into_nested_dicts:
+    condition: 'an authorization header two levels down inside a request payload'
+    hints:
+      - 'The interesting secrets are never at the top level.'
+      - 'Walking only the outer keys leaves every nested credential in the trace.'
+      - 'Recurse into nested mappings as you rebuild the payload.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestRedact.test_reaches_into_dicts_inside_lists:
+    condition: 'a list of records each carrying an email address'
+    hints:
+      - 'Payloads hold lists of objects as often as they hold objects.'
+      - 'Recursing only into mappings skips everything inside a list.'
+      - 'Walk list elements too, recursing on each one.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestRedact.test_does_not_mutate_the_input:
+    condition: 'a stored payload that must look the same after the redaction as before it'
+    hints:
+      - 'The stored record is the audit trail, and a redaction pass that edits it in place has destroyed the evidence it was called to protect.'
+      - 'A new outer mapping is not enough, since the nested ones are still the originals.'
+      - 'Build new containers at every level rather than assigning into the ones you were given.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestRedact.test_an_empty_secret_set_changes_nothing:
+    condition: 'a redaction configured with no secret keys at all'
+    hints:
+      - 'An empty configuration means nothing is secret, not that everything is.'
+      - 'Treating an empty set as a signal to use a default list hides what the caller asked for.'
+      - 'Compare against the set as given and let the walk change nothing.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestClassifyFailure.test_a_successful_step_has_no_bucket:
+    condition: 'a step that completed without any problem'
+    hints:
+      - 'Most steps succeed, and a bucket for them would swamp the failure counts.'
+      - 'Reporting a success bucket makes every count meaningless.'
+      - 'Return None when the outcome is the successful one.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestClassifyFailure.test_a_model_error_is_a_provider_error:
+    condition: 'a model step that failed with an error outcome'
+    hints:
+      - 'The bucket comes from the pair of what kind of step it was and how it ended.'
+      - 'Bucketing on the outcome alone puts a provider outage and a tool timeout together.'
+      - 'Look the kind and outcome pair up in a table.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestClassifyFailure.test_a_tool_error_is_a_tool_error:
+    condition: 'a tool step that failed with the same outcome word as a model step'
+    hints:
+      - 'The same outcome means different things on different kinds of step.'
+      - 'A single bucket for both sends you to the wrong dashboard.'
+      - 'Key the table on the pair rather than on either half.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestClassifyFailure.test_an_invalid_model_step_is_a_malformed_tool_call:
+    condition: 'a model step whose output was structurally wrong rather than absent'
+    hints:
+      - 'A provider being down and a model emitting bad JSON have nothing in common except that both look like a failure.'
+      - 'Merging them hides which one is getting worse.'
+      - 'Give the invalid outcome its own row in the table.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestClassifyFailure.test_an_invalid_validate_step_is_a_rejected_output:
+    condition: 'a validation step that rejected what the model produced'
+    hints:
+      - 'A schema rejecting an answer is a different problem from a model emitting bad JSON.'
+      - 'The kind of step is what separates them, since the outcome word is the same.'
+      - 'Add a row for the validation kind with that outcome.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestClassifyFailure.test_aborted_is_budget_exhaustion_whatever_the_kind:
+    condition: 'a tool step that was aborted when the run ran out of budget'
+    hints:
+      - 'Running out of budget is a property of the loop, and which step happened to be in flight is not the interesting part.'
+      - 'A row per kind would spread one cause across several buckets.'
+      - 'Handle the aborted outcome before the table lookup, ignoring the kind.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestClassifyFailure.test_an_unanticipated_combination_gets_its_own_bucket:
+    condition: 'a cache step failing, which no row in the table covers'
+    hints:
+      - 'A failure nobody has a name for is the one worth seeing.'
+      - 'Returning None here drops it silently, so it never appears in any count.'
+      - 'Fall back to a catch all bucket rather than to nothing.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestCostOf.test_prices_the_model_steps:
+    condition: 'a run of two model calls with different prompt and completion sizes'
+    hints:
+      - 'The two halves of a call are priced differently, so they cannot be added before pricing.'
+      - 'Prices are quoted per thousand tokens, not per token.'
+      - 'Scale each half by its own rate and sum across the model steps.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestCostOf.test_tool_steps_are_free:
+    condition: 'a run made entirely of tool calls with no model steps'
+    hints:
+      - 'Tool steps have no token counts and no entry in the price table.'
+      - 'Looking one up raises for a step that should simply cost nothing.'
+      - 'Skip anything that is not a model step before pricing it.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestCostOf.test_a_failed_call_still_costs_what_it_recorded:
+    condition: 'a failed run whose second call produced twenty useless tokens'
+    hints:
+      - 'The call that produced 20 useless tokens was still billed for them.'
+      - 'Skipping failed steps understates the spend that hurts most.'
+      - 'Price every model step by its recorded tokens, whatever its outcome.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestCostOf.test_an_unpriced_model_raises:
+    condition: 'a price table missing the model the run actually used'
+    hints:
+      - 'Treating a missing price as zero produces a report that is quietly wrong and looks fine.'
+      - 'The message has to name the model and where it was found, or somebody has to search the records.'
+      - 'Raise UnknownPrice naming the model, the run and the step.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestCostOf.test_the_price_table_is_an_argument:
+    condition: 'the same run priced against a cheaper table'
+    hints:
+      - 'Prices move, so nothing here may hardcode one.'
+      - 'A table baked into the module means recosting history requires editing code.'
+      - 'Read every rate from the table that was passed in.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_a_run_comes_back_by_id:
+    condition: 'a recorded run fetched by the id it was stored under'
+    hints:
+      - 'The first question anybody asks is what happened in one particular run.'
+      - 'Scanning a list per lookup is slow and gives no way to spot a duplicate id.'
+      - 'Store the runs in a mapping keyed on the run id.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_an_unknown_run_id_raises:
+    condition: 'a lookup for an id that was never recorded'
+    hints:
+      - 'Returning None means the failure surfaces somewhere else, reading an attribute off nothing.'
+      - 'The message should say which id was missing.'
+      - 'Raise KeyError naming the id when it is absent.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_the_same_run_cannot_be_added_twice:
+    condition: 'the same run record ingested a second time'
+    hints:
+      - 'Ingesting a run twice doubles its cost and halves its apparent error rate.'
+      - 'The output looks entirely reasonable either way, which is what makes it dangerous.'
+      - 'Check whether the id is already present before storing and raise LedgerError.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_the_trace_is_redacted:
+    condition: 'a stored step whose payload holds an email address'
+    hints:
+      - 'The trace is what gets pasted into a ticket, so the secrets have to be gone by then.'
+      - 'Redacting at write time destroys the audit trail; redacting never leaks it.'
+      - 'Redact each step''s payload as the trace is produced.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_the_trace_leaves_the_stored_record_alone:
+    condition: 'a stored payload that must be unchanged after a trace is taken'
+    hints:
+      - 'The stored record is the evidence, and the trace is a view of it.'
+      - 'Editing the step in place means the second trace is redacting already redacted data and the original is gone.'
+      - 'Build new step records with redacted payloads rather than mutating the stored ones.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_the_trace_keeps_the_steps_in_order:
+    condition: 'a three step run whose trace must read in execution order'
+    hints:
+      - 'A trace read out of order is a different run.'
+      - 'Anything derived from a mapping or a set loses the sequence.'
+      - 'Walk the stored steps in their own order.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_failure_counts_across_every_run:
+    condition: 'two runs whose failures fall into two different buckets'
+    hints:
+      - 'The second question is which failure is the common one, which means counting across the whole ledger.'
+      - 'The order also has to be stable, or two summaries cannot be diffed.'
+      - 'Count per bucket across every run''s steps and return the buckets sorted.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_failure_counts_leaves_out_empty_buckets:
+    condition: 'a bucket that no step in the ledger fell into'
+    hints:
+      - 'A zero for every bucket you know about makes the real numbers hard to find.'
+      - 'It also means adding a bucket changes every historical report.'
+      - 'Build the mapping from what actually occurred rather than seeding it with known buckets.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_the_summary_counts_runs_and_completions:
+    condition: 'a ledger holding one completed run and one failed one'
+    hints:
+      - 'How many runs happened and how many finished are different numbers.'
+      - 'Reporting only the total hides a failure rate creeping up.'
+      - 'Count the runs and separately count the ones whose status is completed.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_the_summary_charges_failed_runs_too:
+    condition: 'a total cost that has to include the run which produced nothing'
+    hints:
+      - 'A run that produced nothing still consumed tokens.'
+      - 'That is the worst kind of spend and the easiest to leave out of a report by accident.'
+      - 'Sum the cost over every run, not only the completed ones.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_cost_per_completed_task_divides_by_completions:
+    condition: 'one completed run out of two, where the cost of both is spread over one'
+    hints:
+      - 'The number people care about is what a finished task costs, including the attempts that failed.'
+      - 'Dividing by the total run count makes a failing system look cheaper than a working one.'
+      - 'Divide the whole cost by the number of completed runs.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_cost_per_completed_task_is_unbounded_when_nothing_completes:
+    condition: 'a ledger where money was spent and nothing finished'
+    hints:
+      - 'Money spent and nothing shipped is not a cost of zero.'
+      - 'Dividing by the completion count raises here, and returning zero reports the opposite of what happened.'
+      - 'Report infinity when there are no completions but there was spend.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_an_empty_ledger_summarises_to_zero:
+    condition: 'a summary over a ledger with no runs recorded'
+    hints:
+      - 'A fresh ledger is summarised on the first dashboard load.'
+      - 'Nothing was spent here, so the unbounded case does not apply.'
+      - 'Report zero for the cost per task when there is no spend and no completion.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_mean_steps_per_completed_run:
+    condition: 'a mean over completed runs where a failed run''s steps must not count'
+    hints:
+      - 'The failed run''s two steps are not part of a completed task''s cost in steps.'
+      - 'Averaging over every run makes the number drop whenever runs fail early.'
+      - 'Divide the steps of the completed runs by the number of completed runs.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_mean_duration_comes_from_the_records:
+    condition: 'a duration derived from the start and end times already stored'
+    hints:
+      - 'The records carry both timestamps, so nothing here needs a clock.'
+      - 'Measuring anything at summary time would make the number depend on when the report ran.'
+      - 'Subtract the recorded start from the recorded end and average over the completed runs.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_a_long_run_is_flagged:
+    condition: 'a three step run against a threshold of two'
+    hints:
+      - 'Strictly more than the threshold, so a run sitting exactly on it is not flagged.'
+      - 'It is a smell rather than an error: this is the run to read first.'
+      - 'Collect the ids of runs whose step count exceeds the threshold and sort them.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_nothing_is_flagged_under_the_default_threshold:
+    condition: 'ordinary short runs against the default threshold'
+    hints:
+      - 'A flag that fires on every run is a flag nobody reads.'
+      - 'The default has to sit above what a normal run does.'
+      - 'Return an empty tuple when no run exceeds the threshold.'
+    concept: ai-multi-agent-and-production.observability-and-cost
+
+  TestLedger.test_the_summary_carries_the_failure_counts:
+    condition: 'a summary whose failure breakdown must match the ledger''s own'
+    hints:
+      - 'The summary is read on its own, so it has to carry the breakdown rather than pointing at it.'
+      - 'Recomputing the counts differently here is how the two drift apart.'
+      - 'Call the same counting method and put its result on the summary.'
+    concept: ai-multi-agent-and-production.observability-and-cost
