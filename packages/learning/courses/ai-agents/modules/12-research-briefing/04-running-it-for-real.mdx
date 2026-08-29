@@ -4,6 +4,199 @@ title: Running it for real
 summary: "Production considerations for deep research pipelines: stage-level checkpointed resumption, privacy-preserving operational tracing, and compact evaluation sets."
 order: 4
 estimatedMinutes: 25
+challenges:
+  goal: Resume a run that died mid fan-out, verify against the documents it read, and finish inside what is left of the budget.
+
+  steps:
+    - id: what-goes-in-the-trace
+      kind: assign
+      prompt: >-
+        You are writing one trace record per worker. Sort what is on offer by how much of it
+        belongs in a log store with a two year retention policy.
+      buckets:
+        - id: log-it
+          label: Log it as it is
+        - id: log-a-handle
+          label: Log a hash instead
+        - id: keep-it-out
+          label: Keep it out of the trace
+      items:
+        - id: run-id
+          label: The run id
+          bucket: log-it
+          because: The join key for every other record in the run. It identifies a run and nobody in it.
+        - id: stage-and-worker
+          label: The stage name and which worker this was
+          bucket: log-it
+          because: Structure rather than content. This is what lets you notice that worker three is the one that keeps timing out.
+        - id: tokens-and-ms
+          label: The token count and the elapsed milliseconds
+          bucket: log-it
+          because: The two numbers a cost or latency regression shows up in first, and neither of them says anything about what was in the documents.
+        - id: doc-ids
+          label: The document ids this worker was given
+          bucket: log-it
+          because: Identifiers into a corpus you already control. They tell you which documents a run touched without reproducing any of them.
+        - id: sub-query
+          label: The sub-question text
+          bucket: log-a-handle
+          because: It can contain whatever the user typed, including things they would not expect to be kept. A hash still groups repeats and still shows you when the planner started producing something different.
+        - id: prompt-body
+          label: The worker prompt, with the retrieved passages in it
+          bucket: keep-it-out
+          because: The prompt is the documents. Logging it copies the corpus into a store that usually has weaker access controls and a longer retention policy than the corpus does.
+        - id: quotes
+          label: The quote strings the worker extracted
+          bucket: keep-it-out
+          because: Verbatim source text by construction. Keep the counts of notes kept and dropped, which is what the metrics need, and leave the words in the run artefact.
+      hints:
+        - Four of these are structure and counts, and none of them could reconstruct a document.
+        - One field is user-written text that you still want to compare across runs.
+        - Two of them are the corpus with a different name on it.
+      reveal: >-
+        The trace exists to answer questions about cost, shape and degradation, and all
+        three of those are answerable from ids and counts. Anything that would let somebody
+        rebuild the documents from the log has moved the corpus into a second system with
+        different rules, usually without anybody deciding to.
+
+    - id: citation-precision
+      kind: numeric
+      prompt: >-
+        Last night's benchmark run. Work out the citation precision, which is the share of
+        verified claims that came back supported.
+      context:
+        as: table
+        caption: One run of the pipeline
+        columns: [figure, value]
+        rows:
+          - [notes returned by workers, 22]
+          - [notes dropped for unknown document ids, 4]
+          - [tagged sentences in the brief, 14]
+          - [tagged sentences carrying two tags, 4]
+          - [claims verified SUPPORTED, 15]
+          - [claims verified NOT_IN_SOURCE, 2]
+      answer: 0.833
+      tolerance: 0.002
+      scaleHint: A number above one means the denominator is smaller than the numerator, which usually means the sentences got counted rather than the claims.
+      hints:
+        - A sentence carrying two tags is two claims, because each tag is a separate quote against a separate note.
+        - The denominator is every claim the pass evaluated, including the ones settled without a model call.
+        - The dropped notes never became claims, so they are in neither half of this fraction.
+      reveal: >-
+        Eighteen claims, fifteen supported, and the four dropped notes sit outside the
+        fraction entirely. They belong in the fabrication count instead, alongside the two
+        NOT_IN_SOURCE verdicts, because a worker inventing a document id and a supervisor
+        inventing a quote are the same failure caught at two different stages.
+
+    - id: the-corpus-that-moved
+      kind: spot
+      prompt: >-
+        Run 4181 died at 09:41 and resumed at 11:20. Three claims came back NOT_IN_SOURCE
+        for quotes that were verbatim when the workers read them. Click the line.
+      lang: python
+      source: |
+        def resume(run_id, question, budget):
+            state = load(run_id)
+            research = Research.from_checkpoint(state["research"])
+            brief = write_brief(client, research)
+            checkpoint(run_id, "synthesis", brief.as_dict())
+            report = verify_brief(client, brief, number_notes(research.notes), CORPUS, budget)
+            return brief.text if report.ok else redact_unverified(brief, report)
+      targets: [5]
+      decoys:
+        "1": Loading the stored state is what makes this a resume rather than a rerun.
+        "2": Rebuilding the research object from the checkpoint is the point of having written one, and it carries a snapshot that the line below declines to use.
+        "3": One supervisor call over the notes, as before. It never reads documents, so nothing that happened to the corpus can reach it.
+        "4": Checkpointing the synthesis so a later failure does not repay for it is right, and it is the reason this resume got as far as it did.
+        "6": Choosing between the brief and the redacted version on report.ok is the correct gate. It is acting faithfully on a report computed against the wrong documents.
+      hints:
+        - Two hours passed and somebody published an edit.
+        - The research object carries something this line ignores in favour of a module-level name.
+        - Verification is asking whether a quote is in a document. Which document is a decision made here.
+      reveal: >-
+        Verification has to run against the documents the workers actually read, not
+        against whatever the corpus says now. Passing the snapshot through is a one word
+        change and it is the difference between a report about the brief and a report about
+        how much the corpus moved while the run was down.
+
+    - id: finish-the-run
+      kind: machine
+      prompt: >-
+        Run 4181 died during worker three. The budget is 200 thousand tokens and 140 are
+        already spent. Get to a verified brief without going over.
+      initial: crashed
+      vars: { spent: 140 }
+      states:
+        crashed:
+          label: Dead during worker three
+          note: Everything before the failure is on disk, including the corpus snapshot the workers read.
+        workers-done:
+          label: All three workers' notes in hand
+        drafted:
+          label: Brief written, eighteen claims tagged
+        verified:
+          label: Verified and reported
+          terminal: true
+        restarted-clean:
+          label: Started again from the question
+          note: The plan and the first two workers are billed a second time for output that was already sitting in the checkpoint file.
+          terminal: true
+          error: true
+        stale-corpus:
+          label: Verified against the corpus as it is now
+          note: Three quotes were verbatim at 09:41 and are not verbatim at 11:20. The report describes an edit somebody made rather than anything the pipeline did.
+          terminal: true
+          error: true
+        shipped-unverified:
+          label: Published without the verification pass
+          terminal: true
+          error: true
+      transitions:
+        - from: crashed
+          on: start again from the question
+          to: restarted-clean
+          effects: [{ var: spent, op: inc, value: 140 }]
+        - from: crashed
+          on: load the checkpoint, run worker three
+          to: workers-done
+          effects: [{ var: spent, op: inc, value: 20 }]
+          note: One worker, against the documents already recorded for it. The sub-questions and note indices are deterministic, so nothing downstream needs renumbering.
+        - from: crashed
+          on: load the checkpoint, retrieve again
+          to: stale-corpus
+          effects: [{ var: spent, op: inc, value: 20 }]
+        - from: workers-done
+          on: write the brief
+          to: drafted
+          effects: [{ var: spent, op: inc, value: 15 }]
+          note: One supervisor call over all the notes, which is what it would have cost had the run never died.
+        - from: drafted
+          on: substring first, judge the survivors
+          to: verified
+          effects: [{ var: spent, op: inc, value: 13 }]
+          note: Five of the eighteen quotes are not in their documents and are settled for nothing. Thirteen judge calls follow.
+        - from: drafted
+          on: send every claim to the judge
+          to: verified
+          effects: [{ var: spent, op: inc, value: 30 }]
+          note: The same verdicts, reached by paying for the five the substring check would have answered free.
+        - from: drafted
+          on: publish it as it stands
+          to: shipped-unverified
+      mode: drive
+      win:
+        state: verified
+        maxSteps: 6
+        requires: [{ var: spent, cmp: lte, value: 200 }]
+      hints:
+        - Two of the three ways out of the crash cost the same and only one of them uses what was stored.
+        - Both verification routes reach the same report. They do not cost the same, and the gap is the whole argument for the deterministic filter.
+        - Sixty thousand tokens left, and the remaining stages have to fit inside it.
+      reveal: >-
+        Checkpointing per stage turned a hundred and forty thousand tokens of billed work
+        into something you keep, and the deterministic filter is what made the rest fit.
+        Neither of them is about the model, which is the shape of most of the difference
+        between a pipeline that runs and one that runs every night.
 ---
 
 Executing a multi-agent research pipeline end to end connects the independently built stages into a unified workflow.
