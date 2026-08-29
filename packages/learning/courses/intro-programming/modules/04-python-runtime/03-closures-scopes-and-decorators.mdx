@@ -7,6 +7,185 @@ estimatedMinutes: 20
 exercise:
   id: closure-and-memoize
   timeboxMinutes: 25
+challenges:
+  goal: Read a name against the scope that binds it, and see what a closure actually captures.
+
+  steps:
+    - id: where-each-name-comes-from
+      kind: assign
+      prompt: >-
+        Sort every name that the body of price reads by where the compiler decided it lives.
+        The compiler settles this before anything runs.
+      context:
+        as: code
+        lang: python
+        source: |
+          TAX = 0.2
+
+          def make_pricer(margin):
+              fees = 3
+
+              def price(cost):
+                  total = cost * (1 + margin) + fees
+                  return round(total * (1 + TAX))
+
+              return price
+      buckets:
+        - id: local
+          label: Local, loaded with LOAD_FAST
+          note: An index into an array of slots on the frame, with no lookup of any kind.
+        - id: free
+          label: Free variable, loaded with LOAD_DEREF
+          note: An index into the closure tuple, which reaches a cell that outlives the frame that made it.
+        - id: global
+          label: Global or builtin, loaded with LOAD_GLOBAL
+          note: A hash table lookup, first in the module namespace and then in builtins.
+      items:
+        - id: cost
+          label: "cost"
+          bucket: local
+          because: A parameter is bound on entry, so it occupies a slot in this frame and nowhere else.
+        - id: total
+          label: "total"
+          bucket: local
+          because: It is assigned inside price, and one assignment anywhere in a function body makes the name local for the whole of it.
+        - id: margin
+          label: "margin"
+          bucket: free
+          because: Bound in make_pricer and read in price, so it survives in a cell after make_pricer's frame is gone.
+        - id: fees
+          label: "fees"
+          bucket: free
+          because: Also bound in the enclosing function. Being a parameter or a local there makes no difference to how the inner function reaches it.
+        - id: tax
+          label: "TAX"
+          bucket: global
+          because: Bound at module level, which is neither this function's frame nor any enclosing function's.
+        - id: round
+          label: "round"
+          bucket: global
+          because: Not found in the module namespace, so the same instruction falls through to builtins. That second lookup is why shadowing a builtin is cheap to do and expensive to debug.
+      hints:
+        - Two of these are bound inside price, two are bound in the function around it, and two are bound outside both.
+        - A parameter counts as an assignment, and so does anything on the left of an equals sign.
+        - The two cheapest lookups are the ones the compiler could resolve to a slot number, and the two most expensive go through a dictionary.
+      reveal: >-
+        The scope of every name here was fixed when the function was compiled, from where the
+        assignments are, and nothing at runtime can move one. That is what makes LOAD_FAST a
+        bare array index. It is also why a name is either local everywhere in a function or
+        nowhere in it, with no line by line middle ground.
+
+    - id: local-before-it-is-local
+      kind: spot
+      prompt: >-
+        The print raises UnboundLocalError. Click the line that made counter a local variable.
+      lang: python
+      source: |
+        counter = 0
+
+
+        def bump(step):
+            print(counter)
+            counter = counter + step
+            return counter
+      targets: [5]
+      decoys:
+        '0': A module level name is perfectly reachable from a function that only reads it, and defining it here is not the problem.
+        '4': This is where the error is raised and not where it is caused. Reading a name never decides which scope it belongs to.
+        '6': Returning the value is fine, and by the time this line runs the name really would be bound.
+      hints:
+        - The error calls counter a local variable, so something in this function made it one.
+        - Whether a name is local is decided once, when the function is compiled, by looking for assignments anywhere in the body.
+        - One line assigns to counter, and it sits below the line that fails.
+      reveal: >-
+        Scope is a property of the whole function body settled at compile time, not a decision
+        taken line by line. A single assignment anywhere makes the name local everywhere in that
+        function, including above the assignment, so the read compiles to LOAD_FAST and finds an
+        empty slot. The fix is a global declaration if the module value really was the target,
+        and a different name if it was not.
+
+    - id: what-nonlocal-is-for
+      kind: blanks
+      prompt: >-
+        Complete this memoizing decorator. Two names from the enclosing scope are used inside
+        wrapper and only one of them needs a declaration.
+      lang: python
+      template: |
+        def memoize(fn):
+            cache = {}
+            hits = 0
+
+            @functools.wraps({{1}})
+            def wrapper(*args):
+                {{2}} hits
+                if args in cache:
+                    hits += 1
+                    return cache[args]
+                cache[args] = fn(*args)
+                return cache[args]
+
+            return {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options: ["fn", "wrapper", "memoize", "cache"]
+          accept: ["fn"]
+          note: wraps copies the metadata of the function being wrapped onto the wrapper, so what it is handed is the original.
+        - n: 2
+          as: select
+          options: ["nonlocal", "global", "del", "assert"]
+          accept: ["nonlocal"]
+          note: hits is bound in the enclosing function, and the augmented assignment below would otherwise make it local to wrapper and fail on its own first read.
+        - n: 3
+          as: select
+          options: ["wrapper", "fn", "cache", "wrapper()"]
+          accept: ["wrapper"]
+          note: The decorator hands back the object the decorated name will be bound to. Returning the original undoes the decoration, and calling it here would run it once at import time.
+      hints:
+        - Both cache and hits live in the enclosing scope, and only one of the two lines that uses them assigns to a name.
+        - Writing into a dictionary is a read of the name followed by a change to the object it reaches.
+        - The last line decides what the decorated name ends up meaning.
+      reveal: >-
+        A closure is a tuple of cells, and a cell holds a pointer. Changing what the pointer
+        reaches needs nothing declared, and changing the pointer needs nonlocal, because
+        assignment to a name is what makes it local. That is the whole reason cache works
+        untouched and hits does not, even though both live in the same closure and were written
+        on adjacent lines.
+
+    - id: three-functions-one-cell
+      kind: choice
+      prompt: >-
+        What does this print?
+      context:
+        as: code
+        lang: python
+        source: |
+          fns = [lambda: i for i in range(3)]
+          print([f() for f in fns])
+      options:
+        - id: zero-one-two
+          label: "[0, 1, 2]"
+          note: That is what capturing the value at definition time would give. A closure captures the cell the name lives in, not whatever happened to be in it at the moment the function object was made.
+        - id: two-two-two
+          label: "[2, 2, 2]"
+          correct: true
+          note: All three lambdas share the single cell that i was bound in, and none of them reads it until the loop has already finished and left 2 there.
+        - id: three-three-three
+          label: "[3, 3, 3]"
+          note: Right idea and wrong final value. range(3) stops before 3, so the last thing written into the cell is 2.
+        - id: name-error
+          label: A NameError, because i does not survive the comprehension.
+          note: The name really does not survive, and the cell does, because the three lambdas hold references to it. The cell outliving its name is the entire mechanism.
+      hints:
+        - All three lambdas mention the same name, and that name lives in exactly one place.
+        - Nothing inside a lambda is evaluated until it is called, and none of these is called until the list is finished.
+        - Ask what is in that one place at the moment the second list comprehension runs.
+      reveal: >-
+        A closure captures the box a name lives in rather than the value that was in it. The
+        loop writes into the same box on every iteration, and all three functions read that box
+        when they are finally called. To capture the value instead, bind it at definition time
+        with a default argument, because default arguments are evaluated once when the function
+        object is created.
 ---
 
 Python functions are first-class runtime objects. They can be created dynamically inside other functions, bound to variables, passed as arguments, and returned from function calls.

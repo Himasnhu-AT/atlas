@@ -4,6 +4,138 @@ title: How markets match
 summary: Markets are not continuous curves. They are discrete queues of limit orders matched by deterministic exchange rules.
 order: 1
 estimatedMinutes: 20
+challenges:
+  goal: Read a quote, price what crossing it costs, and say who fills first when the book is hit.
+
+  steps:
+    - id: maker-or-taker
+      kind: assign
+      prompt: >-
+        The book is 100.00 bid, 100.04 offered. Sort each arriving order by what it does
+        to the liquidity already resting there.
+      buckets:
+        - id: rests
+          label: Rests in the book
+          note: Adds liquidity and waits. Earns the rebate if it fills.
+        - id: executes
+          label: Executes on arrival
+          note: Removes liquidity and pays the spread plus the taker fee.
+      items:
+        - id: buy-limit-below
+          label: Buy 200 limit at 99.98
+          bucket: rests
+          because: Two cents under the bid, so nothing there will trade with it. It joins the book and waits.
+        - id: market-buy
+          label: Buy 200 at market
+          bucket: executes
+          because: No price limit at all, so it lifts whatever is offered until the 200 is done.
+        - id: sell-limit-crossing
+          label: Sell 200 limit at 99.99
+          bucket: executes
+          because: A limit order priced through the bid still executes on arrival. The order type does not decide this. The price against the other side does.
+        - id: sell-limit-above
+          label: Sell 200 limit at 100.06
+          bucket: rests
+          because: Two cents above the offer, so it queues behind the 100.04 and 100.05 sellers.
+        - id: buy-limit-at-ask
+          label: Buy 200 limit at 100.04
+          bucket: executes
+          because: A buy limit at the offer is marketable. It takes the 100.04 already resting rather than joining a queue of its own.
+        - id: buy-limit-at-bid
+          label: Buy 200 limit at 100.00
+          bucket: rests
+          because: At the bid it joins the back of the queue that is already there and waits for a seller to come to it.
+      hints:
+        - Four of these are limit orders and they do not all end up in the same bucket.
+        - Compare each price against the other side of the book, not against the midpoint.
+        - An order executes on arrival when its price reaches the opposite side. Everything else rests.
+      reveal: >-
+        Maker and taker are not order types, they are outcomes. A limit order priced
+        through the book is a taker with extra steps, and it pays the taker fee. This is
+        why a backtest that labels every limit order a maker overstates the rebate it earns.
+
+    - id: what-the-round-trip-costs
+      kind: numeric
+      prompt: >-
+        You buy 500 shares at market and sell them straight back at market, with the quote
+        unchanged in between. What does the round trip cost you, in dollars?
+      context:
+        as: pairs
+        items:
+          - { k: Best bid, v: '100.00' }
+          - { k: Best offer, v: '100.04' }
+          - { k: Taker fee, v: 0.003 per share, charged on both fills }
+          - { k: Size, v: 500 shares each way }
+      answer: 23
+      tolerance: 0
+      unit: dollars
+      scaleHint: >-
+        Out by an order of magnitude, which is a units problem rather than an arithmetic
+        one. The spread is four cents a share and the fee is three tenths of a cent.
+      hints:
+        - You crossed the spread twice, and the fee is charged on both fills.
+        - Buying at 100.04 and selling at 100.00 loses four cents a share before any fee.
+        - Four cents on 500 shares, plus three tenths of a cent on 1,000 shares of executed volume.
+      reveal: >-
+        Nothing moved and you are down 23 dollars. That is the number a strategy has to
+        beat before it has made anything, and it scales with how often you trade rather
+        than with how right you are.
+
+    - id: who-fills-first
+      kind: order
+      prompt: >-
+        A market buy arrives large enough to sweep the whole offer side. Put these resting
+        sell orders in the sequence the matching engine fills them.
+      items:
+        - { id: ask-04-early, label: 'Sell 150 at 100.04, entered 09:30:02' }
+        - { id: ask-04-late, label: 'Sell 200 at 100.04, entered 09:30:05' }
+        - { id: ask-05, label: 'Sell 300 at 100.05, entered 09:30:00' }
+        - { id: ask-06-oldest, label: 'Sell 50 at 100.06, entered 09:29:58' }
+        - { id: ask-06-later, label: 'Sell 100 at 100.06, entered 09:30:01' }
+      solution: [ask-04-early, ask-04-late, ask-05, ask-06-oldest, ask-06-later]
+      because:
+        ask-04-early: 100.04 is the cheapest offer, and this one reached that price three seconds before the other 100.04 did.
+        ask-04-late: Same price, three seconds later. Time only decides between orders that are already tied on price.
+        ask-05: Price beats time across levels. This has been resting since 09:30:00 and still fills after both 100.04 sellers.
+        ask-06-oldest: The oldest order in the book fills fourth, because being early at a bad price is worth nothing.
+        ask-06-later: Last in at the worst price, so last to fill.
+      hints:
+        - Two of these sit at the same price, and only for those two does the clock matter.
+        - Sort on price first, ascending for offers, and use the timestamp only to break ties.
+        - The order that has been resting longest is not first. It is fourth.
+      reveal: >-
+        Price-time priority is lexicographic and price is the first key. This is what
+        makes queue position a real asset: at the touch you are paid for waiting, and one
+        tick away you are paid for nothing until the price comes to you.
+
+    - id: keeping-your-place
+      kind: choice
+      prompt: >-
+        Your bid for 1,000 at 100.00 is near the front of the queue and has not filled.
+        Which of these changes keeps that place in the queue?
+      options:
+        - id: reprice-up
+          label: Move the bid to 100.01
+          note: A different price is a different queue. You arrive at 100.01 with no time behind you, and you have agreed to pay a cent more when a seller does come.
+        - id: reprice-down
+          label: Move the bid to 99.99
+          note: Also a new price level, so the priority is gone just the same. Moving away from the touch costs the queue position and makes the fill less likely.
+        - id: add-size
+          label: Raise the order to 1,500 at 100.00
+          note: Most engines treat an increase in quantity as a new order and send the whole thing to the back of the 100.00 queue. You traded your place for size you did not have to buy here.
+        - id: reduce-size
+          label: Cut the order to 400 at 100.00
+          correct: true
+          note: Reducing quantity without touching the price is the one change most engines let you make for free. Your place in the queue survives, and so does the part of the order you kept.
+      hints:
+        - Three of these four change something the queue is sorted on.
+        - The queue is ordered by price and then by arrival time, so ask which of these resets the arrival time.
+        - Taking size away is the only one an engine does not have to re-sequence.
+      reveal: >-
+        Queue position is earned once and lost easily, which is why passive strategies
+        are so sensitive to how often they reprice. The other half of the bargain is
+        adverse selection: your bid fills exactly when somebody wanted to sell at 100.00,
+        and often that is because 100.00 is about to be the high.
 ---
 
 A market price is not a continuous mathematical variable. It is the price of the most recent transaction agreed upon by two parties through an exchange matching engine.

@@ -7,6 +7,214 @@ estimatedMinutes: 55
 exercise:
   id: checkpoint-saver
   timeboxMinutes: 30
+challenges:
+  goal: Read a checkpoint record, tell resume from replay from fork, and survive a crash mid-step without paying twice.
+
+  steps:
+    - id: address-a-checkpoint
+      kind: blanks
+      prompt: >-
+        Fill in the three values that decide how checkpoints sort, which one you get back
+        by default, and where a fork says it came from.
+      lang: python
+      template: |
+        def new_checkpoint_id(counter):
+            return f"{counter:{{1}}}"
+
+        latest = saver.get({"thread_id": "incident-4181", "checkpoint_id": {{2}}})
+
+        forked = replace(latest, id=new_checkpoint_id(0))
+        saver.put({"thread_id": "incident-4181-what-if"}, forked, parent_config={{3}})
+      blanks:
+        - n: 1
+          as: select
+          options: ['010d', 'd', '03d', 'x']
+          accept: ['010d']
+          note: Fixed width and zero padded, so comparing the ids as text gives the same order as comparing them as numbers. Unpadded, checkpoint 10 sorts before checkpoint 2.
+        - n: 2
+          as: select
+          options: ['None', '0', '"latest"', '-1']
+          accept: ['None']
+          note: No id means the newest record in the thread. A sentinel string would need special-casing in every place an id is compared or sorted.
+        - n: 3
+          as: select
+          options:
+            - '{"thread_id": "incident-4181", "checkpoint_id": latest.id}'
+            - 'None'
+            - '{"thread_id": "incident-4181-what-if"}'
+            - 'latest.id'
+          accept: ['{"thread_id": "incident-4181", "checkpoint_id": latest.id}']
+          note: The pointer has to name the thread and the exact record inside it. An id on its own is ambiguous across threads, and the new thread's own id says nothing about ancestry.
+      hints:
+        - One of these decides whether a plain string sort gives you chronological order.
+        - Getting the newest thing in a thread should not require knowing anything about the thread.
+        - A fork's parent lives in a different thread, so the pointer needs two coordinates.
+      reveal: >-
+        The timestamp is on the record for people to read and never for the runtime to sort
+        by, because two checkpoints written inside the same millisecond would then have no
+        order at all. The id is the ordering, which is why its format is a decision rather
+        than a detail.
+
+    - id: resume-replay-or-fork
+      kind: assign
+      prompt: >-
+        Six things an operator does to a thread with nine checkpoints in it. Sort them by
+        what each one leaves behind.
+      buckets:
+        - id: appends
+          label: Adds checkpoints to this thread
+        - id: new-thread
+          label: Starts a separate thread
+        - id: reads
+          label: Changes nothing
+      items:
+        - id: resume-after-crash
+          label: Resume the thread after the worker was restarted mid-run
+          bucket: appends
+          because: Load the newest record, run the scheduler, and the nodes that already ran are not stale. Resume needs no special path through the runtime at all.
+        - id: replay-from-three
+          label: Replay from checkpoint 3 to see what the run does differently now
+          bucket: appends
+          because: The state is restored to an older point and the run continues from it. The nine existing records stay where they are and the new ones land after them.
+        - id: fork-what-if
+          label: Fork from checkpoint 3 into a thread that tries a different tool
+          bucket: new-thread
+          because: The record is copied under a new thread id with a parent pointer back. The two futures then grow independently, which is the point of forking rather than replaying.
+        - id: fresh-thread-id
+          label: Run the same graph under a thread id nobody has used
+          bucket: new-thread
+          because: Threads are created by being written to. There is no registration step, which is also why a uuid per invoke quietly fills the store with threads of one.
+        - id: list-timeline
+          label: List the thread to draw a timeline in the admin tool
+          bucket: reads
+          because: Reading the sequence. It works because the ids sort, and it is the cheapest thing the checkpointer does.
+        - id: inspect-five
+          label: Fetch checkpoint 5 to see what the channels held at that moment
+          bucket: reads
+          because: Inspection without execution. This is what makes a nine step run debuggable after the fact instead of only reproducible.
+      hints:
+        - Two of these run the graph and two of them only look at it.
+        - Replaying and forking both start from an older record. The difference is where the new records are filed.
+        - Ask whether the operation could ever overwrite something that is already stored.
+      reveal: >-
+        Within a thread the records are a sequence; across forks the parent pointers make a
+        tree. Nothing is ever overwritten in either structure, which is what lets you keep
+        a failed run for the postmortem and branch from the point just before it went wrong.
+
+    - id: the-checkpoint-that-lies
+      kind: spot
+      prompt: >-
+        This thread's nine checkpoints all show the state as it was at the end. Click the
+        line that makes them.
+      lang: python
+      source: |
+        def put(self, config, state, updated):
+            thread = self._threads.setdefault(config["thread_id"], [])
+            checkpoint = Checkpoint(
+                v=1,
+                id=new_checkpoint_id(len(thread)),
+                ts=datetime.now(UTC).isoformat(),
+                channel_values=state.values(),
+                channel_versions=dict(state.versions()),
+                versions_seen=deepcopy(state.versions_seen),
+                updated_channels=list(updated),
+            )
+            thread.append(checkpoint)
+      targets: [6]
+      decoys:
+        "4": Numbering from the records already in the thread is what keeps a resumed run from writing ids it has used before. This line is the reason resume does not collide.
+        "5": The timestamp is for display. Nothing sorts by it, so its precision cannot cause this.
+        "7": A shallow copy is enough for a flat mapping of names to integers. Nothing nested lives in there.
+        "8": A deep copy of the nested mapping, which is correct, and it is the line the one above it should have been modelled on.
+        "10": Appending the record to the thread is the storage. It stores whatever it was handed.
+      hints:
+        - Three neighbouring lines copy their argument to three different depths, and one of them does not copy at all.
+        - Channel values hold the lists the reducers built, and a reducer hands back a list a node will keep writing to.
+        - Ask what the stored record points at once the next super-step merges.
+      reveal: >-
+        The record holds a live reference, so the history is nine windows onto one object.
+        Copy on write is what makes time travel real, and it is also the reason reducers
+        have to return new values: two independent bugs that produce exactly the same
+        symptom.
+
+    - id: crash-during-the-charge
+      kind: machine
+      prompt: >-
+        Stages one to three are checkpointed. Stage four calls a paid enrichment API, and
+        the worker is going to be restarted while it runs. Finish the run, charging once.
+      initial: at-stage-four
+      vars: { charges: 0 }
+      states:
+        at-stage-four:
+          label: Checkpointed after stage three, stage four is stale
+          note: The newest record says stages one to three ran. Nothing in it mentions stage four.
+        charged-only:
+          label: The API has charged us and nothing is written down
+        charged-and-noted:
+          label: The charge is on disk as a pending write
+          note: One extra round trip to the store, taken before the side effect rather than after it.
+        crashed-cold:
+          label: Restarted, with no record that the call went out
+          terminal: false
+        crashed-warm:
+          label: Restarted, with the pending write on disk
+          terminal: false
+        step-four-done:
+          label: Stage four merged and checkpointed
+        skipped:
+          label: Resumed with stage four marked done and never run
+          note: The enrichment did not happen, the run reports success, and the missing field shows up somewhere downstream a week later.
+          terminal: true
+          error: true
+        finished:
+          label: Run complete
+          terminal: true
+      transitions:
+        - from: at-stage-four
+          on: call the API, checkpoint on merge
+          to: charged-only
+          effects: [{ var: charges, op: inc, value: 1 }]
+          note: The ordinary order. The record is written when the whole step merges, and the side effect went out at the start of it.
+        - from: at-stage-four
+          on: note the call first, then call the API
+          to: charged-and-noted
+          effects: [{ var: charges, op: inc, value: 1 }]
+          note: Write-ahead. It costs a store round trip and buys the ability to know afterwards that the call happened.
+        - from: charged-only
+          on: the worker is restarted
+          to: crashed-cold
+        - from: charged-and-noted
+          on: the worker is restarted
+          to: crashed-warm
+        - from: crashed-cold
+          on: resume from the newest checkpoint
+          to: at-stage-four
+          note: The newest record is the one after stage three, so stage four looks like a node that has never run, because from the runtime's point of view it has not.
+        - from: crashed-cold
+          on: resume and mark stage four done
+          to: skipped
+          note: The other way to avoid charging twice.
+        - from: crashed-warm
+          on: resume from the newest checkpoint
+          to: step-four-done
+          note: The pending write is replayed into the merge instead of the node being run, so the step completes without a second call.
+        - from: step-four-done
+          on: run stage five
+          to: finished
+      mode: drive
+      win:
+        state: finished
+        maxSteps: 8
+        requires: [{ var: charges, cmp: lte, value: 1 }]
+      hints:
+        - The restart is going to happen whatever you do. The only decision is what is on disk when it does.
+        - Resuming asks the store what has already run. Anything the store has never heard of is stale.
+        - There are two ways to end up not charging twice and one of them delivers nothing.
+      reveal: >-
+        A checkpoint per super-step is durable enough for a run with no side effects and
+        not for one that spends money halfway through a step. Persisting individual node
+        outputs before the merge is what closes that window, and it is the difference
+        between a resumable graph and a graph that resumes correctly.
 ---
 
 Durable execution in a graph runtime requires writing a checkpoint dictionary at the end of

@@ -7,6 +7,128 @@ estimatedMinutes: 25
 exercise:
   id: reading-a-completion
   timeboxMinutes: 20
+challenges:
+  goal: Branch a completion on finish_reason rather than on what the text looks like, and count what a conversation cost.
+
+  steps:
+    - id: the-silent-fall-through
+      kind: spot
+      prompt: >-
+        A reply was cut off at the token limit and this function handed the fragment back as
+        a finished answer. Click the line that let it through.
+      lang: python
+      source: |
+        def reply_for(completion):
+            message = completion.choices[0].message
+            if message.tool_calls:
+                return run_tools(message.tool_calls)
+            return message.content
+      targets: [4]
+      decoys:
+        "0": The signature is fine. It takes the whole envelope, which is what it needs.
+        "1": Reading the first choice is correct. Nothing in this course asks a provider for more than one candidate.
+        "2": Testing tool_calls for truthiness is sound, and it handles both None and an empty list.
+        "3": Running the requested tools is the right action once you know that is what the turn was.
+      hints:
+        - Only one branch is written here, and there are three things a turn can be.
+        - A truncated turn has no tool calls, so ask yourself where it ends up.
+        - The bug is not what that line does. It is everything it is reached for.
+      reveal: >-
+        The function branches on tool_calls and treats everything else as an answer. A turn
+        that stopped on length has no tool calls, so it falls to the last line and a half
+        sentence is returned as though it were complete. Nothing raises, nothing logs, and
+        the fragment is now in your database.
+
+    - id: dispatch-on-the-reason
+      kind: blanks
+      prompt: Fill in the dispatch so every finish reason is either handled or refused by name.
+      lang: python
+      template: |
+        def reply_for(completion):
+            choice = completion.choices[0]
+            if choice.finish_reason == "{{1}}":
+                return run_tools(choice.message.tool_calls)
+            if choice.finish_reason == "{{2}}":
+                return choice.message.content or ""
+            raise IncompleteReply(choice.{{3}})
+      blanks:
+        - n: 1
+          as: select
+          options: [tool_calls, stop, length, function_call]
+          accept: [tool_calls]
+          note: This is the branch that runs tools, so it is the reason a provider sets when the model asked for them.
+        - n: 2
+          as: select
+          options: [stop, length, complete, end_turn]
+          accept: [stop]
+          note: Only one reason means the model finished the turn it meant to take. length means it was cut off, and returning that text is the bug from the previous step.
+        - n: 3
+          as: select
+          options: [finish_reason, message, index, content]
+          accept: [finish_reason]
+          note: The exception carries the reason it refused, because the caller's next move depends on which one it was. A truncation is worth retrying and a content filter is not.
+      hints:
+        - Two named branches and one refusal. The refusal is what catches the reason you did not think of.
+        - The or on the third line exists because a finished turn can still carry no text at all.
+        - The exception needs to say which reason it refused, or the caller cannot decide whether to retry.
+      reveal: >-
+        Notice the shape of the guard. It is not "if length" and not "if tool_calls", it is
+        "anything I did not name is refused". The set of finish reasons is open, and a
+        provider adding one next quarter should make this raise rather than quietly take
+        the answer branch.
+
+    - id: what-three-turns-cost
+      kind: numeric
+      prompt: >-
+        This is the usage from a three turn conversation. How many tokens did the
+        application pay for in total?
+      context:
+        as: table
+        caption: One row per model call
+        columns: [turn, prompt_tokens, completion_tokens]
+        rows:
+          - [1, 7, 3]
+          - [2, 21, 4]
+          - [3, 38, 9]
+      answer: 82
+      tolerance: 0
+      unit: tokens
+      scaleHint: You are out by an order of magnitude. These are already token counts, not thousands of them.
+      hints:
+        - 47 is the size of the conversation when it ended. That is not what you paid.
+        - Nothing is remembered between calls, so turn 3 re-sent everything turns 1 and 2 produced.
+        - Every row is a separate bill, and both halves of each row are billed.
+      reveal: >-
+        The conversation ended at 47 tokens and cost 82. The gap is the prompt being re-sent,
+        and it widens with every turn because the history only grows. This is why an agent
+        loop with no step budget is an outage that bills.
+
+    - id: why-the-reason-and-not-the-text
+      kind: choice
+      prompt: Why branch on finish_reason instead of checking whether the text looks finished?
+      options:
+        - id: runtime-owns-it
+          label: The decoding runtime sets it, so nothing the model generates can change it.
+          correct: true
+          note: It is metadata about the halt rather than output from the model, so no prompt, and no document a tool fed into the context, can forge or suppress it.
+        - id: cheaper
+          label: A string comparison is cheaper than inspecting the text.
+          note: True, and beside the point. If sniffing the text were reliable you would happily pay for it.
+        - id: always-there
+          label: finish_reason is always present and content sometimes is not.
+          note: Both halves are true, and the second is why the answer branch needs an or. Neither is a reason to trust the first.
+        - id: text-is-messy
+          label: Model text is often malformed, so it cannot be trusted.
+          note: That says the alternative is bad. It does not say what makes this one sound, which is where the value comes from.
+      hints:
+        - Ask who writes each of the two things you could look at.
+        - One of them is produced by the model. The other is produced by the thing that stopped the model.
+        - Later in this course a tool result will try to talk your agent into something. Which of the two could it reach?
+      reveal: >-
+        A truncated reply can end on a full stop, and a complete one can trail off mid
+        thought. The text carries no reliable evidence about why generation stopped, and it
+        is also the one channel an attacker can write to. finish_reason is set outside the
+        model, which is the whole reason to hang your control flow on it.
 ---
 
 A model call returns a structured response object that downstream agent components inspect. Understanding the schema of this object ensures reliable control flow throughout subsequent modules.

@@ -7,6 +7,185 @@ estimatedMinutes: 45
 exercise:
   id: eval-harness
   timeboxMinutes: 30
+challenges:
+  goal: Assert on what the agent did as well as what it said, and gate a release on the case that regressed.
+
+  steps:
+    - id: what-shows-where
+      kind: assign
+      prompt: >-
+        Each of these is something that went wrong in a run. Sort them by where the defect
+        is visible.
+      buckets:
+        - id: outcome
+          label: Visible in the final answer
+        - id: trajectory
+          label: Only visible in the step log
+        - id: judge
+          label: Needs a model to decide
+      items:
+        - id: missing-window
+          label: The reply never mentions the 30 day refund window the policy requires
+          bucket: outcome
+          because: A substring check on the final text finds this, costs nothing and gives the same verdict every time.
+        - id: bad-json
+          label: The structured reply does not parse
+          bucket: outcome
+          because: The cheapest assertion there is. Anything a parser can decide should never be handed to a judge.
+        - id: refund-before-auth
+          label: issue_refund ran before the identity check
+          bucket: trajectory
+          because: The answer says the refund was processed and it is correct. The order of the two calls is the entire defect and none of it reaches the text.
+        - id: eleven-searches
+          label: The agent searched eleven times and then answered correctly
+          bucket: trajectory
+          because: A correct answer that cost eleven calls will be a timeout on the next slightly harder input. The final text has no trace of the eleven.
+        - id: hardcoded-total
+          label: The agent produced the right order total without ever calling get_order
+          bucket: trajectory
+          because: Accidental success. It matched the expected output through a path that works on this input and nothing near it.
+        - id: dismissive-tone
+          label: The reply is accurate and reads as dismissive
+          bucket: judge
+          because: No parser has an opinion about tone, and no step in the log is wrong. This is what a rubric and a judge are for.
+        - id: house-voice
+          label: The reply is three paragraphs where the house style asks for one
+          bucket: judge
+          because: You could count paragraphs, and the thing you actually care about is whether it reads as one point, which counting will not tell you.
+      hints:
+        - Two of these describe runs whose final answer was correct.
+        - Ask which defects would survive if you deleted the step log and kept only the reply.
+        - Anything a parser or a substring can settle is not a judge's job, whatever it is about.
+      reveal: >-
+        The trajectory pile is where agent evaluation differs from prompt evaluation. A
+        right answer reached by calling a write tool without confirmation, or by eleven
+        searches, or by never calling the tool at all, is a run you would revert, and the
+        output is identical in all three cases.
+
+    - id: write-the-assertions
+      kind: blanks
+      prompt: >-
+        This case covers a verified customer asking for a refund. Fill in the assertion
+        that expresses each line.
+      lang: python
+      template: |
+        CASE = Case(
+            name="refund-requires-auth",
+            prompt="refund my last order",
+            assertions=[
+                {{1}}("verify_identity"),
+                {{2}}("verify_identity", "issue_refund"),
+                {{3}}("delete_account"),
+                {{4}}(4),
+            ],
+        )
+      blanks:
+        - n: 1
+          as: select
+          options: [called, never_called, called_in_order, at_most_steps]
+          accept: [called]
+          note: The identity check has to happen. This is the assertion that fails when the agent decides it can skip a step it has seen succeed before.
+        - n: 2
+          as: select
+          options: [called, never_called, called_in_order, at_most_steps]
+          accept: [called_in_order]
+          note: Two tool names in a fixed relative order. Both happening is not enough here, because the refund after the check and the check after the refund are different systems.
+        - n: 3
+          as: select
+          options: [called, never_called, called_in_order, at_most_steps]
+          accept: [never_called]
+          note: Nothing in a refund conversation should reach account deletion. Assertions about what must not happen are the ones that catch a prompt change nobody thought was risky.
+        - n: 4
+          as: select
+          options: [called, never_called, called_in_order, at_most_steps]
+          accept: [at_most_steps]
+          note: A budget. Without it a run that loops until the harness times out reports as slow rather than as broken.
+      hints:
+        - Two of the four lines take a single tool name, and they mean opposite things about it.
+        - Read the tool names before the assertion names. Refunds are meant to happen and account deletions are not.
+        - The one taking a number is bounding the run rather than describing it.
+      reveal: >-
+        These four cover most of what goes wrong: a step skipped, two steps inverted, a
+        side effect that should never fire, and a loop. Each one is a plain function over
+        the step list, which is why they run on every case for free.
+
+    - id: the-brittle-assertion
+      kind: spot
+      prompt: >-
+        This assertion fails on a run that searched, refined the query, searched again and
+        then summarised. Click the line that makes it fail.
+      lang: python
+      source: |
+        def called_exactly(*wanted):
+            def check(trajectory):
+                got = [step.tool for step in trajectory.steps]
+                if got == list(wanted):
+                    return None
+                return f"expected {wanted}, got {tuple(got)}"
+            return Assertion(name="called_exactly", check=check)
+      targets: [3]
+      decoys:
+        "2": Pulling the tool names out of the steps is right, and it is what any version of this assertion has to do first.
+        "4": Returning None on success is the convention the harness expects. Nothing about it is causing the failure.
+        "5": The message is good. It names both sides, which is what you want when the assertion is right and the agent is wrong.
+        "6": Wrapping it up with a name is bookkeeping for the report. It has no say in the verdict.
+      hints:
+        - The run did everything the test wanted, in the right order, and one extra thing in the middle.
+        - Ask what list equality demands that the dependency between search and summarise does not.
+        - A retry with a better query is the agent working, and this line calls it a failure.
+      reveal: >-
+        Replace the equality with a cursor that walks the trajectory and advances when it
+        sees the next wanted tool. That asserts the ordered subsequence, which is the
+        actual requirement, and it stops the suite from going red every time the agent
+        does something reasonable you did not list.
+
+    - id: the-release-gate
+      kind: text-contract
+      prompt: >-
+        The suite ran against the stored baseline. Fill in what the gate concluded, and
+        whether this change ships.
+      context:
+        as: table
+        caption: Suite results, one row per case
+        columns: [case, baseline, now]
+        rows:
+          - [refund-requires-auth, pass, fail]
+          - [handles-empty-cart, fail, pass]
+          - [cites-the-article, fail, pass]
+          - [stops-at-budget, pass, pass]
+          - [answers-in-one-step, pass, pass]
+          - [partial-refund-split, "not in baseline", fail]
+      lang: json
+      initial: |
+        {
+          "regressions": ["partial-refund-split"],
+          "release": true
+        }
+      rules:
+        - message: This no longer parses. Check the brackets around the regressions list.
+          check: { op: parses, as: json }
+        - message: regressions has to stay a list, even when only one case is in it.
+          check: { op: type, path: regressions, is: array }
+        - message: A regression is a case that passed in the baseline and fails now. The new case has no baseline entry, so it has nothing to have regressed from, and one other row does fit the definition.
+          check: { op: equals, path: regressions.0, value: refund-requires-auth }
+        - message: Only one case regressed. Two rows went from fail to pass, which is the change working, and the new failing case is a case you have not fixed yet rather than one you broke.
+          check: { op: length, path: regressions, min: 1, max: 1 }
+        - message: The pass rate went from 0.60 over five cases to 0.67 over six, and the case that broke is the one that stops a refund without an identity check. A gate that averages those together ships it.
+          check: { op: equals, path: release, value: false }
+      hints:
+        - Six rows, and one of them is not comparable with anything.
+        - Two cases got better. Ask whether that is relevant to the question the gate is answering.
+        - The aggregate went up.
+      reveal: >-
+        The gate is a conjunction: no case that used to pass may fail, and the overall rate
+        may not fall below its floor. Aggregates alone let a safety case break in exchange
+        for two cosmetic wins, and reading baseline entries with get is what keeps a
+        brand new failing case from blocking every release until somebody fixes it.
+      solution: |
+        {
+          "regressions": ["refund-requires-auth"],
+          "release": false
+        }
 ---
 
 Evaluating standard prompts involves checking inputs against expected outputs. However, evaluating agents requires assessing intermediate execution trajectories alongside final answers.

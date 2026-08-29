@@ -7,6 +7,187 @@ estimatedMinutes: 45
 exercise:
   id: channel-reducers
   timeboxMinutes: 25
+challenges:
+  goal: Choose a reducer per channel, keep the history intact while writing, and read the versions that decide what runs next.
+
+  steps:
+    - id: pick-the-reducer
+      kind: assign
+      prompt: >-
+        Each of these is a channel in a research graph. Give it the reducer that says what
+        should happen when a second node writes to it.
+      buckets:
+        - id: last-value
+          label: last_value
+        - id: append
+          label: append
+        - id: add-int
+          label: add_int
+        - id: merge-dicts
+          label: merge_dicts
+      items:
+        - id: draft
+          label: draft, the current text the writer node produced
+          bucket: last-value
+          because: There is one draft and the newest one is it. Combining drafts would produce a document nobody wrote.
+        - id: question
+          label: question, set once when the run starts
+          bucket: last-value
+          because: Written at the entry point and then read by everything. Overwriting is the correct behaviour for a value that should only ever be set once.
+        - id: findings
+          label: findings, written by two research branches in the same step
+          bucket: append
+          because: This is the channel the default reducer silently breaks. Two branches write in one step and only one survives, with nothing in the log to say so.
+        - id: messages
+          label: messages, the conversation so far
+          bucket: append
+          because: A transcript is defined by keeping what came before. Any reducer that replaces makes the agent forget the turn it just took.
+        - id: tokens-used
+          label: tokens_used, the running total across every node
+          bucket: add-int
+          because: Each node reports what it spent, not what the total now is. Appending would give you a list to sum later and lose the point of having the channel.
+        - id: retries
+          label: retries, bumped by whichever node caught a failure
+          bucket: add-int
+          because: A counter several nodes contribute to. It has to survive two nodes retrying in the same step, which addition does and replacement does not.
+        - id: metadata
+          label: metadata, independent attributes written by different nodes
+          bucket: merge-dicts
+          because: Different nodes own different keys, so the merge is per key. Replacing the dict would drop every key the writing node did not happen to know about.
+        - id: source-scores
+          label: source_scores, a score per source id filled in by whichever node read that source
+          bucket: merge-dicts
+          because: Same shape as metadata. Two nodes scoring different sources in one step both keep their entries, and a node rescoring a source it owns overwrites only that key.
+      hints:
+        - Two of these are counters, and the difference between a counter and a list is whether you need the parts later.
+        - Ask what should happen if two nodes write in the same step. That is the only question a reducer answers.
+        - Two channels hold one value that the newest writer is right about.
+      reveal: >-
+        The reducer is the whole concurrency policy for that channel, written once at
+        declaration. The costly default is the one that looks harmless: last_value on a
+        channel two branches write to loses half the run's work without raising anything.
+
+    - id: the-reducer-that-mutates
+      kind: spot
+      prompt: >-
+        This reducer passes every unit test that checks its return value, and it corrupts
+        the thread's history. Click the two lines that do it.
+      lang: python
+      source: |
+        def append(current, update):
+            if isinstance(update, list):
+                current.extend(update)
+            else:
+                current.append(update)
+            return current
+      targets: [2, 4]
+      decoys:
+        "0": The signature is right. Current value in, update in, next value out is what every reducer here looks like.
+        "1": Handling a list and a single value differently is correct. Nodes write both and the channel has to take either.
+        "5": Returning a value is what a reducer does. Which object is being returned was decided on the lines above.
+      hints:
+        - The returned list is correct every time. Ask what else changed when it was produced.
+        - Checkpoints hold references to the values that were current when they were written.
+        - The word append in the function name refers to the reducer's meaning, not to the method it should call.
+      reveal: >-
+        Every checkpoint in the thread was handed the same list object, so growing it in
+        place rewrites all of them. Time travel then shows the final state at every step,
+        which looks like a checkpointer bug and is a reducer that returned its own argument.
+
+    - id: who-is-stale
+      kind: blanks
+      prompt: >-
+        Fill in the three pieces of the eligibility rule. Each of them has a plausible
+        alternative that breaks a different thing.
+      lang: python
+      template: |
+        def eligible_nodes(subscriptions, versions, versions_seen):
+            stale = []
+            for node, channels in subscriptions.items():
+                seen = versions_seen.get(node, {{3}})
+                if any(versions.get(name, 0) {{1}} seen.get(name, 0) for name in channels):
+                    stale.append(node)
+            return {{2}}(stale)
+      blanks:
+        - n: 1
+          as: select
+          options: ['>', '>=', '!=', '<']
+          accept: ['>']
+          note: Strictly greater. With a non-strict comparison a node that has never run compares zero against zero, is called stale, and stays stale forever.
+        - n: 2
+          as: select
+          options: ['sorted', 'list', 'set', 'reversed']
+          accept: ['sorted']
+          note: The order nodes run in is the order their writes merge in, so it has to be the same on every run. Dictionary order is stable per process and not across them.
+        - n: 3
+          as: select
+          options: ['{}', 'versions', 'None', '0']
+          accept: ['{}']
+          note: A node that has never run has seen nothing. An empty mapping makes every subscribed channel compare against zero, which is what makes the entry point fire at all.
+      hints:
+        - One blank decides what happens to a node on its very first step, and there are two ways to get that wrong here.
+        - Ask what the return value is used for downstream before choosing how to wrap it.
+        - Two nodes appending to the same channel in one step need a rule about which append lands first.
+      reveal: >-
+        The whole scheduler is this comparison. A node is stale when something it cares
+        about has moved since it last looked, which means the queue is derived from data
+        rather than maintained, and a checkpoint of the data is a checkpoint of the queue.
+
+    - id: after-one-step
+      kind: text-contract
+      prompt: >-
+        The step is over. search ran, appended one finding, and wrote nothing else. Fill in
+        what the runtime records and what it will run next.
+      context:
+        as: table
+        caption: Before the step
+        columns: [what, value]
+        rows:
+          - [channel versions, "question 1, findings 2, budget 1"]
+          - [versions_seen for search, "findings 2"]
+          - [versions_seen for summarise, "findings 1"]
+          - [subscriptions, "search to findings, summarise to findings"]
+      lang: json
+      initial: |
+        {
+          "versions": { "question": 1, "findings": 2, "budget": 0 },
+          "versions_seen": { "search": { "findings": 3 }, "summarise": { "findings": 1 } },
+          "eligible_next": ["summarise"]
+        }
+      rules:
+        - message: This no longer parses. Check the braces around the two nested objects.
+          check: { op: parses, as: json }
+        - message: search wrote to findings, so its version goes up by one. It increments on every write, including a write whose value turns out to be the same as before.
+          check: { op: equals, path: versions.findings, value: 3 }
+        - message: Nothing wrote to budget in this step, so its version does not move and it does not reset either.
+          check: { op: equals, path: versions.budget, value: 1 }
+        - message: question was not written either.
+          check: { op: equals, path: versions.question, value: 1 }
+        - message: This has to be the version search saw at the start of the step, not the one that exists now. Recording the post-merge number here would mark its own write as seen and stop it ever waking itself.
+          check: { op: equals, path: versions_seen.search.findings, value: 2 }
+        - message: summarise did not run, so nothing about what it has seen changes.
+          check: { op: equals, path: versions_seen.summarise.findings, value: 1 }
+        - message: Two nodes subscribe to findings and both of them last saw a version below 3, so both are stale. The list is sorted, so search comes first.
+          check: { op: equals, path: eligible_next.0, value: search }
+        - message: The other stale node belongs in the list too.
+          check: { op: equals, path: eligible_next.1, value: summarise }
+        - message: Only those two. Nothing else subscribes to a channel that moved.
+          check: { op: length, path: eligible_next, min: 2, max: 2 }
+      hints:
+        - Two channels were untouched. Untouched means the number stays exactly where it was.
+        - The version a node records is the one it read, and it read at the start of the step.
+        - Work out who is stale by comparing each node's recorded number against the new one, and remember that search is one of the subscribers.
+      reveal: >-
+        Recording the pre-step version is what lets a node trigger itself, which is how a
+        loop exists in a graph with no loop construct in it. It looks like an off-by-one
+        and it is the difference between a runtime that can cycle and one that runs each
+        node once.
+      solution: |
+        {
+          "versions": { "question": 1, "findings": 3, "budget": 1 },
+          "versions_seen": { "search": { "findings": 2 }, "summarise": { "findings": 1 } },
+          "eligible_next": ["search", "summarise"]
+        }
 ---
 
 Storing agent state in a raw dictionary creates concurrency problems. When two nodes

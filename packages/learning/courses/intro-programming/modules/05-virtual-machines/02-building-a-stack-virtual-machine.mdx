@@ -7,6 +7,202 @@ estimatedMinutes: 30
 exercise:
   id: stack-virtual-machine
   timeboxMinutes: 35
+challenges:
+  goal: Trace an operand stack through a program, and drive the instruction pointer around a compiled loop.
+
+  steps:
+    - id: trace-the-stack
+      kind: numeric
+      prompt: >-
+        Run this program on paper. What value does RETURN hand back?
+      context:
+        as: code
+        lang: text
+        source: |
+          0: LOAD_CONST 40
+          1: LOAD_CONST 8
+          2: SUB
+          3: LOAD_CONST 4
+          4: DIV
+          5: LOAD_CONST 3
+          6: MUL
+          7: RETURN
+
+          A binary op pops its second operand first, then its first,
+          computes a OP b, and pushes the result.
+      answer: 24
+      tolerance: 0
+      scaleHint: >-
+        An answer far below this, or a negative one, means the operands came back off the stack
+        in the order they went on. The second pop is the left operand.
+      hints:
+        - The stack never holds more than two values here, and every operation puts one back.
+        - After SUB there is a single number on the stack, and the next LOAD_CONST puts a second one above it.
+        - Thirty two, then eight, then the last multiply.
+      reveal: >-
+        There are no registers and no expression tree, only a stack whose depth the compiler
+        worked out in advance. This is why stack bytecode is so compact: the operands are
+        implicit, so SUB is one byte with no addressing mode attached to it.
+
+    - id: which-one-is-a
+      kind: spot
+      prompt: >-
+        The instruction set specifies that SUB computes a minus b, where a was pushed first.
+        This does not. Click the line that gets it wrong.
+      lang: python
+      source: |
+        def execute(program):
+            stack = []
+            pc = 0
+            while True:
+                op, *rest = program[pc]
+                if op == "LOAD_CONST":
+                    stack.append(rest[0])
+                elif op == "SUB":
+                    a = stack.pop()
+                    b = stack.pop()
+                    stack.append(a - b)
+                elif op == "RETURN":
+                    return stack.pop()
+                pc += 1
+      targets: [8]
+      decoys:
+        '4': Unpacking a starred rest is what lets one loop handle both the one element and the two element instruction forms.
+        '9': By the time this line runs the damage is already done. It binds the second pop, and the second pop is the operand that was pushed first.
+        '10': a minus b is exactly what SUB is specified to compute. The expression is right and the names it reads are not.
+        '13': Advancing by one after every instruction is correct for everything that is not a jump, and nothing here jumps.
+      hints:
+        - The two pops happen in a fixed order and the stack decides which value each one gets.
+        - The last value pushed is the first value popped, so the first pop is the operand that arrived second.
+        - The name a should be bound to the value that has been sitting on the stack the longest.
+      reveal: >-
+        A stack reverses the order of everything, which is why the operand order of a
+        non-commutative operation is the single most common bug in a new interpreter. ADD and
+        MUL hide it completely, so the test suite passes until somebody writes a subtraction.
+
+    - id: land-the-jump
+      kind: blanks
+      prompt: >-
+        Fill in the dispatch loop so a jump lands on its target rather than one past it.
+      lang: python
+      template: |
+        while True:
+            op, *rest = program[pc]
+            arg = rest[0] if rest else None
+
+            if op == "LOAD_CONST":
+                stack.append(arg)
+            elif op == "JUMP":
+                pc = {{1}}
+                {{2}}
+            elif op == "JUMP_IF_FALSE":
+                if not stack.pop():
+                    pc = arg
+                    continue
+            elif op == "RETURN":
+                return stack.pop()
+
+            pc {{3}} 1
+      blanks:
+        - n: 1
+          as: select
+          options: ["arg", "pc + arg", "arg + 1", "pc"]
+          accept: ["arg"]
+          note: The argument is an absolute index into the instruction array, so nothing about where the jump came from enters into it.
+        - n: 2
+          as: select
+          options: ["continue", "break", "pass", "return"]
+          accept: ["continue"]
+          note: The bottom of the loop advances the instruction pointer, and a jump that falls through to it lands one instruction past its target.
+        - n: 3
+          as: select
+          options: ["+=", "=", "-=", "*="]
+          accept: ["+="]
+          note: Every instruction that did not jump moves on by exactly one, which is the only reason the stream runs in order at all.
+      hints:
+        - Two paths reach the bottom of this loop and only one of them should.
+        - A jump target is a position in the program, not a distance from where you are now.
+        - JUMP_IF_FALSE already shows the shape. JUMP needs the same two lines.
+      reveal: >-
+        Sequential execution is not a property of the machine, it is one line at the bottom of
+        the loop. Every jump is an instruction that skips that line, which is why forgetting it
+        produces a program that runs, terminates and returns a plausible wrong answer instead of
+        crashing.
+
+    - id: run-the-loop
+      kind: machine
+      prompt: >-
+        Drive the compiled while loop from its header until it returns. The loop should run its
+        body four times and exit with i at 5.
+      context:
+        as: code
+        lang: text
+        source: |
+          pc 4: LOAD_VAR i        (loop header, i starts at 1)
+          pc 5: LOAD_CONST 5
+          pc 6: CMP_LT
+          pc 7: JUMP_IF_FALSE 17
+          pc 8: total = total + i
+          pc 12: i = i + 1
+          pc 16: JUMP 4
+          pc 17: LOAD_VAR total
+          pc 18: RETURN
+      initial: header
+      vars:
+        i: 1
+        iterations: 0
+      states:
+        header:
+          label: At pc 4, the condition has not been tested yet
+          note: Every trip around the loop passes through here, and the value of i is the only thing that decides what happens next.
+        body:
+          label: At pc 8, inside the body
+          note: The comparison is already popped. Nothing here re-reads it, so the branch decision has been made.
+        fault:
+          label: Jumped past the end of the program
+          terminal: true
+          error: true
+          note: The instruction pointer indexes an array. A target outside it is not a language error, it is an index error at the fetch.
+        done:
+          label: At pc 17, returning total
+          terminal: true
+          note: The loop is over. The exit path was taken once and no frame or stack entry is left behind.
+      transitions:
+        - from: header
+          on: "CMP_LT is true, fall through to 8"
+          to: body
+          note: JUMP_IF_FALSE pops the condition and does nothing else when it is true, so control reaches the next instruction.
+        - from: header
+          on: "CMP_LT is false, jump to 17"
+          to: done
+          note: The same instruction, the same pop, and a different value on the stack. The compiler emitted one branch for both outcomes.
+        - from: body
+          on: "run the body, then JUMP 4"
+          to: header
+          effects:
+            - { var: i, op: inc, value: 1 }
+            - { var: iterations, op: inc, value: 1 }
+          note: The unconditional jump at 16 is what makes this a loop. Without it the body would run once and fall into the exit.
+        - from: body
+          on: "JUMP 24, past the end"
+          to: fault
+          note: Nothing validates a jump target at compile time in a machine this simple, so an off by one in the compiler surfaces here.
+      mode: drive
+      win:
+        state: done
+        maxSteps: 12
+        requires:
+          - { var: i, cmp: eq, value: 5 }
+          - { var: iterations, cmp: eq, value: 4 }
+      hints:
+        - Nothing stops you taking the exit branch early. Whether it is the right branch is your job, not the machine's.
+        - The test is i less than 5 and i starts at 1, so count how many values of i satisfy it.
+        - Four trips through the body, and the fifth visit to the header is the one that leaves.
+      reveal: >-
+        The header is visited five times and the body four, which is the shape of every while
+        loop once it is compiled: the test is inside the loop, not before it. That extra visit
+        is where an off by one in a hand written jump target shows up, and it is why the exit
+        target and the back edge are the two numbers worth checking first.
 ---
 
 A stack-based virtual machine implements an evaluation model where intermediate values sit on a Last-In, First-Out (LIFO) operand stack. Rather than assigning hardware registers to each sub-expression, instructions operate on the top elements of the stack.

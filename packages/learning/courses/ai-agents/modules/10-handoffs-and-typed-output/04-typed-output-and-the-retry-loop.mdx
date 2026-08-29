@@ -7,6 +7,210 @@ estimatedMinutes: 55
 exercise:
   id: validated-output
   timeboxMinutes: 25
+challenges:
+  goal: Generate a schema a model can satisfy, keep your own arguments out of it, and turn a failure into one useful retry.
+
+  steps:
+    - id: schema-from-the-dataclass
+      kind: text-contract
+      prompt: >-
+        This schema was generated from the dataclass beside it and four things about it are
+        wrong. Fix them.
+      context:
+        as: code
+        lang: python
+        source: |
+          @dataclass
+          class Ticket:
+              title: str = field(metadata={"description": "One line summary of the problem"})
+              severity: int = field(metadata={"description": "1 is lowest, 5 is highest"})
+              tags: list[str] = field(default_factory=list)
+      lang: json
+      initial: |
+        {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "severity": { "type": "string" },
+            "tags": { "type": "array" }
+          },
+          "required": ["title", "severity", "tags"]
+        }
+      rules:
+        - message: This no longer parses. Check the commas between the property entries.
+          check: { op: parses, as: json }
+        - message: severity is an int in the dataclass. Typed as a string, the model returns the digit in quotes and the validator has to decide what that meant.
+          check: { op: equals, path: properties.severity.type, value: integer }
+        - message: An array of what? Without an items type the model can put objects in the list and the schema will agree with it.
+          check: { op: equals, path: properties.tags.items.type, value: string }
+        - message: The field metadata is the only place the model learns what title is for. Dropping the descriptions leaves a schema that is correct and says nothing.
+          check: { op: exists, path: properties.title.description }
+        - message: The severity description carries the scale. Without it, 1 being lowest is something the model has to guess.
+          check: { op: exists, path: properties.severity.description }
+        - message: tags has a default factory, so it is optional. Requiring it makes the model invent tags rather than leave the list empty.
+          check: { op: length, path: required, min: 2, max: 2 }
+        - message: The two fields with no default are the required ones, in declaration order.
+          check: { op: equals, path: required.1, value: severity }
+        - message: Nothing stops the model adding a field you never asked for, and whatever it adds validates and lands in your row.
+          check: { op: equals, path: additionalProperties, value: false }
+      hints:
+        - One field has the wrong type, one array has no element type, and one list has an entry that does not belong in it.
+        - The dataclass carries two descriptions and the schema carries none.
+        - There is a property missing from the top level object, and it is about what the model is allowed to send that you did not ask for.
+      reveal: >-
+        The schema is a prompt with a validator attached. Descriptions are what steer the
+        model, required is what tells it which fields it may leave out, and
+        additionalProperties false is what stops a helpful extra key becoming a column you
+        did not design.
+      solution: |
+        {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "description": "One line summary of the problem" },
+            "severity": { "type": "integer", "description": "1 is lowest, 5 is highest" },
+            "tags": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["title", "severity"],
+          "additionalProperties": false
+        }
+
+    - id: the-argument-that-leaked
+      kind: spot
+      prompt: >-
+        The model keeps inventing a value for a ctx argument it should never have heard of.
+        Click the line that offered it.
+      lang: python
+      source: |
+        def build_tool_schema(fn):
+            hints = get_type_hints(fn)
+            hints.pop("return", None)
+            properties = {}
+            for name, annotation in hints.items():
+                properties[name] = json_type(annotation)
+            return {
+                "name": fn.__name__,
+                "description": fn.__doc__,
+                "parameters": {"type": "object", "properties": properties},
+            }
+      targets: [4]
+      decoys:
+        "1": Resolving the annotations is right, and under a future annotations import it is the only thing that works.
+        "2": Dropping the return annotation is necessary. It is one exclusion, and it is not the one that is missing.
+        "5": Turning a Python annotation into a JSON type is fine. What reaches it is decided a line above.
+        "8": Using the docstring as the description is the convention and it is doing no harm here.
+        "9": The wrapper is faithful. It exports whatever was built above it, which is the problem and not the cause.
+      hints:
+        - Count the parameters of the function being exported, then count the ones the model should fill in.
+        - The context object is supplied by the runtime and carries a database handle. It is not something a model could produce.
+        - One exclusion is already happening. A second one is needed and is not there.
+      reveal: >-
+        Dependency injection only works if the injected parameter never reaches the model.
+        The run context is how a tool gets its database without a global, and exporting it
+        turns an invisible convenience into a required argument the model has to hallucinate.
+
+    - id: the-boolean-that-is-an-integer
+      kind: choice
+      prompt: >-
+        severity is annotated int, and the model called final_output with severity set to
+        true. Which validator do you want on that field?
+      options:
+        - id: isinstance-int
+          label: isinstance(value, int)
+          note: bool is a subclass of int in Python, so this passes and severity becomes 1. The row validates, the ticket is wrong, and nothing raised anywhere.
+        - id: isinstance-not-bool
+          label: isinstance(value, int) and not isinstance(value, bool)
+          correct: true
+          note: The explicit exclusion, because the language will not make it for you. Every integer validator in a system that takes model output needs this line or the equivalent.
+        - id: int-cast
+          label: A try around int(value)
+          note: This accepts true, the string 3 and the float 3.0, turning three different failures into three different silent successes. Coercion is the opposite of validation.
+        - id: range-check
+          label: value in range(1, 6)
+          note: A bounds check, which you want as well as a type check rather than instead of one. True equals 1 in Python, so this passes too.
+      hints:
+        - The value is true and it needs to be rejected. Ask which of these actually rejects it.
+        - One of Python's oldest inheritance decisions is doing the damage here.
+        - Two options are checking the value when the problem is the type.
+      reveal: >-
+        The severity arrives as 1 and the ticket goes to the bottom of the queue. Nothing in
+        the trace is wrong, which is why this class of bug survives a review: the validator
+        ran, it returned true, and it was answering a different question.
+
+    - id: one-useful-retry
+      kind: machine
+      prompt: >-
+        The model called final_output with severity as a string and no title. Get a typed
+        result out of it using at most one retry.
+      initial: awaiting
+      vars: { retries: 0 }
+      states:
+        awaiting:
+          label: Request sent, final_output offered as a tool
+        bad-args:
+          label: final_output called, arguments do not validate
+          note: Two problems, not one. Reporting only the first means the second one costs another round trip.
+        good-args:
+          label: final_output called, arguments validate
+        typed-result:
+          label: Typed object returned to the caller
+          terminal: true
+        looping:
+          label: Asked again with nothing new
+          note: The same prompt against the same model, so the second attempt is another draw from the distribution that produced the first.
+          terminal: true
+          error: true
+        unchecked:
+          label: Arguments coerced and accepted
+          note: A string became an integer and a missing title became an empty one. The caller gets a Ticket and no reason to doubt it.
+          terminal: true
+          error: true
+        raised:
+          label: Raised to the caller
+          note: The right ending when the schema is genuinely unsatisfiable, and premature here, because the model has not yet been told what was wrong.
+          terminal: true
+          error: true
+      transitions:
+        - from: awaiting
+          on: read the tool call
+          to: bad-args
+          when: [{ var: retries, cmp: lt, value: 1 }]
+          note: severity came back as the string high and title is absent.
+        - from: awaiting
+          on: read the tool call
+          to: good-args
+          when: [{ var: retries, cmp: gte, value: 1 }]
+          note: With its own arguments and both errors in front of it, the model fixes both in one turn. That is the usual outcome and it is why the cap is small.
+        - from: bad-args
+          on: append both errors as the tool result
+          to: awaiting
+          effects: [{ var: retries, op: inc, value: 1 }]
+          note: The errors go in the tool result slot that the call is already waiting for, so the model sees them attached to the thing it wrote.
+        - from: bad-args
+          on: ask again with the same prompt
+          to: looping
+        - from: bad-args
+          on: coerce the arguments and continue
+          to: unchecked
+        - from: bad-args
+          on: raise to the caller
+          to: raised
+        - from: good-args
+          on: return the typed object
+          to: typed-result
+      mode: drive
+      win:
+        state: typed-result
+        maxSteps: 6
+        requires: [{ var: retries, cmp: lte, value: 1 }]
+      hints:
+        - Four things can happen to arguments that do not validate and only one of them tells the model anything.
+        - The tool call is still unanswered. There is a slot in the history waiting for a result, and the error is a result.
+        - Report both failures at once. Reporting one at a time is how a cap of two runs out on a schema with three fields.
+      reveal: >-
+        The retry is only worth a round trip because the model gets the errors in the same
+        place it would have got a normal tool result, attached to the call it made. Two
+        failures in a row after that is a signal about the schema or the prompt rather than
+        about sampling, which is what the cap is there to surface.
 ---
 
 Parsing unstructured text outputs with regular expressions is brittle and susceptible to minor phrasing shifts.

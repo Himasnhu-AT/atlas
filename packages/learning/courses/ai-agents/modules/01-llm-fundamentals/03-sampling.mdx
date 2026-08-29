@@ -7,6 +7,118 @@ estimatedMinutes: 30
 exercise:
   id: sampling-controls
   timeboxMinutes: 35
+challenges:
+  goal: Compose temperature, truncation and a draw in the right order, and see what none of them can fix.
+
+  steps:
+    - id: the-overflow
+      kind: spot
+      prompt: >-
+        This returns nan on a real model's logits and works fine on the small ones in your
+        test. Click the line that overflows.
+      lang: python
+      source: |
+        def softmax(logits):
+            weights = [math.exp(x) for x in logits]
+            total = sum(weights)
+            return [w / total for w in weights]
+      targets: [1]
+      decoys:
+        "0": The signature is right. Softmax normalises across the whole vector, so it has to see all of it.
+        "2": Summing the weights is correct, and the division below needs the total.
+        "3": Dividing each weight by the total is the normalisation itself, and there is nothing wrong with it.
+      hints:
+        - Real logits are not small numbers, and the vocabulary has a hundred thousand of them.
+        - A double precision float cannot hold the exponential of anything much past 709, so it becomes inf.
+        - Once two weights are inf, the division on the last line is inf over inf.
+      reveal: >-
+        Subtracting the largest logit from every logit leaves the answer identical, because
+        the constant cancels between the numerator and the denominator. It also puts the
+        largest exponent at exactly zero, which bounds every weight in the half open interval
+        above zero and up to one. The naive version is not slower or less accurate, it simply
+        crashes on real input.
+
+    - id: the-order-they-compose
+      kind: order
+      prompt: Put one decode step in the order the pieces actually have to run.
+      items:
+        - { id: temperature, label: Divide the logits by the temperature }
+        - { id: softmax, label: Turn the logits into a distribution }
+        - { id: topk, label: Keep the k highest and renormalise }
+        - { id: topp, label: Keep the smallest prefix covering p and renormalise }
+        - { id: draw, label: Draw one token from what survived }
+      solution: [temperature, softmax, topk, topp, draw]
+      because:
+        temperature: Temperature scales logits, not probabilities. Applied after the softmax it would rescale numbers that already sum to one, and you would have to normalise a second time.
+        topk: Both filters cut a distribution, so something has to have made one first.
+        draw: Filtering after the draw would be filtering a token that has already been chosen.
+      hints:
+        - One of these five works on the raw scores. The other four work on probabilities.
+        - Each filter renormalises what it keeps, which is what lets the next one run on a real distribution.
+        - The draw sees whatever is left, so it cannot be anywhere but last.
+      reveal: >-
+        Each stage hands the next one the same kind of object, a distribution that sums to
+        one, which is why they compose in any combination and why each truncation has to
+        renormalise on its way out. Skip a renormalisation and every stage after it is
+        sampling from mass that does not add up.
+
+    - id: how-wide-is-the-nucleus
+      kind: numeric
+      prompt: >-
+        The model produced this distribution and top_p is set to 0.85. How many tokens does
+        the nucleus keep?
+      context:
+        as: table
+        caption: Ranked, highest probability first
+        columns: [rank, probability]
+        rows:
+          - [1, 0.42]
+          - [2, 0.24]
+          - [3, 0.16]
+          - [4, 0.1]
+          - [5, 0.05]
+          - [6, 0.03]
+      answer: 4
+      tolerance: 0
+      unit: tokens
+      hints:
+        - Add them up from the top and stop when you have reached the threshold.
+        - The first three come to 0.82, which is short.
+        - The token that carries you past the line is inside the nucleus, not outside it.
+      reveal: >-
+        Keeping the crossing token is what makes the retained mass at least p rather than
+        just under it. Run the same rule on a confident distribution where the leader holds
+        0.9 and it keeps one token; run it on a flat one and it keeps nearly all of them.
+        That is the whole difference from a fixed k, which keeps the same number either way.
+
+    - id: what-sampling-cannot-fix
+      kind: choice
+      prompt: >-
+        Your extractor runs at temperature 0 and keeps returning an order id the source
+        document does not contain. Which change removes it?
+      options:
+        - id: lower
+          label: Lower the temperature further.
+          note: Zero is the floor. There is nothing below always taking the most likely token, and it is already doing that.
+        - id: nucleus
+          label: Add top_p of 0.5 to cut the tail.
+          note: Truncation removes unlikely tokens. This id was the likely continuation, which is exactly why it survived temperature zero.
+        - id: raise
+          label: Raise the temperature so it explores other continuations.
+          note: Flattening the distribution makes the tail reachable. That buys you different invented ids rather than fewer.
+        - id: ground
+          label: Put the document in the context and require the id to be quoted from it.
+          correct: true
+          note: The sampler chooses among what the distribution offers. Changing the tokens in the context is the only one of these that changes what it offers.
+      hints:
+        - Three of these four adjust the same thing, and it is not the distribution's contents.
+        - If the wrong answer is the most likely token, ask what each setting would do about that.
+        - The most deterministic setting available will return the wrong answer every single time, which is a clue about where the problem is not.
+      reveal: >-
+        Temperature, top-k and top-p reshape a distribution that has already been produced.
+        When the wrong answer sits at the top of it, every one of them keeps choosing that
+        answer, and the most conservative settings choose it most reliably. Sampling controls
+        buy consistency. They have never once bought correctness.
 ---
 
 A language model outputs raw logit scores for every vocabulary token. A downstream sampling algorithm converts these logits into token choices. The parameters governing this step (including temperature, top-p, and top-k) are applied in software after the forward pass completes.

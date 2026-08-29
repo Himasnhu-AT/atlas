@@ -7,6 +7,147 @@ estimatedMinutes: 30
 exercise:
   id: prompt-assembly
   timeboxMinutes: 25
+challenges:
+  goal: Choose examples that earn their tokens, order them so the strongest lands last, and spot what a bank teaches by accident.
+
+  steps:
+    - id: which-examples-earn-a-slot
+      kind: assign
+      prompt: >-
+        You have four slots in a ticket classifier and a bank of candidates. The labels are
+        bug, billing, feature and other. Sort each candidate.
+      buckets:
+        - id: earns
+          label: Earns a slot
+          note: Settles something the instructions cannot state cleanly, or covers a label nothing else covers.
+        - id: wastes
+          label: Wastes a slot
+          note: Costs tokens on every request and teaches the model something it already had.
+      items:
+        - id: refund-from-bug
+          label: I want a refund because sync ate my data → billing
+          bucket: earns
+          because: A bug caused it and the label is billing. That is exactly the edge the prose paragraph took three clauses to state and still left ambiguous.
+        - id: thanks
+          label: Thanks, that worked → other
+          bucket: earns
+          because: The fallback label needs at least one demonstration or the model has no idea what belongs in it, and every real inbox is full of these.
+        - id: how-do-i
+          label: How do I export my invoices → other
+          bucket: earns
+          because: A question about a feature that exists, which is the case most likely to be mislabelled as feature. Boundary cases are what slots are for.
+        - id: obvious-crash
+          label: The app crashes on startup → bug
+          bucket: wastes
+          because: Nothing about this is ambiguous. The instruction already says a crash is a bug, and the demonstration adds tokens without adding information.
+        - id: second-crash
+          label: The app crashes when I open settings → bug
+          bucket: wastes
+          because: A second example of the label you have already demonstrated, and the least contested label at that. The slot is better spent on a label with none.
+        - id: obvious-charge
+          label: I was charged twice → billing
+          bucket: wastes
+          because: Uncontested and already covered by the refund example, which teaches the same label and a boundary at the same time.
+      hints:
+        - Ask of each one what the model would get wrong if the slot were empty.
+        - Every label needs to appear at least once, and after that the argument for a slot is the argument for a hard case.
+        - Two of the wasted ones teach the same label as something else in the bank.
+      reveal: >-
+        Demonstrations are read as the definition of the label space, so coverage of the
+        labels comes first and difficulty comes second. An easy example of a label you have
+        already shown is the worst possible use of a slot, because it costs the same tokens
+        on every call as the example that would have settled the case you keep getting wrong.
+
+    - id: when-the-cap-bites
+      kind: numeric
+      prompt: >-
+        Nearest neighbour selection is asked for 3 examples with a cap of 1 per label. How
+        many examples does it actually return?
+      context:
+        as: table
+        caption: The bank, ranked by similarity to the incoming ticket
+        columns: [rank, example, label]
+        rows:
+          - [1, charged twice this month, billing]
+          - [2, invoice shows the wrong VAT, billing]
+          - [3, refund for a duplicate payment, billing]
+          - [4, the export button does nothing, bug]
+      answer: 2
+      tolerance: 0
+      hints:
+        - Walk the ranking from the top and apply the cap as you go.
+        - The cap does not send you looking further down for a replacement of a label you have already used. It skips.
+        - Only two labels exist in this bank at all.
+      reveal: >-
+        The cap binds harder than the count does, and backfilling past it to reach three
+        would put back the very imbalance the cap exists to prevent. Two examples of two
+        different labels teaches the label space better than three examples of one, and it
+        is cheaper.
+
+    - id: assemble-the-turns
+      kind: order
+      prompt: >-
+        Two examples were selected, and the second is a closer match to the incoming ticket
+        than the first. Put the message list in order.
+      items:
+        - { id: system, label: The system message }
+        - { id: weak-in, label: The weaker example's ticket, as a user turn }
+        - { id: weak-out, label: The weaker example's label, as an assistant turn }
+        - { id: strong-in, label: The stronger example's ticket, as a user turn }
+        - { id: strong-out, label: The stronger example's label, as an assistant turn }
+        - { id: real, label: The incoming ticket, as a user turn }
+      solution: [system, weak-in, weak-out, strong-in, strong-out, real]
+      because:
+        weak-out: Each example is a pair of turns, and the assistant turn is what shows the model the answer format. An example with no reply is just more input text.
+        strong-in: The strongest example goes nearest the real question, so the ordering runs from least similar to most similar rather than the other way round.
+        real: The incoming ticket is the only user turn with no assistant turn after it, and that absence is what asks the model to speak.
+      hints:
+        - Every example is two messages, not one, and the alternation is the only thing marking where one ends.
+        - Recency wins inside a prompt, so ask which example you want sitting closest to the question.
+        - The last message is the one the model is being asked to continue from.
+      reveal: >-
+        Selection ranks strongest first because that is the useful order to choose in, and
+        sending needs the reverse. Reverse once, on the way out. The alternating roles do the
+        work delimiters would otherwise have to, which is why this beats pasting examples
+        into the system prompt as text.
+
+    - id: the-accidental-rule
+      kind: choice
+      prompt: >-
+        Every example in this bank is one short sentence stating the problem first. The
+        classifier now mislabels long emails that bury the request in the third paragraph.
+        What happened?
+      context:
+        as: table
+        columns: [example, length, where the problem is stated, label]
+        rows:
+          - [crash on startup, short, first sentence, bug]
+          - [charged twice, short, first sentence, billing]
+          - [dark mode request, short, first sentence, feature]
+          - [refund after sync loss, short, first sentence, billing]
+      options:
+        - id: shared-property
+          label: The examples share a property nobody chose, and the model read it as part of the task.
+          correct: true
+          note: Demonstrations condition on everything they have in common, not only on the thing you were demonstrating. Four for four on shape is a pattern, and the model has no way to know it was an accident of who wrote the bank.
+        - id: too-few
+          label: Four examples is too few to cover the label space.
+          note: All four labels appear at least once, so coverage is not what is failing here. Adding a fifth short example would make it worse.
+        - id: labels-wrong
+          label: The labels on these four are wrong.
+          note: They are all correct. The failure is not in what the examples say, it is in what they all happen to look like.
+        - id: needs-instruction
+          label: The prompt is missing an instruction to read the whole email.
+          note: Worth adding, and it is arguing with four demonstrations that say otherwise. Examples generally win that argument, which is why they were used in the first place.
+      hints:
+        - Look down the columns rather than across the rows.
+        - Three of the four columns vary. One does not, and neither does a fourth thing that is not in the table.
+        - The model cannot tell which of the properties they share was the one you meant.
+      reveal: >-
+        This is the cost of the mechanism that makes few shot work at all. Examples teach by
+        being alike, so every accidental likeness teaches too. Vary the length and the shape
+        deliberately, and when a classifier fails on a kind of input, check whether any
+        example in the bank looks like it before touching the instructions.
 ---
 
 Zero-shot prompts rely exclusively on natural language instructions. Few-shot prompts augment instructions with concrete input-output demonstrations. Few-shot examples anchor formatting, label sets, and boundary disambiguation more reliably than descriptive prose.

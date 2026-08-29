@@ -7,6 +7,217 @@ estimatedMinutes: 60
 exercise:
   id: grounded-reply
   timeboxMinutes: 30
+challenges:
+  goal: Retrieve before prompting, verify every marker against what came back, and route a reply that cites something nobody retrieved.
+
+  steps:
+    - id: the-call-that-should-not-have-happened
+      kind: spot
+      prompt: >-
+        This function bills a model call for every question the knowledge base does not
+        cover. Click the line that should have run earlier.
+      lang: python
+      source: |
+        def answer(articles, question):
+            hits = retrieve(articles, question, k=2, floor=0.12)
+            messages = build_messages(hits, question)
+            text = model(messages)
+            if not hits:
+                return Reply(OUT_OF_SCOPE_TEXT, [], [], "out_of_scope")
+            cited, dropped = parse_citations(text, [h.id for h in hits])
+            return Reply(text, cited, dropped, "answered" if cited else "unsupported")
+      targets: [4]
+      decoys:
+        "1": Retrieval with a floor is right. It returns an empty list when nothing clears the bar, and that empty list is the signal the rest of this function ignores for two lines.
+        "2": Building a prompt from no articles gives you a context block with nothing in it. Wasteful, and not where the money goes.
+        "3": Calling the model is what the function is for. Whether it should be called at all is somebody else's decision, and that decision is made too late.
+        "6": Verifying markers against the retrieved ids is correct. On this path there is nothing to verify against, which is the tell.
+        "7": Splitting answered from unsupported on whether anything survived verification is exactly the distinction you want to keep.
+      hints:
+        - The function already knows the answer is out of scope. Ask when it finds out.
+        - Two lines run between the fact being available and the fact being used.
+        - Moving one line is the whole fix, and it saves a call on every out-of-scope question you take.
+      reveal: >-
+        An empty hit list is a complete answer already, and it is free. Routing on it before
+        the prompt is built means an out-of-scope question costs an embedding and nothing
+        else, which matters because out-of-scope questions arrive in bursts when somebody
+        ships a feature the knowledge base has not caught up with.
+
+    - id: retrieval-details
+      kind: blanks
+      prompt: >-
+        Three small decisions in the retrieval layer, each of which shows up later as an
+        evaluation that fails for no visible reason.
+      lang: python
+      template: |
+        CITATION = re.compile(r"\[({{1}})\]")
+
+        def retrieve(articles, question, k, floor):
+            q = embed_text(normalise(question))
+            scored = [(a, cosine(q, a.vector)) for a in articles]
+            scored.sort(key=lambda pair: ({{2}}, {{3}}))
+            return [a for a, s in scored[:k] if s >= floor]
+      blanks:
+        - n: 1
+          as: select
+          options: ['A\d+', '.*', '\w+', '[^]]+']
+          accept: ['A\d+']
+          note: The marker set is closed and numbered, so match exactly that shape. A permissive pattern turns any bracketed text inside an article body into a citation, which is how a document ends up citing itself.
+        - n: 2
+          as: select
+          options: ['-pair[1]', 'pair[1]', 'pair[0].id', 'pair[0].title']
+          accept: ['-pair[1]']
+          note: Score first and descending, because the best match should be the first thing in the context block.
+        - n: 3
+          as: select
+          options: ['pair[0].id', 'pair[1]', 'pair[0].title', 'id(pair[0])']
+          accept: ['pair[0].id']
+          note: Two articles on the same score have to come back in the same order every time. Without a tie-break the eval passes today and fails on Thursday with nothing in the diff to blame.
+      hints:
+        - The first blank is the difference between reading the model's citations and reading the corpus back to yourself.
+        - Sorting by score alone leaves ties, and ties are where non-determinism gets in.
+        - The tie-break has to be something stable that no scoring change can move.
+      reveal: >-
+        None of these three is where the interesting work is, and all three produce failures
+        that look like model variance. A loose citation pattern makes verification
+        meaningless, and an unstable sort makes every downstream assertion flaky.
+
+    - id: verify-the-markers
+      kind: text-contract
+      prompt: >-
+        The model answered and cited three markers. Retrieval returned A2 and A7. Fill in
+        what verification concluded.
+      context:
+        as: log
+        lines:
+          - 'retrieved: A2, A7'
+          - 'reply: Reset it from the account page [A2]. Links expire after one hour [A9], so request a fresh one [A2].'
+      lang: json
+      initial: |
+        {
+          "cited": ["A2", "A9", "A2"],
+          "dropped": [],
+          "route": "unsupported"
+        }
+      rules:
+        - message: This no longer parses. Check the brackets around the two lists.
+          check: { op: parses, as: json }
+        - message: A2 appears twice in the reply and once in the list. A repeated marker is one citation.
+          check: { op: length, path: cited, min: 1, max: 1 }
+        - message: The surviving citation is the one that was actually retrieved.
+          check: { op: equals, path: cited.0, value: A2 }
+        - message: A9 was never retrieved, so it does not belong in cited. It belongs in the other list, which is the entire reason there are two.
+          check: { op: equals, path: dropped.0, value: A9 }
+        - message: Only A9 was dropped. A7 was retrieved and simply not used, which is not the same as being rejected.
+          check: { op: length, path: dropped, min: 1, max: 1 }
+        - message: At least one verified citation survived, so this reply is grounded and the route is answered. A dropped marker is a line in the log, not a change of route.
+          check: { op: equals, path: route, value: answered }
+      hints:
+        - Three markers in the reply and two lists to put them in. One of the markers is in the reply twice.
+        - A7 came back from retrieval and the model did not use it. Ask which list that puts it in.
+        - The route is decided by what survived, not by what was thrown away.
+      reveal: >-
+        A9 is the interesting one. The model produced a marker for an article nobody
+        retrieved, which is either a hallucination or a tag copied out of a document body,
+        and the only reason you can tell is that the allowed set is the retrieval result
+        rather than the whole corpus.
+      solution: |
+        {
+          "cited": ["A2"],
+          "dropped": ["A9"],
+          "route": "answered"
+        }
+
+    - id: run-the-answer-path
+      kind: machine
+      prompt: >-
+        A customer writes that the reset link does nothing. Article A2 covers exactly this.
+        Get to a grounded answer on one model call.
+      initial: question-in
+      vars: { calls: 0 }
+      states:
+        question-in:
+          label: Question received
+        nothing-above-floor:
+          label: Retrieval returned nothing above 0.12
+          note: The customer's words and the article's title share almost no terms once the stopwords are counted in the score.
+        two-hits:
+          label: A2 and A7 above the floor
+        replied:
+          label: The model has answered, unverified
+          note: It cites A2 and it also cites A9, which nobody retrieved.
+        answered:
+          label: Grounded reply, one verified citation
+          terminal: true
+        guessed:
+          label: Answered with an empty context block
+          note: The model wrote a confident reset procedure from nothing. There are no markers to verify, so the verifier has nothing to object to.
+          terminal: true
+          error: true
+        out-of-scope:
+          label: Routed to the queue as a knowledge gap
+          note: The right ending when the knowledge base does not cover something. It does cover this, so what got escalated was a retrieval problem wearing a coverage problem's clothes.
+          terminal: true
+          error: true
+        noisy:
+          label: Nine articles above the floor
+          note: Seven of them are about billing. The model now picks, and verification will happily confirm a marker from a document that has nothing to do with the question.
+          terminal: true
+          error: true
+        trusted:
+          label: Reply returned unverified
+          note: A9 goes to the customer looking exactly like a real reference.
+          terminal: true
+          error: true
+      transitions:
+        - from: question-in
+          on: retrieve at the usual floor
+          to: nothing-above-floor
+        - from: nothing-above-floor
+          on: normalise the query and retrieve again
+          to: two-hits
+          note: Lowercase, drop the stopwords, and the shared domain terms carry the score instead of the grammar.
+        - from: nothing-above-floor
+          on: call the model anyway
+          to: guessed
+          effects: [{ var: calls, op: inc, value: 1 }]
+        - from: nothing-above-floor
+          on: route to the human queue
+          to: out-of-scope
+        - from: nothing-above-floor
+          on: drop the floor to 0.02
+          to: noisy
+        - from: two-hits
+          on: build the prompt and call
+          to: replied
+          effects: [{ var: calls, op: inc, value: 1 }]
+        - from: two-hits
+          on: send all twelve articles
+          to: noisy
+        - from: replied
+          on: verify the markers
+          to: answered
+        - from: replied
+          on: return it as it stands
+          to: trusted
+        - from: replied
+          on: ask again for tidier citations
+          to: replied
+          effects: [{ var: calls, op: inc, value: 1 }]
+          note: The reply already cites a real article. A second call to clean up the markers costs what the first one did and does the verifier's job worse.
+      mode: drive
+      win:
+        state: answered
+        maxSteps: 8
+        requires: [{ var: calls, cmp: lte, value: 1 }]
+      hints:
+        - The first retrieval failing is a query problem rather than a corpus problem, and there is an action that treats it as one.
+        - Two of the endings here are the correct behaviour for a situation this is not.
+        - Once the reply exists, the cheap deterministic step beats another call at the thing another call would be for.
+      reveal: >-
+        Every wrong ending on this run is defensible somewhere else. Escalating a gap,
+        widening a floor and asking again are all right answers to different questions, and
+        what separates them here is that the article existed and the query never reached it.
 ---
 
 The grounded answering workflow executes in four distinct stages:

@@ -7,6 +7,194 @@ estimatedMinutes: 25
 exercise:
   id: binomial-tree
   timeboxMinutes: 35
+challenges:
+  goal: Build a CRR lattice, sweep it backwards without corrupting it, and say when early exercise is actually worth taking.
+
+  steps:
+    - id: the-risk-neutral-probability
+      kind: numeric
+      prompt: >-
+        Compute the risk-neutral up probability for this lattice. The three exponentials are
+        given, so this is one subtraction and one division.
+      context:
+        as: pairs
+        items:
+          - { k: Steps and horizon, v: 4 steps over one year, so dt is 0.25 }
+          - { k: Up factor u, v: '1.10517' }
+          - { k: Down factor d, v: '0.90484' }
+          - { k: Growth over one step, v: '1.01005' }
+      answer: 0.5252
+      tolerance: 0.003
+      scaleHint: >-
+        That is out by more than a factor of ten. A probability lives between zero and one,
+        and this one sits close to a half.
+      hints:
+        - The numerator is how much the risk-free growth exceeds the down move.
+        - 1.01005 less 0.90484 is 0.10521, and the spread between the two factors is 0.20033.
+        - Divide the first by the second.
+      reveal: >-
+        This is not anybody's estimate of how likely the stock is to rise. It is the weight
+        that makes the discounted expected price equal today's price, which is the only weight
+        under which the tree cannot be arbitraged. Notice that the stock's real drift appears
+        nowhere in it, which is the same fact that makes the drift vanish from Black-Scholes.
+
+    - id: sweep-it-backwards
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions in this American put pricer. One discounts, one reads
+        the node above, and one decides whether to exercise.
+      lang: python
+      template: |
+        dt = tau / steps
+        disc = {{1}}
+        values = [
+            max(0.0, strike - spot * u ** j * d ** (steps - j))
+            for j in range(steps + 1)
+        ]
+
+        for i in range(steps - 1, -1, -1):
+            for j in range(i + 1):
+                continuation = disc * (p * values[{{2}}] + (1.0 - p) * values[j])
+                price = spot * u ** j * d ** (i - j)
+                values[j] = max(continuation, {{3}})
+
+        return values[0]
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'math.exp(-r * dt)'
+            - 'math.exp(r * dt)'
+            - 'math.exp(-r * tau)'
+          accept: ['math.exp(-r * dt)']
+          note: >-
+            One step is discounted at a time, because the induction moves back one step per
+            pass. Discounting the whole horizon at every node compounds the discount by the
+            number of steps.
+        - n: 2
+          as: select
+          options:
+            - 'j + 1'
+            - 'j'
+            - 'j - 1'
+          accept: ['j + 1']
+          note: >-
+            Index j counts up moves, so the up child of node j at this step is node j plus one
+            at the next. Reading j for both children makes the tree one dimensional and the
+            option worthless.
+        - n: 3
+          as: select
+          options:
+            - 'max(0.0, strike - price)'
+            - 'max(0.0, price - strike)'
+            - 'strike - price'
+          accept: ['max(0.0, strike - price)']
+          note: >-
+            A put pays when the price is below the strike. Without the floor at zero a node
+            deep out of the money reports a negative exercise value, and the max picks the
+            continuation anyway, so the bug hides until the sign flips somewhere else.
+      hints:
+        - The loop moves back one step at a time, so ask what interval the discount factor covers.
+        - The array is indexed by how many up moves led to the node, and one of the two children has one more of those.
+        - This is a put, and the intrinsic value of a put is never negative.
+      reveal: >-
+        The only difference between this and a European pricer is the max on the last line,
+        and that single comparison is what has no closed form. Every node asks whether the
+        cash now beats the option later, the answer depends on every node beneath it, and
+        that recursive dependence is why American options are priced numerically and Europeans
+        are not.
+
+    - id: the-sweep-that-ate-itself
+      kind: spot
+      prompt: >-
+        This European put pricer converges, and it converges to the wrong number more
+        confidently as the step count rises. Click the line responsible.
+      lang: python
+      source: |
+        def price_put(spot, strike, tau, r, sigma, steps):
+            dt = tau / steps
+            u = math.exp(sigma * math.sqrt(dt))
+            d = 1.0 / u
+            p = (math.exp(r * dt) - d) / (u - d)
+            disc = math.exp(-r * dt)
+            values = [max(0.0, strike - spot * u ** j * d ** (steps - j)) for j in range(steps + 1)]
+            for i in range(steps - 1, -1, -1):
+                for j in range(i, -1, -1):
+                    values[j] = disc * (p * values[j + 1] + (1.0 - p) * values[j])
+            return values[0]
+      targets: [8]
+      requireAll: true
+      decoys:
+        '3': >-
+          Setting the down factor to the reciprocal of the up factor is what makes the lattice
+          recombine, and it is the defining choice of the Cox-Ross-Rubinstein parameterisation.
+        '4': >-
+          The risk-neutral probability is right, and it is what makes the discounted expected
+          value at each node equal the value below it.
+        '6': >-
+          The terminal payoffs are right. Every leaf is the intrinsic value of a put at the
+          price that leaf represents.
+        '7': >-
+          Walking the steps from the last one back to the root is the direction backward
+          induction has to go.
+        '9': >-
+          The continuation value is right. The two children are weighted by the risk-neutral
+          probability and discounted by one step, exactly as the recursion says.
+        '10': >-
+          The root of the tree is index zero after the sweep, and that is the value of the
+          option today.
+      hints:
+        - Only one array is used, so every write destroys a value that some later read may still need.
+        - Follow the inner loop by hand for a step of size three and note which index is written first and which is read second.
+        - Writing node j reads node j plus one, so the writes have to move away from the values they are about to need, not toward them.
+      reveal: >-
+        The one dimensional sweep is what makes this pricer use memory proportional to the
+        step count rather than to its square, and it only works in one direction. Ascending j
+        writes an index whose reads are all still untouched. Descending j overwrites the up
+        child before the node beneath it reads it, so every value below the top of each step
+        is computed from this step rather than the next one. Nothing raises, the answer is
+        plausible, and it gets worse as the tree gets finer.
+
+    - id: when-early-exercise-pays
+      kind: choice
+      prompt: >-
+        On a stock that pays no dividend, with rates positive, which early exercise is ever
+        the right decision?
+      options:
+        - id: deep-put
+          label: A deep in the money American put
+          correct: true
+          note: >-
+            The most a put can ever be worth is the strike, and exercising collects that cash
+            now so it can earn interest. Past a critical spot the interest beats the remaining
+            time value, which is exactly why an American put is worth more than a European one.
+        - id: deep-call
+          label: A deep in the money American call
+          note: >-
+            Never optimal on a non-dividend payer. Exercising throws away the remaining time
+            value and pays the strike earlier than required, and selling the option in the
+            market is always at least as good.
+        - id: atm-put
+          label: An at the money put with a month to run
+          note: >-
+            At the money is where time value is largest, so this is the worst possible moment
+            to give it up. The early exercise boundary sits far below the strike, not at it.
+        - id: pre-dividend
+          label: A call the day before a large dividend
+          note: >-
+            This one genuinely is optimal, and it is the reason the question said no dividend.
+            The holder exercises to capture a payment the option does not entitle them to, and
+            it is the only case where early exercise of a call makes sense.
+      hints:
+        - Ask what each position gives up by exercising, and what it gets in exchange that waiting would not provide.
+        - One of these hands you a fixed amount of cash that then earns interest, and interest is the only thing on this list that waiting cannot deliver.
+        - The condition in the question rules out one option that would otherwise be correct.
+      reveal: >-
+        The early exercise premium is an interest rate story before it is a volatility story.
+        A put converts a capped payoff into cash that can be invested; a call converts cash
+        into a capped payoff and gives up optionality to do it. That asymmetry is why the
+        lattice is genuinely necessary for puts and mostly decorative for calls, and why a
+        pricing library that treats both symmetrically is wasting most of its time.
 ---
 
 The Black-Scholes formula applies only to European options that cannot be exercised prior to expiration.

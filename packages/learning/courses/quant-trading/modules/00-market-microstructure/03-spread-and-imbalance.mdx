@@ -7,6 +7,156 @@ estimatedMinutes: 20
 exercise:
   id: order-imbalance
   timeboxMinutes: 20
+challenges:
+  goal: Measure what a trade actually paid against the midpoint, and read the resting sizes that made it cost that.
+
+  steps:
+    - id: what-the-sweep-really-paid
+      kind: numeric
+      prompt: >-
+        A 900 share buy filled in three equal slices. What was the effective spread on it,
+        in dollars a share?
+      context:
+        as: table
+        caption: The three fills. The quote was 49.98 bid, 50.02 offered, and the midpoint held at 50.00.
+        columns: [Price, Shares]
+        rows:
+          - [50.02, 300]
+          - [50.04, 300]
+          - [50.06, 300]
+      answer: 0.08
+      tolerance: 0.0001
+      unit: dollars a share
+      scaleHint: >-
+        Out by a factor of ten or more, so this is a units problem. The answer is in dollars
+        a share and the distances involved are cents.
+      hints:
+        - The measure uses the price you actually paid across all 900 shares, not the price that was quoted when you sent the order.
+        - The three slices are the same size, so the volume weighted price is the plain average of 50.02, 50.04 and 50.06.
+        - That average is four cents above the midpoint, and the definition doubles the distance.
+      reveal: >-
+        Quoted was four cents and effective was eight, on the same book at the same instant.
+        The quoted spread prices the first slice and nothing else. Everything after it is a
+        worse market that the screen never showed you, which is why transaction cost analysis
+        is done against the effective number.
+
+    - id: better-or-worse-than-quoted
+      kind: assign
+      prompt: >-
+        The quote is 49.98 bid, 50.02 offered, so the midpoint is 50.00 and the quoted spread
+        is four cents. Sort each execution by what it cost against that.
+      buckets:
+        - id: improved
+          label: Beat the quoted spread
+          note: Effective spread under four cents. Somebody gave up part of the spread.
+        - id: matched
+          label: Paid exactly the quoted spread
+          note: Effective spread of four cents. The trade went off at the touch.
+        - id: worse
+          label: Paid more than the quoted spread
+          note: Effective spread over four cents. The order was bigger than the touch.
+      items:
+        - id: buy-at-offer
+          label: Buy 100, filled at 50.02
+          bucket: matched
+          because: Two cents from the midpoint, doubled, is four cents. Lifting the offer for a size the offer can hold is the case the quoted spread was built to describe.
+        - id: sell-at-bid
+          label: Sell 100, filled at 49.98
+          bucket: matched
+          because: Two cents below the midpoint costs the same as two cents above it. The measure takes the distance without a sign, so both sides of a round trip land in the same bucket.
+        - id: dark-midpoint
+          label: Buy 100, filled at 50.00 on a midpoint venue
+          bucket: improved
+          because: Zero distance from the midpoint is an effective spread of zero. The counterparty gave up their whole half of the spread to trade without showing.
+        - id: internalised
+          label: Buy 100, filled at 50.01 by an internaliser
+          bucket: improved
+          because: One cent from the midpoint is two cents effective, which is half the quoted spread. Price improvement is real and it is also how the flow was paid for.
+        - id: buy-sweep
+          label: Buy 900, filled at an average of 50.045
+          bucket: worse
+          because: The order was larger than the offer at the touch, so most of it filled higher up. Size is what separates the quoted spread from the effective one.
+        - id: sell-sweep
+          label: Sell 600, filled at an average of 49.95
+          bucket: worse
+          because: Five cents below the midpoint is ten cents effective, two and a half times quoted. Selling through the bid costs what buying through the offer does.
+      hints:
+        - Work out the distance from 50.00 for each one first, then double it, then compare against four cents.
+        - Two of these are at the touch, two are inside the spread, and two walked through it.
+        - Direction never matters. A buy above the midpoint and a sell the same distance below cost the same.
+      reveal: >-
+        The quoted spread is a property of the book. The effective spread is a property of
+        your order meeting that book, and it is the only one of the two that knows how much
+        you traded. A venue advertising price improvement and a venue that fills you three
+        levels deep can quote the identical spread.
+
+    - id: build-the-imbalance
+      kind: tune
+      prompt: >-
+        Set the resting sizes so the book reads a depth-weighted imbalance of about +0.5.
+        Level one counts at full weight and level two at half.
+      inputs:
+        - { id: bid-near, label: Bid size at level one, unit: shares, min: 0, max: 600, step: 50, initial: 200 }
+        - { id: bid-far, label: Bid size at level two, unit: shares, min: 0, max: 600, step: 50, initial: 200 }
+        - { id: ask-near, label: Ask size at level one, unit: shares, min: 0, max: 600, step: 50, initial: 200 }
+        - { id: ask-far, label: Ask size at level two, unit: shares, min: 0, max: 600, step: 50, initial: 200 }
+      outputs:
+        - id: weighted-net
+          label: Weighted net tilt
+          unit: shares
+          terms:
+            - { coef: 1, of: [bid-near] }
+            - { coef: 0.5, of: [bid-far] }
+            - { coef: -1, of: [ask-near] }
+            - { coef: -0.5, of: [ask-far] }
+          target: { min: 290, max: 310 }
+          note: The tilt is not at 300 yet. This is bid size minus ask size, with level two counted at half on both sides.
+        - id: weighted-depth
+          label: Weighted depth behind it
+          unit: shares
+          terms:
+            - { coef: 1, of: [bid-near] }
+            - { coef: 0.5, of: [bid-far] }
+            - { coef: 1, of: [ask-near] }
+            - { coef: 0.5, of: [ask-far] }
+          target: { min: 590, max: 610 }
+          note: The depth is not at 600 yet. This one adds the two sides where the tilt subtracts them, and it is the denominator that turns the tilt into a ratio.
+      hints:
+        - Imbalance is the tilt over the depth, so landing on +0.5 means getting the tilt to half of the depth.
+        - Both readings move when you move any slider, which is the point. Adding bid size raises the tilt and the depth together.
+        - Weighted bid needs to reach 450 and weighted ask 150. Level two is halved, so 600 shares out there count as 300.
+      reveal: >-
+        The denominator is what makes this comparable across a quiet book and a busy one. A
+        tilt of 300 shares means something different when 600 shares are resting than when
+        60,000 are, and dividing by the weighted depth is what lets the same threshold work
+        on both.
+
+    - id: what-the-number-is-worth
+      kind: choice
+      prompt: The top of the book reads an imbalance of +0.8. Which of these follows from that alone?
+      options:
+        - id: next-print-up
+          label: The next trade will print higher than this one.
+          note: Imbalance tilts a probability over the next second or so. It says nothing about one print, and a strategy that pays the spread on every print needs a much larger edge than a tilt.
+        - id: more-buyers
+          label: There are more buyers than sellers in the market right now.
+          note: It says more size is resting on the bid. Resting orders are the participants willing to wait, which is close to the opposite of the ones about to trade. The buyers in a hurry are the ones lifting the offer.
+        - id: ask-is-thin
+          label: It takes less volume to move the price up a tick than to move it down one.
+          correct: true
+          note: This is the mechanical reading and the only one that follows from the sizes alone. Imbalance is a statement about how much has to be consumed to clear a level, and any forecast built on it is a separate claim that has to be tested.
+        - id: hard-to-fake
+          label: The signal is hard to fake, because posting size is a real commitment.
+          note: Posting is only a commitment if you leave it there, and an order two levels out can be pulled in microseconds. This is why weighting the far levels heavily makes the measure easier to manipulate rather than more informative.
+      hints:
+        - Three of these are forecasts and one is a description. Only one of the four is true by arithmetic.
+        - Ask what a resting order actually tells you about the trader who placed it.
+        - The number counts size that is waiting, not intent, and waiting is cheap to fake and free to withdraw.
+      reveal: >-
+        Imbalance is a measurement, and the trade it suggests is a hypothesis. The gap between
+        the two is where most microstructure strategies die: the tilt is real and it decays in
+        under a second, so whether you can act on it is a question about your latency and your
+        fees rather than about the signal.
 ---
 
 The quoted spread measures the cost of an immediate round-trip trade at the top of the book. In live markets, executed trades rarely occur solely at the static top of the book.

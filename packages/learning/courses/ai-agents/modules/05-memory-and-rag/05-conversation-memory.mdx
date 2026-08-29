@@ -7,6 +7,160 @@ estimatedMinutes: 40
 exercise:
   id: memory-window
   timeboxMinutes: 40
+challenges:
+  goal: Fit a long conversation into a budget without severing a turn or losing the fact the user gave you once.
+
+  steps:
+    - id: what-each-one-loses
+      kind: assign
+      prompt: >-
+        Four ways to keep a conversation under a token budget. Sort each observation under
+        the strategy it describes.
+      buckets:
+        - id: window
+          label: Sliding window
+          note: Keep the last few turns verbatim, drop the rest.
+        - id: summary
+          label: Running summary
+          note: Compress older turns into a block that sits in the leading system messages.
+        - id: facts
+          label: Extracted facts
+          note: Pull durable details out into a store that outlives the session.
+        - id: search
+          label: Search over the history
+          note: Index the transcript as it grows and retrieve from it per turn.
+      items:
+        - id: asks-again
+          label: The user gave their allergy on turn 2 and the agent asks about it again on turn 40.
+          bucket: window
+          because: Anything older than the window is gone, and nothing about the strategy knows which of the dropped turns mattered.
+        - id: free
+          label: Costs nothing to run and adds no latency.
+          bucket: window
+          because: Slicing a list is the whole implementation, which is why it is the right baseline to start from and measure against.
+        - id: gist-wrong
+          label: The agent remembers the general plan but books for the wrong number of people.
+          bucket: summary
+          because: Compression keeps the shape of a conversation and loses the specifics, and party size is exactly the kind of specific that gets rounded off.
+        - id: periodic-call
+          label: Pays for a model call every so often, on the turn that triggers it.
+          bucket: summary
+          because: The summary has to be written by something, and the user is waiting while it is.
+        - id: across-sessions
+          label: The agent still knows the user is vegetarian when they come back next week.
+          bucket: facts
+          because: The only one of the four that survives the session, because what it keeps is a small structured store rather than a slice of a transcript.
+        - id: extraction-call
+          label: Pays a model call to decide which details are durable, and has to cope with that call failing.
+          bucket: facts
+          because: Deciding what is a preference and what is passing chatter is a judgement, and a failed extraction has to degrade to an empty list rather than to a failed request.
+        - id: finds-the-turn
+          label: Pulls back the one turn from an hour ago where the address was mentioned.
+          bucket: search
+          because: Retrieval over the transcript rather than over documents. It finds the matching turn and leaves the ones either side of it behind.
+        - id: index-as-it-grows
+          label: Needs the session indexed incrementally, turn by turn, while it is happening.
+          bucket: search
+          because: A document corpus is indexed offline. A live conversation is not, so the index has to be maintained on the latency path.
+      hints:
+        - Two of these cost a model call and two do not.
+        - One of the four keeps something after the user closes the tab.
+        - Two observations describe what a strategy loses and two describe what it costs.
+      reveal: >-
+        Most production systems run two of these at once, usually a window over recent turns
+        with a summary or a fact store behind it. The window keeps the last exchanges exact,
+        which is what the model needs to follow the thread, and the other one carries what
+        would otherwise fall off the back.
+
+    - id: cut-in-the-wrong-place
+      kind: spot
+      prompt: >-
+        This list came out of a trim and the provider returns a 400. Click every message
+        that is why.
+      lang: python
+      source: |
+        {"role": "system", "content": "You are a booking assistant."}
+        {"role": "system", "content": "Summary of earlier conversation: the user wants..."}
+        {"role": "tool", "tool_call_id": "call_1", "content": "Three with space tonight: Ramiro, Belcanto, Prado."}
+        {"role": "user", "content": "book the second one"}
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "call_2", "function": {"name": "book"}}]}
+        {"role": "user", "content": "and put the allergy on the booking"}
+      targets: [2, 4]
+      requireAll: true
+      decoys:
+        '0': The instructions, and they are protected from trimming. Their cost comes off the budget before anything else is measured.
+        '1': The summary sits in the leading system block precisely so that a trim cannot take it while leaving the turns it summarised.
+        '3': A user message stands alone. It can be dropped or kept without breaking anything around it.
+        '5': The same. Nothing depends on it and it depends on nothing.
+      hints:
+        - Two messages here refer to something that is not in the list.
+        - A tool result answers a request. Find the request.
+        - An assistant message that asks for a tool is only half of an exchange, and the other half should be the next message.
+      reveal: >-
+        An assistant message carrying tool_calls and the tool messages answering it are one
+        indivisible unit. Trim between them and you get an orphaned result or an unanswered
+        request, and providers reject both. Group them before you start measuring, and the
+        budget arithmetic is done over whole exchanges rather than over messages.
+
+    - id: how-the-trim-runs
+      kind: order
+      prompt: The list is over budget. Put the steps of the trim in order.
+      items:
+        - id: protect
+          label: Take the leading system messages off the top and subtract their cost from the budget
+        - id: group
+          label: Group each assistant tool request with the tool results that answer it
+        - id: walk
+          label: Walk backward from the newest group, adding each one while it fits
+        - id: stop
+          label: Stop at the first group that does not fit
+        - id: record
+          label: Record what was dropped
+      solution: [protect, group, walk, stop, record]
+      because:
+        group: Grouping has to happen before anything is measured, or the walk will happily cut an exchange in half to save forty tokens.
+        walk: Backward, because the most recent exchange is the one the next reply depends on. Filling from the front keeps the beginning of a conversation the user has moved on from.
+        stop: Stopping rather than skipping is the whole rule. Skipping a group to fit an older one leaves a hole in the middle of the transcript.
+      hints:
+        - Two things have to be settled before a single token is counted.
+        - The walk goes in the direction of the thing the model most needs.
+        - The last step is not about the messages you kept.
+      reveal: >-
+        Take the fast path first. If the whole list already fits, return it with nothing
+        dropped and make no model call at all, because summarising on a turn that did not
+        need it adds cost and latency to the common case. When you do trim, put the dropped
+        messages in the result, so that a strange answer three turns later can be traced to
+        what was taken away.
+
+    - id: stop-do-not-skip
+      kind: choice
+      prompt: >-
+        The walk has 400 tokens left. The next group back is 900 tokens, and the one behind
+        that is 200. What does the trim do?
+      options:
+        - id: stop-here
+          label: Stop, and drop that group and everything older than it.
+          correct: true
+          note: The kept transcript stays contiguous, so the model reads a conversation that runs without a break from some point up to now. Losing the oldest turns is the cost you already accepted by having a budget.
+        - id: skip-it
+          label: Skip the 900 token group and take the 200 token one behind it.
+          note: It fits, and now the transcript has a hole. The model reads a reply that answers a question it cannot see, and produces something that contradicts the exchange you removed. This is worse than the missing turns, because it is not obviously missing.
+        - id: summarise-inline
+          label: Summarise the 900 token group down to something that fits, right now.
+          note: A model call on the latency path, on a turn the user is waiting through, and the summary lands in the middle of the transcript rather than in the protected block at the top where a summary belongs.
+        - id: send-anyway
+          label: Include it and let the provider truncate whatever does not fit.
+          note: Truncation happens at a token boundary the provider chooses, which can land inside a tool call payload. You have handed the decision to something with no idea which parts are structural.
+      hints:
+        - Three of these fit inside the budget. Ask what the transcript reads like afterwards.
+        - A conversation with a turn missing from the middle is not a shorter conversation.
+        - One option moves a cost onto the turn where somebody is waiting.
+      reveal: >-
+        A contiguous suffix of the conversation is the only thing that reads as a
+        conversation. Gaps produce contradictions, and contradictions are attributed to the
+        model rather than to the trim that caused them. Older context that genuinely has to
+        survive belongs in the summary or the fact store at the top, which the trim is not
+        allowed to touch.
 ---
 
 Memory mechanisms in agent architectures handle two distinct data sources: static document retrieval and dynamic

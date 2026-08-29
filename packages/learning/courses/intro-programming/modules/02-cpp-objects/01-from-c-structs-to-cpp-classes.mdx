@@ -7,6 +7,197 @@ estimatedMinutes: 20
 exercise:
   id: value-semantics
   timeboxMinutes: 20
+challenges:
+  goal: Say what private and const each protect, and stop a class handing out the field it promised to guard.
+
+  steps:
+    - id: who-may-and-who-promised
+      kind: assign
+      prompt: >-
+        Each of these lines is written against the class below. Sort them by whether the
+        compiler accepts them.
+      context:
+        as: code
+        lang: cpp
+        source: |
+          class Money {
+              int cents_;
+
+          public:
+              explicit Money(int c) : cents_(c) {}
+              int cents() const { return cents_; }
+              void add(int c) { cents_ += c; }
+          };
+
+          Money m(500);
+          const Money k(200);
+      buckets:
+        - id: accepted
+          label: The compiler accepts it
+          note: Nothing about access or about a const promise is violated.
+        - id: rejected
+          label: The compiler rejects it
+          note: It fails to compile, which is the point. The check is not a runtime one.
+      items:
+        - id: write-private
+          label: "m.cents_ = -1;"
+          bucket: rejected
+          because: cents_ is private, and being written outside the class is the whole of what private forbids.
+        - id: call-mutator
+          label: "m.add(50);"
+          bucket: accepted
+          because: m is not const and add is a member function, so it may both name the field and change it.
+        - id: const-mutator
+          label: "k.add(50);"
+          bucket: rejected
+          because: add never promised to leave the object alone, so a const object cannot be handed to it.
+        - id: const-accessor
+          label: "k.cents();"
+          bucket: accepted
+          because: cents is marked const, and that promise is exactly what makes it callable on a const object.
+        - id: read-through-accessor
+          label: "int n = m.cents();"
+          bucket: accepted
+          because: A const member function is callable on a non-const object too. The const constrains the function, not the caller.
+        - id: write-in-const-method
+          label: "cents_ = 0; written inside the body of cents() const"
+          bucket: rejected
+          because: Inside a const member function this points at a const object, so every field is const and the assignment has nowhere to land.
+      hints:
+        - Two different things can stop a line here. One is about where the code is written and one is about what somebody promised.
+        - private is decided by which code is asking. const is decided by what the object and the function each committed to.
+        - A const object may only be handed to functions that promised not to change it, and the promise is the word after the parameter list.
+      reveal: >-
+        private answers who may name the field and const answers who may change it. They fail
+        for different reasons and catch different mistakes, and together they are how a class
+        says that maintaining its own invariant is its job. A C struct cannot say either.
+
+    - id: the-order-nobody-chose
+      kind: order
+      prompt: >-
+        This constructor's initializer list names the members in one order and the compiler
+        runs them in another. Put them in the order they are actually initialized.
+      context:
+        as: code
+        lang: cpp
+        source: |
+          class Frame {
+              std::vector<char> buffer_;
+              size_t capacity_;
+              size_t used_;
+              bool ready_;
+
+          public:
+              explicit Frame(size_t n)
+                  : ready_(true), used_(0), capacity_(n), buffer_(n) {}
+          };
+      items:
+        - { id: buffer, label: "buffer_" }
+        - { id: capacity, label: "capacity_" }
+        - { id: used, label: "used_" }
+        - { id: ready, label: "ready_" }
+      solution: [buffer, capacity, used, ready]
+      because:
+        buffer: The first member the class declares is the first one built, whatever the initializer list puts first.
+        capacity: Second in the class body, so second to be initialized, and the list has no say in it.
+        used: Third in the class body. Its position in the list is a coincidence of how somebody wrote it.
+        ready: Declared last, so it is initialized last, even though the constructor names it first.
+      hints:
+        - Neither the order in the list nor alphabetical order decides this.
+        - Every object of this class has one fixed layout, and the destructor has to unwind it the same way for every constructor there is.
+        - Members are built top to bottom in the order the class body declares them, and destroyed in exactly the reverse.
+      reveal: >-
+        Declaration order wins because destruction has to be construction run backwards, and a
+        class has one destructor however many constructors it has. This is why a member
+        initialized from another member is a bug that still compiles, and why the compiler has
+        a warning for a list written out of order at all.
+
+    - id: list-or-body
+      kind: choice
+      prompt: >-
+        One of these constructors assigns in its body and the other uses a member initializer
+        list. What does the difference actually buy?
+      context:
+        as: code
+        lang: cpp
+        source: |
+          class AccountBad {
+              std::string owner_;
+              int balance_cents_;
+          public:
+              AccountBad(const std::string &name, int balance) {
+                  owner_ = name;
+                  balance_cents_ = balance;
+              }
+          };
+
+          class AccountGood {
+              std::string owner_;
+              int balance_cents_;
+          public:
+              AccountGood(const std::string &name, int balance)
+                  : owner_(name), balance_cents_(balance) {}
+          };
+      options:
+        - id: style
+          label: Nothing at runtime. The two compile to the same thing and it is a formatting preference.
+          note: They do not compile to the same thing. A member assigned in the body was default constructed first, so owner_ is built empty and then assigned over, which for a string is two operations where one would do.
+        - id: perf
+          label: One fewer construction for each non-trivial member, and nothing else.
+          note: The saving is real and it is not the whole story. Some members cannot be assigned at all, and for those the list is not an optimisation.
+        - id: correct
+          label: One fewer construction per non-trivial member, and the only way to initialize a const member, a reference member, or a member with no default constructor.
+          correct: true
+          note: Everything in the body is an assignment, and those three cannot be assigned. The list is where initialization happens and the body is already too late.
+        - id: order-claim
+          label: It lets the constructor choose which order the members are initialized in.
+          note: It never does. Members are initialized in declaration order, and the list only says what each one is initialized from.
+      hints:
+        - Ask what has already happened to every member by the time the first line of the constructor body runs.
+        - Assignment needs something to assign to, so the member already exists and already holds a value.
+        - Three kinds of member cannot be assigned once they exist, and for those the difference is not a saving at all.
+      reveal: >-
+        The body runs after every member is already constructed, so anything written there is a
+        second write over a value that was already put there. That is the whole difference, and
+        it is why const members, references and members without a default constructor have no
+        body form to fall back on.
+
+    - id: the-reference-that-escapes
+      kind: spot
+      prompt: >-
+        The constructor refuses a negative amount and a caller creates one anyway, without
+        touching a private field by name. Click the line that lets them.
+      lang: cpp
+      source: |
+        class Money {
+            int amount_cents_;
+            std::string currency_;
+
+        public:
+            Money(int cents, std::string curr)
+                : amount_cents_(cents), currency_(std::move(curr)) {
+                if (cents < 0) throw std::invalid_argument("negative amount");
+            }
+
+            int amount_cents() const { return amount_cents_; }
+            int &cents() { return amount_cents_; }
+            const std::string &currency() const { return currency_; }
+        };
+      targets: [11]
+      decoys:
+        '1': The field is private, and it stays private. What defeats the invariant here never names it from outside.
+        '7': Throwing from the constructor is how an invariant gets established. An object that would violate it never finishes being built.
+        '10': Returning the value by copy hands out a number the caller can do nothing to the object with. This accessor is safe.
+        '12': A const reference lets a caller read the string without copying it and without being able to write through it.
+      hints:
+        - Two accessors return the same field. Ask what a caller can do with each of the two return values.
+        - private stops outside code naming the field. It does not stop a member function handing out a way to reach it.
+        - One of these returns something assignable, so a caller can write into the object without going near anything that checks.
+      reveal: >-
+        A non-const reference to a private member is that member, spelled differently. The
+        constructor's check runs once and then a caller writes straight past it with
+        m.cents() = -5000. Encapsulation is a claim about what escapes the class, not about
+        which keyword the field was declared under.
 ---
 
 In procedural C, a `struct` is a contiguous block of data with no access controls. Any function holding a pointer to a struct can modify any field at any offset. Correctness depends on every caller respecting conventions manually. C++ introduces user-defined types with encapsulation, member functions, initialization lists, and value semantics.

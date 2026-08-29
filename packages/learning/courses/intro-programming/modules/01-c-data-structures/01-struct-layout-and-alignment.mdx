@@ -7,6 +7,127 @@ estimatedMinutes: 20
 exercise:
   id: struct-padding-calculator
   timeboxMinutes: 25
+challenges:
+  goal: Predict the size a compiler gives a struct, reorder its fields to shrink it, and stop trusting the bytes between them.
+
+  steps:
+    - id: watch-the-holes-move
+      kind: custom
+      component: memory-layout
+      prompt: >-
+        Move the fields into different orders and watch where the padding goes. Find an
+        arrangement with one padding byte in it, then come back and say why it worked.
+      props:
+        alignmentBytes: 8
+        cacheLineBytes: 64
+        allowReorder: true
+        fields:
+          - { id: status, name: status, type: char, sizeBytes: 1 }
+          - { id: timestamp, name: timestamp, type: int64_t, sizeBytes: 8 }
+          - { id: code, name: code, type: short, sizeBytes: 2 }
+          - { id: reading, name: reading, type: int, sizeBytes: 4 }
+      hints:
+        - Padding appears in front of a field, never behind it. Ask what each field needs before it can be placed.
+        - A field of n bytes wants an offset that divides by n. The gap is whatever it takes to get there.
+        - Put the widest field first and the narrowest last, and every offset lands on its boundary without help.
+      reveal: >-
+        The compiler places fields in the order you declare them and never reorders them, because
+        C guarantees that increasing declaration order means increasing address. That guarantee
+        is what makes struct layout your problem rather than the optimiser's.
+
+    - id: size-as-declared
+      kind: numeric
+      prompt: >-
+        What does sizeof report for this struct on a 64-bit machine, with every field on its
+        natural alignment?
+      context:
+        as: code
+        lang: c
+        source: |
+          struct sample {
+              char    status;     /* 1 byte  */
+              int64_t timestamp;  /* 8 bytes */
+              short   code;       /* 2 bytes */
+              int     reading;    /* 4 bytes */
+          };
+      answer: 24
+      unit: bytes
+      tolerance: 0
+      scaleHint: >-
+        An answer in the hundreds is counting bits. Every size here is in bytes and so is the
+        answer.
+      hints:
+        - Adding the four field sizes gives 15, and no compiler will report 15 for this.
+        - Place the fields one at a time, and before each one push the running offset up to a multiple of that field's own size.
+        - After the last field the total is rounded up again, this time to the alignment of the widest field, so that an array of these keeps every element aligned.
+      reveal: >-
+        Fifteen bytes of data in twenty-four bytes of struct, and nine bytes of it are holes you
+        cannot see, name or rely on. In an array of a million of these that is nine megabytes of
+        nothing, which is why this is a cache problem before it is a memory problem.
+
+    - id: shrink-it
+      kind: order
+      prompt: >-
+        Declare the same four fields in the order that leaves the least padding. Put the field
+        that goes at offset zero first.
+      items:
+        - { id: timestamp, label: "int64_t timestamp, 8 bytes" }
+        - { id: reading, label: "int reading, 4 bytes" }
+        - { id: code, label: "short code, 2 bytes" }
+        - { id: status, label: "char status, 1 byte" }
+      solution: [timestamp, reading, code, status]
+      because:
+        timestamp: The strictest alignment goes first. Offset zero satisfies every requirement there is, so the widest field is the only one that gets it for free.
+        reading: At offset 8 a four byte field is already aligned. Putting anything narrower here would push it out of position.
+        code: Two bytes at offset 12, which divides by two, so there is nothing to skip.
+        status: A one byte field can sit anywhere, so it goes last where the offset is least likely to suit anything else.
+      hints:
+        - There is one arrangement here with no internal padding at all, and one byte of trailing padding.
+        - Every offset is the sum of the sizes before it, so ordering by size decides which offsets exist.
+        - Sort the fields from widest to narrowest. Each one then starts at an offset that is already a multiple of every smaller size.
+      reveal: >-
+        Widest to narrowest takes this struct from 24 bytes to 16, and the rule generalises
+        because each alignment divides the next one up. It is not free everywhere: a wire format
+        or a struct that has to match a hardware register has its order fixed by something other
+        than you, and that is when padding gets declared explicitly instead of discovered.
+
+    - id: the-bytes-nobody-set
+      kind: spot
+      prompt: >-
+        Two records are built from identical inputs and this reports them as different. Click the
+        line that cannot be trusted.
+      lang: c
+      source: |
+        struct record {
+            uint8_t  kind;
+            uint32_t id;
+            uint8_t  flags;
+        };
+
+        void init(struct record *r, uint32_t id) {
+            r->kind = 1;
+            r->id = id;
+            r->flags = 0;
+        }
+
+        int same_record(const struct record *a, const struct record *b) {
+            return memcmp(a, b, sizeof *a) == 0;
+        }
+      targets: [13]
+      decoys:
+        '2': A four byte field between two single byte fields is what creates the padding, and there is nothing incorrect about declaring it. Reordering would shrink the struct without fixing the comparison.
+        '8': Assigning the id is fine. Every named field in this struct does get written.
+        '9': This sets the last named field, and it is exactly the point. Every field is assigned and the struct still holds bytes nobody assigned.
+        '6': Taking a pointer and filling the struct through it is ordinary. The problem is in how two of them are later compared.
+      hints:
+        - Both records have identical values in all three fields. The comparison still returns false, so it must be reading something the fields do not cover.
+        - sizeof this struct is twelve, and the three fields account for six of those bytes.
+        - memcmp compares every byte in the object, and the padding bytes were never written by anything, so they hold whatever was on the stack or in the allocation before.
+      reveal: >-
+        Padding bytes are indeterminate. They are not guaranteed zero, not preserved by
+        assignment, and not compared by the struct assignment operator either. Comparing structs
+        field by field is the fix, and memset before filling is the other one, which is also why
+        a struct is never safe to write to disk or a socket without a defined serialisation.
 ---
 
 In C, structured data types combine primitive variables into a single composite type. While developers write struct declarations as logical lists of named fields, hardware constraints dictate how those fields are arranged in physical memory.

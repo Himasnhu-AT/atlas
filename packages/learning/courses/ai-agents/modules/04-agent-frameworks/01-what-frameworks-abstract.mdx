@@ -4,6 +4,172 @@ title: What frameworks abstract
 summary: You already wrote the engine. A framework adds five things around it, in one of two shapes, and charges you in stack traces and in coupling. Knowing which five is what makes the choice a decision.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Name what a framework adds around the loop you already wrote, and what it charges for it.
+
+  steps:
+    - id: which-gap-is-this
+      kind: assign
+      prompt: >-
+        Each of these is a real complaint about a hand rolled agent. Sort them by the
+        capability whose absence causes them.
+      buckets:
+        - id: registry
+          label: Tool registry
+          note: One definition of a tool, with the schema derived from it and dispatch keyed off it.
+        - id: state
+          label: State persistence
+          note: A place for application data that is not the message transcript.
+        - id: observability
+          label: Observability
+          note: A structured record per step, emitted whether or not anybody is watching.
+        - id: retry
+          label: Error and retry policy
+          note: One set of rules about what is retried, how often, and what is raised.
+      items:
+        - id: drifted-name
+          label: The model keeps sending an argument the function was renamed away from six weeks ago.
+          bucket: registry
+          because: The schema and the function are two documents saying the same thing, and only one of them got edited.
+        - id: hand-written-schema
+          label: Every tool has a dict above it that somebody typed out by hand.
+          bucket: registry
+          because: The same drift waiting to happen. A signature already carries the names, the types and which ones have defaults.
+        - id: id-in-prose
+          label: The user id travels between steps inside a sentence the model reads and rewrites.
+          bucket: state
+          because: The transcript is the only thing that survives a turn, so anything you need later gets phrased at the model and comes back paraphrased.
+        - id: total-in-prose
+          label: A running total came back as fourteen thousand and the code wanted 14000.
+          bucket: state
+          because: The same problem with a sharper edge. Numbers put through prose come back as language.
+        - id: which-tool
+          label: A run failed overnight and nobody can say which tool it called on step four.
+          bucket: observability
+          because: A run that is not recorded cannot be reproduced, and a model plus a live service does not reproduce on its own.
+        - id: print-archaeology
+          label: Debugging means reading print output out of a log and guessing the order.
+          bucket: observability
+          because: Unstructured lines cannot be filtered, joined to a run, or counted.
+        - id: scattered-except
+          label: Four call sites, four try blocks, four opinions about which codes are worth retrying.
+          bucket: retry
+          because: A policy that exists in four places is four policies, and the newest one is usually the wrong one.
+        - id: retrying-400
+          label: One path backs off exponentially and another sends the same 400 four times.
+          bucket: retry
+          because: Same fragmentation. This is what a cross cutting concern looks like when it is not cross cut.
+      hints:
+        - Two of these are about the same fact being written down twice.
+        - Two of them are about something that has nowhere to live except the conversation.
+        - The difference between the last four pairs is who was supposed to be reading the output.
+      reveal: >-
+        None of these are hard problems. They are cross cutting ones, which is why a plain
+        function grows an argument for each and stops fitting on a screen. A framework is a
+        set of decisions about where these five live so you do not make them one call site at
+        a time.
+
+    - id: six-months-later
+      kind: spot
+      prompt: >-
+        Here is that loop after two features and one incident. Click the lines where a
+        missing capability is doing damage.
+      lang: python
+      source: |
+        def run(client, registry, system, question, user_id, cart_total, max_steps=6):
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"{question} My id is {user_id}, my cart is {cart_total}."},
+            ]
+            for _ in range(max_steps):
+                print(f"step: {len(messages)} messages so far")
+                response = call_with_retry(client, messages, registry.schemas, attempts=3)
+                choice = response.choices[0]
+                if choice.finish_reason != "tool_calls":
+                    return choice.message.content or ""
+                messages.append(assistant_turn(choice.message))
+                for call in choice.message.tool_calls:
+                    messages.append(tool_turn(call.id, registry.invoke(call.function.name, call.function.arguments)))
+            raise MaxStepsExceeded(max_steps)
+      targets: [3, 6]
+      requireAll: true
+      decoys:
+        '0': A long signature is the symptom rather than the fault. It is what you get when these values have nowhere else to live.
+        '1': Building the message list here is right, and it stays local to the call.
+        '2': The system turn belongs first.
+        '5': A bounded loop is the correct shape.
+        '7': Retry lives in one function, which is the thing you wanted.
+        '9': Reading finish_reason rather than the text is right.
+        '11': The assistant turn before the results, as the protocol asks.
+        '13': Dispatch through the registry, keyed by name, is right.
+        '14': Raising on an exhausted budget is right.
+      hints:
+        - Two values on the first line are used exactly once each. Find where.
+        - One line puts application data somewhere the model can rewrite it.
+        - One line emits something no tool can read, join to a run, or count.
+      reveal: >-
+        The id and the total are application state, and the only place this loop has to keep
+        them is the transcript, which the model paraphrases. The print is a step record with
+        the structure removed, so nothing downstream can group by run or filter by tool.
+        Both are fixable by hand. Both stop being fixable by hand at the fourth agent.
+
+    - id: which-runtime
+      kind: choice
+      prompt: >-
+        The workflow pauses for a human to approve a refund, sometimes for a day, and then
+        carries on where it stopped, possibly on another machine. Which shape fits?
+      options:
+        - id: graph
+          label: A graph runtime, with nodes, edges and a scheduler that owns execution.
+          correct: true
+          note: Because the engine schedules rather than your code, it can write the state to a checkpoint between two nodes and pick it up later from a different process. Pausing and resuming is a property of who is driving.
+        - id: conversational
+          label: A conversational runtime, sequential code with handoffs and guardrails.
+          note: Sequential code reads better and is easier to follow, but its state lives in a Python call stack that does not survive the night. You would be building the checkpointer yourself.
+        - id: plain-loop
+          label: The loop you already have, with the approval as a tool call.
+          note: The tool would have to block for a day inside the loop, which holds a process open and loses everything if it restarts. The pause is not the hard part; resuming somewhere else is.
+        - id: either
+          label: Either one, since both run the same loop underneath.
+          note: They do run the same loop, which is why the five capabilities are the interesting difference. Checkpointing is one of them and only one of the two shapes gives it to you.
+      hints:
+        - The requirement is not the pause. It is what has to be true after the pause.
+        - Ask where the run state lives while nothing is happening.
+        - One of the two shapes hands scheduling to the engine, and that is the thing that makes a checkpoint possible.
+      reveal: >-
+        Handing scheduling over is what buys checkpointing, resumption, rewinding and
+        parallel branches. It costs you linear readability, because the flow is now spread
+        across node definitions and edge conditions rather than down the page. Neither shape
+        is more advanced than the other.
+
+    - id: twelve-frames-of-library
+      kind: choice
+      prompt: >-
+        A framework agent calls the same tool twice on one turn and the traceback is twelve
+        frames of library code. Where do you look first?
+      options:
+        - id: the-messages
+          label: The message list the framework actually sent to the provider.
+          correct: true
+          note: Every framework failure is a loop failure wearing a stack trace you did not write. The list is the whole runtime state, and looking at it turns a library mystery back into the thing you already know how to read.
+        - id: changelog
+          label: The framework's changelog, in case a release changed the behaviour.
+          note: Worth doing eventually, and useless right now. You do not yet know what the behaviour is, only what the outcome was.
+        - id: your-tools
+          label: Your tool implementations, since they are the code you own.
+          note: They are the code you own and they are not where duplicated calls come from. A tool that runs twice ran because it was asked twice.
+        - id: file-upstream
+          label: File a bug upstream with the traceback attached.
+          note: A maintainer will ask for the request that produced it, which is the message list. Get that first, and half the time you will find your own configuration in it.
+      hints:
+        - The traceback tells you where the exception surfaced, not what the run was doing.
+        - The framework is still building a list of messages and posting it, however many decorators are in the way.
+        - Everything the model saw is in one place, and it is a place you have read before.
+      reveal: >-
+        This is the first cost of adoption. Your own loop puts the fault on a line you wrote,
+        and a framework puts it several frames inside somebody else's package. The other two
+        costs are a dependency that breaks interfaces faster than most, and the day your
+        requirement falls outside the pattern the library optimised for.
 ---
 
 [The loop you wrote in module 3](lesson:ai-tool-use.the-react-loop) is the engine. Call the model,

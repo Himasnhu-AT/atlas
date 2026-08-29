@@ -7,11 +7,144 @@ estimatedMinutes: 35
 exercise:
   id: context-budget
   timeboxMinutes: 30
-interactive:
-  type: token-budget
-  props:
-    maxTokens: 4096
-    systemTokens: 350
+challenges:
+  goal: Budget a context window that everything shares, and predict what an agent loop spends before you run it.
+
+  steps:
+    - id: what-is-left
+      kind: numeric
+      prompt: >-
+        Everything below is already committed for this request. How many tokens are left for
+        anything you have not sent yet?
+      context:
+        as: pairs
+        items:
+          - { k: context window, v: "8000" }
+          - { k: reserved for the reply, v: "512" }
+          - { k: system message, v: "350" }
+          - { k: conversation so far, v: "5200" }
+          - { k: tool schemas, v: "400" }
+      answer: 1538
+      tolerance: 0
+      unit: tokens
+      scaleHint: You are out by an order of magnitude. Every figure here is already a token count.
+      hints:
+        - The window is not the prompt budget. Something has to come out of it before you start.
+        - Tool schemas go on the wire with every request, so they are spending the same window the messages are.
+        - Subtract everything that is already committed, the reply included.
+      reveal: >-
+        The reply comes out of the same window as the prompt, which is why it is subtracted
+        rather than added. Forget the reserve and a request that fits perfectly will still
+        return a finish reason of length, because generation ran out of window rather than
+        out of patience.
+
+    - id: fit-the-turn
+      kind: tune
+      prompt: >-
+        This agent no longer fits. Cut history or cut tool schemas until the reply has its
+        512 tokens of headroom back.
+      inputs:
+        - { id: turns, label: Conversation turns kept, min: 0, max: 24, step: 1, initial: 16 }
+        - { id: tools, label: Tool schema tokens, unit: tok, min: 0, max: 1200, step: 100, initial: 900 }
+      outputs:
+        - id: prompt
+          label: Prompt tokens sent
+          unit: tok
+          terms:
+            - { coef: 350, of: [] }
+            - { coef: 220, of: [turns] }
+            - { coef: 1, of: [tools] }
+          note: The system message is 350 and every kept turn averages 220.
+        - id: headroom
+          label: Room left for the reply
+          unit: tok
+          terms:
+            - { coef: 4096, of: [] }
+            - { coef: -1, of: [prompt] }
+          target: { min: 512 }
+          note: There is still less than 512 tokens of window left, so the reply will be cut off.
+      hints:
+        - Both sliders spend the same 4096, and the reply is spending it too.
+        - A turn costs 220 and a hundred tokens of schema costs a hundred. Work out which slider buys headroom faster per notch.
+        - There is more than one setting that works, which is the point. Trimming history and dropping a tool are the same currency.
+      reveal: >-
+        Tool schemas are invisible in a transcript and they are on the wire every single
+        turn, so a tool nobody calls costs the same as one that does all the work. When an
+        agent stops fitting, the schemas are usually cheaper to cut than the history, and
+        nobody looks at them first.
+
+    - id: what-the-loop-spends
+      kind: numeric
+      prompt: >-
+        An agent sends a 1500 token base prompt and adds 300 tokens to the transcript each
+        step. Across 10 steps, how many prompt tokens does it pay for in total?
+      context:
+        as: prose
+        text: >-
+          Nothing is remembered between calls, so step 1 sends the base prompt, step 2 sends
+          the base plus one step of additions, step 3 sends the base plus two, and so on.
+      answer: 28500
+      tolerance: 0
+      unit: tokens
+      scaleHint: Out by roughly ten times. Ten steps of a 1500 token prompt is already 15000 before a single addition is resent.
+      hints:
+        - 4500 is the tenth call on its own. The question is the whole run.
+        - The base is paid ten times, once per call, and that is only the first half.
+        - The additions form 0, 1, 2 and so on up to 9 steps worth. Sum that, then multiply by 300.
+      reveal: >-
+        The base term grows with the step count and the resend term grows with its square, so
+        doubling the steps roughly quadruples the resend half. Nothing in the loop looks
+        expensive while you are watching it, because each individual call is small and the
+        cost lives in how many times the earlier ones are sent again.
+
+    - id: what-each-cut-costs
+      kind: assign
+      prompt: >-
+        The history no longer fits and something has to go. Sort each tactic by what it does
+        to the information you are losing.
+      buckets:
+        - id: drops
+          label: Drops messages whole
+          note: Costs nothing at runtime and loses everything in what it cut.
+        - id: compresses
+          label: Keeps the gist, loses the detail
+          note: Costs a model call, and the call itself is not free or reliable.
+        - id: fetches
+          label: Brings back only what matches
+          note: Costs an index and a query, and only returns what the question happened to reach.
+      items:
+        - id: window
+          label: Keep the last N exchanges and cut the rest
+          bucket: drops
+          because: A slice is deterministic and instant. Whatever fell outside it is gone with no record that it existed.
+        - id: pin-and-cut
+          label: Pin the system message and trim forward from the oldest turn
+          bucket: drops
+          because: Still a slice, with one message held out of it. The pin protects the instructions and nothing else.
+        - id: summarise
+          label: Replace the older half with one model written paragraph
+          bucket: compresses
+          because: A paragraph in place of forty turns keeps the decisions and loses the wording, and it costs a call every time the window fills.
+        - id: facts
+          label: Pull durable facts out of the turns you are about to drop
+          bucket: compresses
+          because: Also a model call, also lossy, and it keeps the few things worth a week rather than a readable narrative.
+        - id: embed
+          label: Embed the transcript and pull back the turns that match the new question
+          bucket: fetches
+          because: Nothing is thrown away, and nothing comes back either unless the question happens to match it.
+        - id: index
+          label: Search an index built from the conversation so far
+          bucket: fetches
+          because: The same bargain. Recall is now a property of the query rather than of how recent the turn was.
+      hints:
+        - Ask what each one costs you at the moment it runs, and what it costs you a week later.
+        - Two of these are pure arithmetic on a list and need no model at all.
+        - Two of them keep everything and still fail to return it.
+      reveal: >-
+        Production systems use all three at once, because they fail differently. Pin the
+        system message, keep recent turns verbatim, summarise the middle, and retrieve from
+        the archive. What you must not do is pick one and pretend the loss is not there.
 ---
 
 A language model does not ingest raw string characters. A tokenizer segments the text into integer IDs from a fixed vocabulary before execution. This preprocessing step explains several common edge cases in model behavior.
@@ -36,16 +169,6 @@ Character-level tasks (such as counting specific letters in a word or reversing 
 Similarly, multi-digit arithmetic requires coordinating across token chunks. When precision is required, delegate string operations and arithmetic to deterministic tools (`len(s)`, Python evaluators) rather than relying on language model generation.
 
 ## The shared context window budget
-
-```widget:token-budget
-maxTokens: 4096
-systemTokens: 350
-toolSchemaTokens: 400
-initialTurns: 8
-reserveOutputTokens: 512
-showAttentionHeatmap: true
-puzzleTarget: "Tune turns and tool schemas to see how fast multi-turn agents exhaust context limits."
-```
 
 The context window defines the maximum sequence length a model can process in a single request. This limit encompasses all prompt content: system instructions, conversation history, tool definitions, tool results, and the tokens generated in the response:
 

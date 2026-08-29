@@ -7,6 +7,168 @@ estimatedMinutes: 50
 exercise:
   id: rag-pipeline
   timeboxMinutes: 40
+challenges:
+  goal: Assemble a prompt whose citations can be checked, and let the pipeline refuse before it spends a model call.
+
+  steps:
+    - id: the-query-path
+      kind: order
+      prompt: >-
+        A question arrives and the index is already built. Put what happens next in order.
+      items:
+        - id: embed
+          label: Embed the question
+        - id: search
+          label: Score every chunk against it and take the top k
+        - id: filter
+          label: Drop anything below the score floor
+        - id: format
+          label: Assemble the survivors into a numbered context block
+        - id: generate
+          label: Call the model
+      solution: [embed, search, filter, format, generate]
+      because:
+        filter: The floor runs before assembly, so a question nothing answers never becomes tokens you paid to send.
+        format: Assembly attaches the bracketed numbers and the paths, and it can only number what survived the floor.
+        generate: The one step that costs a model call, and everything above it exists to make it cheaper or to avoid it.
+      hints:
+        - The question has to become a vector before it can be compared to anything.
+        - Two of these are about deciding what goes in the prompt and one of them is a filter.
+        - Only one step here calls a model, and it is not the first one.
+      reveal: >-
+        Ingestion is the other half and it runs offline, on a schedule or on a document
+        change, with one batched embedding call for the whole corpus. Everything above
+        happens per question, which is why the order of the filter matters: put it after
+        assembly and you have already paid for the context you are about to discard.
+
+    - id: assemble-the-block
+      kind: text-contract
+      prompt: >-
+        Your format_context produced this. Correct it so a verification pass could match
+        every quote back to the document.
+      context:
+        as: pairs
+        items:
+          - { k: chunk pricing.md#0, v: The Pro plan includes unlimited projects and priority support. }
+          - { k: chunk pricing.md#1, v: The Pro plan costs $49 per month when billed annually. }
+          - { k: the layout, v: bracketed number and path on one line, the chunk text on the next, a blank line between blocks }
+      lang: text
+      initial: |
+        1. pricing.md#0 - "The Pro plan includes unlimited projects and priority support."
+        2. pricing.md#1 - "The Pro plan costs $49 per month when billed..."
+      rules:
+        - message: The first block does not open with a bracketed number and a path on a line of its own. The model cites by that number and a tool resolves it by that path.
+          check: { op: matches, pattern: '^\[1\] pricing\.md#0$', flags: m }
+        - message: The second block needs the same treatment.
+          check: { op: matches, pattern: '^\[2\] pricing\.md#1$', flags: m }
+        - message: The chunk text has been wrapped in quotation marks that are not in the document. A verifier matching a cited quote against the source will not find it.
+          check: { op: notContains, text: '"' }
+        - message: The second chunk has been truncated. Assembly copies the text and changes nothing about it.
+          check: { op: notContains, text: "..." }
+        - message: The second chunk is missing its ending. The price and the billing period are one sentence and both halves have to be there.
+          check: { op: contains, text: billed annually. }
+        - message: The two blocks run together. A blank line between them is what stops the model reading two passages as one.
+          check: { op: matches, pattern: 'support\.\n\n\[2\]' }
+      hints:
+        - Four things differ from the layout beside you, and two of them are characters that were added rather than removed.
+        - The numbering is not the only thing on the first line of a block.
+        - Nothing in the assembly step is allowed to edit the chunk text, including politely.
+      reveal: >-
+        The bracketed number is what the model cites with, the path is what a human or a
+        verifier resolves that citation against, and the blank line is what keeps two
+        passages from being read as one. Preserving the text byte for byte is what makes
+        the later check possible: a pass that matches a quoted sentence against the source
+        document fails on quotation marks you added during assembly.
+      solution: |
+        [1] pricing.md#0
+        The Pro plan includes unlimited projects and priority support.
+
+        [2] pricing.md#1
+        The Pro plan costs $49 per month when billed annually.
+
+    - id: which-half-failed
+      kind: choice
+      prompt: >-
+        For how much does the Pro plan cost, the chunk holding the price ranks second
+        behind one with more vocabulary overlap. With k of 1 the answer is wrong.
+      context:
+        as: log
+        lines:
+          - 'pricing.md#0   0.4781   The Pro plan includes unlimited projects and priority support.'
+          - 'pricing.md#1   0.3419   The Pro plan costs $49 per month when billed annually.'
+          - 'pricing.md#2   0.2097   The Free plan is limited to three projects.'
+      options:
+        - id: retrieval
+          label: Retrieval failed, and you can see it here without calling a model at all.
+          correct: true
+          note: The right chunk exists, is well formed, and is ranked second. That is a retrieval measurement, and it is the cheapest one you have because it needs a labelled query and a corpus and nothing else.
+        - id: generation
+          label: Generation failed, since the answer was wrong.
+          note: The model was handed a passage about projects and support and answered from it, cited it, and did not invent a price. It did the one thing you asked. Grading this as a generation failure sends you to tune the prompt.
+        - id: chunking
+          label: Chunking failed, since the price ended up in its own chunk.
+          note: The price is intact inside one clean chunk with its section path attached. Merging it into the chunk above would help this query and hurt the next one.
+        - id: grounding
+          label: The grounding instruction is too weak.
+          note: It obeyed the instruction exactly, answering only from the context and citing the passage it was given. A stronger instruction produces the same answer with more emphasis.
+      hints:
+        - Look at the three scores before you look at the answer.
+        - Ask what the model was actually handed, and whether it used it correctly.
+        - One of these two measurements can be made without spending a single token on generation.
+      reveal: >-
+        Retrieval quality and answer quality are separate numbers and they need separate
+        test sets. Retrieval is graded on whether the labelled chunk shows up in the top k,
+        with no model in the loop, which makes it fast and cheap enough to run on every
+        change to chunk size or embedding. Blur the two and every regression looks like a
+        prompt problem.
+
+    - id: before-the-model-is-called
+      kind: assign
+      prompt: >-
+        The floor is 0.35. Sort these by what answer returns and whether the model is called
+        at all.
+      buckets:
+        - id: short-circuit
+          label: The refusal string, and no model call
+          note: The retrieval layer decided, so there was nothing to send.
+        - id: pass-through
+          label: Whatever the model said, unchanged
+          note: Something cleared the floor, so the model was asked and its reply is the answer.
+      items:
+        - id: nothing-clears
+          label: Best chunk scores 0.21.
+          bucket: short-circuit
+          because: The context would not answer the question, so sending it buys a plausible wrong answer at full price.
+        - id: empty-store
+          label: The store holds no documents yet.
+          bucket: short-circuit
+          because: Same path with a different cause. There are no hits, so there is no prompt worth building.
+        - id: normal-answer
+          label: Two chunks clear the floor and the model answers, citing 1 and 2.
+          bucket: pass-through
+          because: The ordinary case. sources records what you supplied, and the bracketed numbers in the text record what it claims, and those are two different lists on purpose.
+        - id: just-above
+          label: One chunk clears the floor at 0.36.
+          bucket: pass-through
+          because: Barely over is over. The floor is the line you chose, and moving it per query would make it not a line.
+        - id: model-refuses
+          label: Two chunks clear the floor and the model replies with the refusal string itself.
+          bucket: pass-through
+          because: It read the passages and judged they do not answer the question, which is what the instruction asked for. The caller sees the same string either way and does not need to care which layer decided.
+        - id: empty-reply
+          label: Two chunks clear the floor and the model returns an empty string.
+          bucket: pass-through
+          because: An empty reply is a fact about the run. Quietly turning it into a refusal hides a bug that would otherwise be visible in the traces.
+      hints:
+        - Two of these never reach the model, and the reason is the same both times.
+        - The instruction in the system prompt only applies to a model that gets called.
+        - One of them looks like a refusal and is not, and it matters that you do not rewrite it.
+      reveal: >-
+        The instruction and the floor are the same policy at two layers. The instruction is
+        advice to a model that can be argued with. The floor is arithmetic, it runs first,
+        and it costs nothing. Together they mean an unanswerable question ends with an exact
+        string a caller can compare against, rather than a sentence a caller has to
+        interpret.
 ---
 
 A complete retrieval-augmented generation pipeline connects document ingestion, vector retrieval, prompt assembly,

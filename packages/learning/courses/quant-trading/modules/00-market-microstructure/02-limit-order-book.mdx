@@ -7,6 +7,123 @@ estimatedMinutes: 25
 exercise:
   id: limit-order-book
   timeboxMinutes: 35
+challenges:
+  goal: Cross an order into a live book, price what the sweep costs, and cancel out of one in constant time.
+
+  steps:
+    - id: walk-the-ladder
+      kind: custom
+      component: order-book
+      prompt: >-
+        Raise the order size until the buy stops filling at the best offer, and watch what
+        the average fill price does as each level runs out.
+      props:
+        tickSize: 0.01
+        defaultOrderSize: 150
+        bids:
+          - { price: 100.01, size: 300 }
+          - { price: 100.00, size: 700 }
+          - { price: 99.98, size: 450 }
+          - { price: 99.95, size: 600 }
+        asks:
+          - { price: 100.03, size: 200 }
+          - { price: 100.04, size: 400 }
+          - { price: 100.05, size: 800 }
+          - { price: 100.08, size: 550 }
+      hints:
+        - Anywhere below 200 shares the average fill price does not move at all.
+        - The average price jumps at the size that exhausts the top level, and it jumps rather than drifts.
+        - Push it past 600 and the 100.05 level is doing most of the filling.
+      reveal: >-
+        Depth is a step function, so impact is one too. The book fills everything up to the
+        size resting at the touch at one price, then charges a tick at a time for the rest.
+        A model that treats impact as a smooth function of size is fitting a curve to a
+        staircase.
+
+    - id: what-the-sweep-costs
+      kind: numeric
+      prompt: >-
+        A market buy for 900 shares hits this offer side. How many dollars more does it pay
+        than 900 shares at the best offer would have cost?
+      context:
+        as: table
+        caption: Resting offers, in price order
+        columns: [Price, Size]
+        rows:
+          - [100.03, 200]
+          - [100.04, 400]
+          - [100.05, 800]
+          - [100.08, 550]
+      answer: 10
+      tolerance: 0
+      unit: dollars
+      scaleHint: >-
+        Out by a factor of ten or more, which means the ticks and the share counts have been
+        multiplied in the wrong units. A tick here is one cent, not one dollar.
+      hints:
+        - Only 200 shares are available at 100.03. The other 700 come from higher up.
+        - Split the 900 into 200 at 100.03, 400 at 100.04, and 300 at 100.05.
+        - The second slice pays one cent extra on 400 shares, the third pays two cents extra on 300.
+      reveal: >-
+        Ten dollars on a 90,000 dollar trade is a bit over one basis point, and none of it
+        is the spread. The spread is what you pay for immediacy at the touch; this is what
+        you pay for size, and it grows faster than the size does.
+
+    - id: how-the-engine-crosses
+      kind: order
+      prompt: >-
+        A buy limit at 100.05 for 700 arrives at that book. Put the steps the matching
+        engine runs in order.
+      items:
+        - { id: check-marketable, label: Compare the incoming price against the best price on the opposite side }
+        - { id: fill-head, label: Fill against the order at the head of that price level }
+        - { id: retire, label: Retire the resting order once its quantity reaches zero }
+        - { id: repeat, label: Repeat while the incoming order still has quantity and is still marketable }
+        - { id: post-remainder, label: Post whatever is left onto the bid side }
+      solution: [check-marketable, fill-head, retire, repeat, post-remainder]
+      because:
+        check-marketable: Nothing happens until the engine knows the order crosses. A limit that does not reach the other side skips straight to resting.
+        fill-head: Within a price level the queue is FIFO, so the head fills first and the rest of the level does not get a say.
+        repeat: The loop condition has two halves. Running out of quantity and running out of acceptable price both end it, and they end it differently.
+        post-remainder: A crossing limit order that is not fully filled becomes a resting order. This is what makes it a limit order rather than a market order.
+      hints:
+        - The first step decides whether any of the others happen at all.
+        - Two of these are inside the loop and one is the loop itself.
+        - The last step only matters when the order runs out of acceptable price before it runs out of quantity.
+      reveal: >-
+        A crossing limit order is a taker and then a maker, in that order, and the split
+        between the two halves is decided by the book rather than by the trader. That is why
+        an order log has to record the fill price of every slice: the order has one price and
+        the execution has several.
+
+    - id: the-cancel-that-walks
+      kind: spot
+      prompt: >-
+        Cancels outnumber fills by a wide margin, so this method runs constantly. Click the
+        line that makes it scale with the size of the book.
+      lang: python
+      source: |
+        def cancel(self, order_id: int) -> None:
+            if order_id not in self.live:
+                raise ValueError(f"unknown order {order_id}")
+            order = next(o for level in self.every_level() for o in level if o.id == order_id)
+            order.qty = 0
+            self.live.discard(order_id)
+      targets: [3]
+      decoys:
+        '1': A set membership test is a hash lookup. This line is already constant time and it is what makes the duplicate id error cheap.
+        '2': Raising on an unknown id is correct behaviour, not a cost. It runs once and touches nothing in the book.
+        '4': Setting the quantity to zero is the lazy delete. The fill pass discards the dead node when it next reaches the head of that queue.
+        '5': Discarding from the set is another hash operation, and it is what stops a cancelled id from being cancelled twice.
+      hints:
+        - Four of these five lines touch one object each.
+        - Ask what the generator expression has to visit before it finds the order it wants.
+        - Every level, and every order inside every level, until the id matches.
+      reveal: >-
+        The fix is a dict from order id to the order object, written on insert. Cancelling
+        then costs one lookup and one assignment, and the book never has to be traversed at
+        all. Lazy deletion is the other half: the cancelled node stays in its queue until a
+        fill walks past it, so the queue itself is never re-linked.
 ---
 
 A limit order book tracks all unexecuted limit orders submitted by market participants.
