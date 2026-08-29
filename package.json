@@ -21,7 +21,7 @@
     "validate:course": "pnpm --filter @atlas/learning validate:course",
     "validate:testcases": "pnpm --filter @atlas/learning validate:testcases",
     "validate": "pnpm validate:course && pnpm validate:testcases",
-    "validate:all": "pnpm validate && pnpm typecheck && pnpm test:core && pnpm test:content",
+    "validate:all": "pnpm validate && pnpm typecheck && pnpm test:core && pnpm test:content && pnpm test:runner",
     "typecheck": "pnpm -r --no-bail typecheck",
     "test:core": "pnpm --filter @atlas/core test",
     "test:content": "pnpm --filter @atlas/learning test",
@@ -29,7 +29,8 @@
     "lint:rust": "cd apps/desktop/src-tauri && cargo clippy --all-targets -- -D warnings",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
-    "clean": "rm -rf apps/*/dist apps/web/.next packages/*/dist **/*.tsbuildinfo"
+    "clean": "rm -rf apps/*/dist apps/web/.next packages/*/dist **/*.tsbuildinfo",
+    "test:runner": "pnpm --filter @atlas/learning test:runner"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
