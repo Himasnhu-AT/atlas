@@ -288,6 +288,27 @@ export type CustomChallenge = z.infer<typeof CustomChallenge>
 export const ChallengeSet = z.object({
   /** One sentence naming what the learner will be able to do afterwards. */
   goal: z.string().min(1).max(160),
+  /**
+   * Whether a learner can work these out from what is on the screen.
+   *
+   * Set it when the challenges carry their own context and discovering the
+   * idea is the point: tune a slider until the number moves, repair a payload
+   * against rules the challenge states, drive a machine whose transitions are
+   * drawn in front of you. Reading then stays optional and the lesson opens on
+   * the challenges.
+   *
+   * Leave it off, which is the default, when a challenge assumes something
+   * only the prose says. Sorting failures into "you will hit this here" and
+   * "described, never exercised" is not a puzzle, it is a comprehension check,
+   * and putting it before the text it checks is a quiz the learner cannot
+   * pass. Reading comes first for those.
+   *
+   * The default is deliberate: a challenge that quietly depends on the prose
+   * is the common mistake, and the cost of reading first when you did not need
+   * to is smaller than the cost of being asked about something you were never
+   * told.
+   */
+  readingOptional: z.boolean().default(false),
   steps: z.array(Challenge).min(3).max(4),
 })
 export type ChallengeSet = z.infer<typeof ChallengeSet>
@@ -301,6 +322,7 @@ export type ChallengeSet = z.infer<typeof ChallengeSet>
  */
 export const CompiledChallengeSet = z.object({
   goal: z.string().min(1).max(160),
+  readingOptional: z.boolean().default(false),
   steps: z.array(Challenge).min(1).max(4),
 })
 export type CompiledChallengeSet = z.infer<typeof CompiledChallengeSet>
