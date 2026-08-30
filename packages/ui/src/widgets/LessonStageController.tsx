@@ -13,17 +13,32 @@ export interface LessonStageControllerProps {
   exerciseNode?: React.ReactNode;
   sidebarNode?: React.ReactNode;
   footerNode?: React.ReactNode;
+  /**
+   * Whether the challenges stand on their own.
+   *
+   * When they do, the lesson opens on them and reading stays optional, which
+   * is the shape a discovery challenge wants. When they do not, reading leads
+   * and is numbered first, because a challenge that assumes the prose is a
+   * comprehension check, and putting it before the text it checks asks the
+   * learner about something nobody has told them.
+   */
+  readingOptional?: boolean;
 }
 
 /**
  * The three stages of a lesson: play it, read about it, write it.
  *
+ * Their order is not fixed. Reading leads unless the lesson's challenges were
+ * authored to stand on their own, because a challenge that assumes the prose
+ * is a comprehension check and asking it first is asking about something
+ * nobody has said yet.
+ *
  * All three are in the document at all times and the inactive ones carry the
- * `hidden` attribute. That is not a style preference. Reading is optional for
- * the learner but it is the whole of what a search engine is served, and a
- * lesson that opens on stage 1 while mounting only the active stage ships HTML
- * with no lesson in it. `[hidden]` is forced to `display: none` in the shared
- * stylesheet so a stage's own `flex` class cannot outrank it.
+ * `hidden` attribute. That is not a style preference: the prose is the whole
+ * of what a search engine is served, and a lesson that mounts only the active
+ * stage ships HTML with no lesson in it. `[hidden]` is forced to
+ * `display: none` in the shared stylesheet so a stage's own `flex` class
+ * cannot outrank it.
  */
 export function LessonStageController({
   hasInteractive = false,
@@ -34,93 +49,93 @@ export function LessonStageController({
   exerciseNode,
   sidebarNode,
   footerNode,
+  readingOptional = false,
 }: LessonStageControllerProps) {
-  // Default to 'play' if interactive exists, otherwise 'read'
+  // Reading leads unless the challenges were authored to stand alone.
+  const readingLeads = !hasInteractive || !readingOptional;
+
   const [activeStage, setActiveStage] = useState<LessonStage>(
-    hasInteractive ? "play" : "read",
+    readingLeads ? "read" : "play",
   );
+
+  /**
+   * The stages in the order this lesson presents them, so the numbering, the
+   * captions and the tab order all come from one list rather than from three
+   * places that have to be kept saying the same thing.
+   */
+  const order: LessonStage[] = [
+    ...(readingLeads ? (["read"] as const) : []),
+    ...(hasInteractive ? (["play"] as const) : []),
+    ...(readingLeads ? [] : (["read"] as const)),
+    ...(hasExercise ? (["code"] as const) : []),
+  ];
+
+  const label = (stage: LessonStage) => {
+    const position = String(order.indexOf(stage) + 1).padStart(2, "0");
+    const name =
+      stage === "play"
+        ? "PLAY"
+        : stage === "code"
+          ? "CODE"
+          : readingLeads
+            ? "READ"
+            : "READ (OPTIONAL)";
+    return `${position} · ${name}`;
+  };
+
+  const caption = (stage: LessonStage) => {
+    const position = order.indexOf(stage) + 1;
+    const name =
+      stage === "play"
+        ? "Hands-On Exploration"
+        : stage === "code"
+          ? "Code Practice & Verification"
+          : readingLeads
+            ? "Theory & Documentation"
+            : "Theory & Documentation (Optional)";
+    return `Stage ${position} · ${name}`;
+  };
+
+  /** The stage after this one, for the button at the foot of each stage. */
+  const next = (stage: LessonStage) => order[order.indexOf(stage) + 1];
 
   return (
     <div className="w-full">
       {/* Top 3-Stage Navigation Bar */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-rule pb-3">
         <nav
-          aria-label="Lesson Stages"
+          aria-label="Lesson stages"
           className="flex items-center gap-2 sm:gap-4"
         >
-          {hasInteractive && (
+          {order.map((stage) => (
             <button
-              onClick={() => setActiveStage("play")}
+              key={stage}
+              type="button"
+              aria-current={activeStage === stage ? "step" : undefined}
+              onClick={() => setActiveStage(stage)}
               className={`group relative flex items-center gap-2 rounded-field px-3 py-1.5 text-caption font-mono transition-colors cursor-pointer ${
-                activeStage === "play"
+                activeStage === stage
                   ? "font-bold text-accent"
                   : "text-muted hover:text-ink hover:bg-paper-raised"
               }`}
             >
               <span
                 className={`inline-block h-2 w-2 rounded-full ${
-                  activeStage === "play"
+                  activeStage === stage
                     ? "bg-accent ring-4 ring-accent/15"
                     : "bg-rule-strong"
                 }`}
               />
-              <span>01 · PLAY</span>
-              {activeStage === "play" && (
+              <span>{label(stage)}</span>
+              {activeStage === stage && (
                 <span className="absolute -bottom-3.5 left-0 right-0 h-[2px] bg-accent" />
               )}
             </button>
-          )}
-
-          <button
-            onClick={() => setActiveStage("read")}
-            className={`group relative flex items-center gap-2 rounded-field px-3 py-1.5 text-caption font-mono transition-colors cursor-pointer ${
-              activeStage === "read"
-                ? "font-bold text-accent"
-                : "text-muted hover:text-ink hover:bg-paper-raised"
-            }`}
-          >
-            <span
-              className={`inline-block h-2 w-2 rounded-full ${
-                activeStage === "read"
-                  ? "bg-accent ring-4 ring-accent/15"
-                  : "bg-rule-strong"
-              }`}
-            />
-            <span>{hasInteractive ? "02 · READ (OPTIONAL)" : "01 · READ"}</span>
-            {activeStage === "read" && (
-              <span className="absolute -bottom-3.5 left-0 right-0 h-[2px] bg-accent" />
-            )}
-          </button>
-
-          {hasExercise && (
-            <button
-              onClick={() => setActiveStage("code")}
-              className={`group relative flex items-center gap-2 rounded-field px-3 py-1.5 text-caption font-mono transition-colors cursor-pointer ${
-                activeStage === "code"
-                  ? "font-bold text-accent"
-                  : "text-muted hover:text-ink hover:bg-paper-raised"
-              }`}
-            >
-              <span
-                className={`inline-block h-2 w-2 rounded-full ${
-                  activeStage === "code"
-                    ? "bg-accent ring-4 ring-accent/15"
-                    : "bg-rule-strong"
-                }`}
-              />
-              <span>{hasInteractive ? "03 · CODE" : "02 · CODE"}</span>
-              {activeStage === "code" && (
-                <span className="absolute -bottom-3.5 left-0 right-0 h-[2px] bg-accent" />
-              )}
-            </button>
-          )}
+          ))}
         </nav>
 
         <div className="text-[11px] font-mono text-muted uppercase hidden sm:block">
-          {activeStage === "play" && "Stage 1 · Hands-On Exploration"}
-          {activeStage === "read" &&
-            "Stage 2 · Theory & Documentation (Optional)"}
-          {activeStage === "code" && "Stage 3 · Code Practice & Verification"}
+          {caption(activeStage)}
         </div>
       </div>
 
@@ -131,8 +146,10 @@ export function LessonStageController({
         <div className="w-full animate-fade-in" hidden={activeStage !== "play"}>
           {React.isValidElement(interactiveNode)
             ? React.cloneElement(interactiveNode as React.ReactElement<any>, {
-                onGoToCode: () => setActiveStage(hasExercise ? "code" : "read"),
+                onGoToCode: () =>
+                  setActiveStage(hasExercise ? "code" : "read"),
                 onGoToRead: () => setActiveStage("read"),
+                readingLeads,
               })
             : interactiveNode}
         </div>
@@ -154,26 +171,32 @@ export function LessonStageController({
 
           <div className="mt-8">{proseNode}</div>
 
-          {/* Navigation to Code */}
-          <div className="mt-12 flex items-center justify-between border-t border-rule pt-6">
-            {hasInteractive ? (
+          {/* Hand off to whatever this lesson actually puts next. */}
+          <div className="mt-12 flex items-center justify-between gap-4 border-t border-rule pt-6">
+            {hasInteractive && !readingLeads ? (
               <button
+                type="button"
                 onClick={() => setActiveStage("play")}
                 className="inline-flex items-center gap-2 text-caption font-mono text-muted hover:text-ink transition-colors cursor-pointer"
               >
                 <span>&larr;</span>
-                <span>Back to Stage 1: Interactive Sandbox</span>
+                <span>Back to the challenges</span>
               </button>
             ) : (
               <span />
             )}
 
-            {hasExercise && (
+            {next("read") && (
               <button
-                onClick={() => setActiveStage("code")}
-                className="inline-flex items-center gap-2 rounded-field bg-accent px-5 py-2.5 text-caption font-medium text-white shadow-xs hover:bg-accent-deep transition-colors cursor-pointer"
+                type="button"
+                onClick={() => setActiveStage(next("read")!)}
+                className="inline-flex min-h-11 items-center gap-2 rounded-field bg-accent px-5 text-caption font-medium text-white shadow-xs hover:bg-accent-deep transition-colors cursor-pointer"
               >
-                <span>Proceed to Stage 3: Code Exercise</span>
+                <span>
+                  {next("read") === "play"
+                    ? "Start the challenges"
+                    : "Go to the exercise"}
+                </span>
                 <span>&rarr;</span>
               </button>
             )}
@@ -210,10 +233,11 @@ export function LessonStageController({
 
               <div className="flex items-center gap-4 pt-2">
                 <button
+                  type="button"
                   onClick={() => setActiveStage("read")}
                   className="text-caption font-mono text-muted hover:text-ink transition-colors cursor-pointer"
                 >
-                  &larr; Review Stage 2: Documentation (Optional)
+                  &larr; Back to {caption("read").toLowerCase()}
                 </button>
               </div>
 

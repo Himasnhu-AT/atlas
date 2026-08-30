@@ -202,6 +202,7 @@ export default async function LessonPage({ params }: { params: Params }) {
             return (
               <main id="main" className="w-full">
                 <LessonStageController
+                  readingOptional={stage1?.readingOptional ?? false}
                   hasInteractive={Boolean(stage1)}
                   hasExercise={Boolean(lesson.exercise)}
                   interactiveNode={
