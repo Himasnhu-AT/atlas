@@ -31,6 +31,14 @@ export interface ChallengeRunnerProps {
   onGoToCode?: () => void
   onGoToRead?: () => void
   hasExercise?: boolean
+  /**
+   * Whether the learner has already read the lesson before reaching this.
+   *
+   * Injected by the stage controller. It decides whether the finish offers the
+   * prose as the thing to do next or as somewhere to go back to, because
+   * "read the notes" is an odd thing to suggest to somebody who just did.
+   */
+  readingLeads?: boolean
   className?: string
 }
 
@@ -55,6 +63,7 @@ export function ChallengeRunner({
   onGoToCode,
   onGoToRead,
   hasExercise = false,
+  readingLeads = false,
   className,
 }: ChallengeRunnerProps) {
   const [index, setIndex] = useState(0)
@@ -147,7 +156,13 @@ export function ChallengeRunner({
       <p className="mt-5 text-lead font-serif text-ink-soft">{set.goal}</p>
 
       {done ? (
-        <Finished hasExercise={hasExercise} onGoToCode={onGoToCode} onGoToRead={onGoToRead} steps={set.steps} />
+        <Finished
+          hasExercise={hasExercise}
+          onGoToCode={onGoToCode}
+          onGoToRead={onGoToRead}
+          readingLeads={readingLeads}
+          steps={set.steps}
+        />
       ) : (
         <section key={current.id} className="mt-6">
           <h3 className="text-section font-serif text-ink">{current.prompt}</h3>
@@ -288,18 +303,22 @@ function Finished({
   hasExercise,
   onGoToCode,
   onGoToRead,
+  readingLeads,
 }: {
   steps: Challenge[]
   hasExercise: boolean
   onGoToCode?: () => void
   onGoToRead?: () => void
+  readingLeads: boolean
 }) {
   const ref = useReveal<HTMLDivElement>()
 
   return (
     <div ref={ref} data-reveal="settle" className="mt-8">
       <p className="text-lead font-serif text-ink">
-        You worked out {steps.length} things about this that you were not told.
+        {readingLeads
+          ? `You put ${steps.length} things from the lesson to work.`
+          : `You worked out ${steps.length} things about this that you were not told.`}
       </p>
 
       <div className="mt-7 grid gap-4 sm:grid-cols-2">
@@ -323,8 +342,12 @@ function Finished({
             onClick={onGoToRead}
             className="rounded-sheet border border-rule-strong bg-paper p-5 text-left transition-colors duration-200 ease-paper hover:bg-paper-sunken"
           >
-            <span className="font-mono text-eyebrow uppercase text-muted">Optional</span>
-            <span className="mt-1 block font-serif text-section text-ink">Read the notes</span>
+            <span className="font-mono text-eyebrow uppercase text-muted">
+              {readingLeads ? 'Back' : 'Optional'}
+            </span>
+            <span className="mt-1 block font-serif text-section text-ink">
+              {readingLeads ? 'Reread the notes' : 'Read the notes'}
+            </span>
             <span className="mt-2 block text-caption text-ink-soft">
               The edge cases, the tradeoffs, and where this breaks in production.
             </span>

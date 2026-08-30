@@ -733,6 +733,9 @@ async function buildModule(
       stageOneCoverage.lowered += 1
       stage1 = {
         goal: `Work through ${front.title.toLowerCase()}.`,
+        // A lowered widget is a sandbox with its own controls on screen, so
+        // there is nothing in the prose it depends on.
+        readingOptional: true,
         steps: [
           {
             kind: 'custom',
