@@ -4,6 +4,174 @@ title: Options and put-call parity
 summary: Non-linear derivative payoffs, no-arbitrage bounds, and the theoretical foundation of put-call parity.
 order: 1
 estimatedMinutes: 20
+challenges:
+  goal: Split an option price into what it is worth now and what it is worth for the wait, and read a parity violation off a quote sheet.
+
+  steps:
+    - id: what-you-are-paying-for-the-wait
+      kind: numeric
+      prompt: >-
+        The stock is at 100 and a call struck at 95 with six months to run trades at 9.20.
+        How much of that premium is time value?
+      unit: dollars
+      context:
+        as: pairs
+        items:
+          - { k: Spot, v: '100.00' }
+          - { k: Strike, v: '95.00' }
+          - { k: Call premium, v: '9.20' }
+          - { k: Time to expiry, v: six months }
+      answer: 4.2
+      tolerance: 0.01
+      scaleHint: >-
+        That is out by more than a factor of ten. Every figure here is single or low double
+        digit dollars, and so is the answer.
+      hints:
+        - Ask what the option would be worth if it expired this second.
+        - Exercising now buys at 95 something worth 100, which is five dollars of value that does not depend on anything happening.
+        - The rest of the premium is what the market charges for six months of possibility.
+      reveal: >-
+        Time value is the entire product. Intrinsic value is arithmetic anybody can do from
+        two numbers on a screen, and every model in this module, every Greek and every
+        volatility surface exists to price the other 4.20. It is also the part that goes to
+        zero on a known date, which is what makes options a wasting asset rather than a
+        holding.
+
+    - id: the-discount-that-went-the-wrong-way
+      kind: spot
+      prompt: >-
+        This reports a fat arbitrage on every quote it is shown, including quotes that are
+        perfectly fair. Click the line responsible.
+      lang: python
+      source: |
+        def parity_edge(call, put, spot, strike, r, tau):
+            if tau <= 0.0:
+                return (call - put) - (spot - strike)
+            pv_strike = strike * math.exp(r * tau)
+            synthetic_forward = spot - pv_strike
+            return (call - put) - synthetic_forward
+      targets: [3]
+      requireAll: true
+      decoys:
+        '1': >-
+          At expiry there is nothing left to discount, so comparing against the plain
+          difference is right. This branch exists precisely because the general case cannot
+          be used here.
+        '2': >-
+          The expiry case is the general case with a discount factor of one, and it is
+          written correctly.
+        '4': >-
+          A synthetic forward is the spot less the present value of the strike. The shape of
+          this line is right and it is being handed the wrong present value.
+        '5': >-
+          Comparing the option pair against the forward is the parity identity itself. It is
+          the definition of the edge being measured.
+      hints:
+        - Compare this line against the one two above it, which handles the case where the discounting cannot apply.
+        - A present value is smaller than the amount it discounts, and this one is larger.
+        - With r positive and tau positive, this makes the strike more expensive the further away it is.
+      reveal: >-
+        The sign of an exponent is not a typo you catch by reading, because both versions run
+        and both return plausible dollar figures. What catches it is a test at r of zero,
+        where the two expressions have to agree, and a test at tau of zero, where the general
+        branch has to reproduce the special one. Every discounting bug in a pricing library
+        is found by one of those two, or by a trader losing money.
+
+    - id: which-way-to-put-it-on
+      kind: choice
+      prompt: >-
+        The call less the put is trading above the synthetic forward. Which four legs lock
+        the difference in?
+      context:
+        as: pairs
+        items:
+          - { k: Call less put, v: '7.00' }
+          - { k: Spot less discounted strike, v: '6.88' }
+          - { k: Gap, v: '0.12 per share, in favour of the option pair' }
+      options:
+        - id: conversion
+          label: Sell the call, buy the put, buy the stock, borrow the discounted strike
+          correct: true
+          note: >-
+            Sell what is rich and buy what is cheap. The short call and long put together are
+            a short forward, the stock and the loan are a long forward, and the two cancel at
+            expiry whatever the stock does, leaving the 0.12.
+        - id: reversal
+          label: Buy the call, sell the put, short the stock, lend the discounted strike
+          note: >-
+            This is the correct trade for the opposite violation. Here it buys the expensive
+            side and sells the cheap one, and locks in a loss of 0.12 with the same certainty.
+        - id: half-hedge
+          label: Sell the call, buy the put, short the stock, lend the discounted strike
+          note: >-
+            Both halves are short forwards, so this is a double position rather than a hedge.
+            The payoff at expiry depends entirely on where the stock finishes.
+        - id: naked
+          label: Sell the call and buy the put, and leave it there
+          note: >-
+            That is a synthetic short forward with unbounded loss above the strike. The gap
+            is real and 0.12 will not cover the first dollar the stock rallies.
+      hints:
+        - Two of the four legs form a synthetic forward and the other two form a real one, pointing the other way.
+        - The rich side is the option pair, so the option pair is what you sell.
+        - The stock leg has to point opposite to the synthetic the options create, or nothing cancels.
+      reveal: >-
+        Parity is not a pricing model, it is an accounting identity between four instruments,
+        and it holds without any assumption about volatility, distribution or how the stock
+        behaves. That is why a violation is arbitrage rather than an opinion, and it is also
+        why real violations are measured in fractions of a cent and are gone before you can
+        route the second leg.
+
+    - id: complete-the-quote-sheet
+      kind: text-contract
+      prompt: >-
+        Fill in the parity block for this quote. Every field follows from the four numbers in
+        the table.
+      context:
+        as: table
+        caption: Six month European options on a non-dividend payer
+        columns: [field, value]
+        rows:
+          - [spot, 100.00]
+          - [strike, 95.00]
+          - ['discount factor for six months', 0.9802]
+          - ['call', 9.20]
+          - ['put', 2.20]
+      lang: json
+      initial: |
+        {
+          "synthetic_forward": 5.0,
+          "parity_gap": 0.0,
+          "rich_leg": "put",
+          "fair_put": 2.2
+        }
+      rules:
+        - message: The block no longer parses as JSON. Check the braces and the commas.
+          check: { op: parses, as: json }
+        - message: The synthetic forward is the spot less the discounted strike, and 95 discounted at 0.9802 is not 95.
+          check: { op: range, path: synthetic_forward, min: 6.87, max: 6.89 }
+        - message: The gap is what the option pair costs less what the forward costs, and the option pair costs 7.00.
+          check: { op: range, path: parity_gap, min: 0.109, max: 0.129 }
+        - message: A positive gap means the option pair is expensive relative to the forward, and the option pair is bought by buying the call.
+          check: { op: equals, path: rich_leg, value: call }
+        - message: The put that would close the gap is the quoted put raised by exactly the gap.
+          check: { op: range, path: fair_put, min: 2.309, max: 2.329 }
+      hints:
+        - Work down the fields in order. Each one uses the one above it.
+        - 95 times 0.9802 is 93.12, so the forward costs 6.88 and the option pair costs 7.00.
+        - The gap is 0.12 and the whole of it sits in one of the two option prices being off.
+      reveal: >-
+        The gap can be closed by raising the put or by lowering the call, and parity cannot
+        tell you which one is wrong. That ambiguity is why desks quote the pair rather than
+        the legs, and why the arbitrage trade puts on all four legs rather than betting on
+        which quote will move. The identity constrains the combination, and nothing else.
+      solution: |
+        {
+          "synthetic_forward": 6.881,
+          "parity_gap": 0.119,
+          "rich_leg": "call",
+          "fair_put": 2.319
+        }
 ---
 
 A stock or future has a linear payoff: gaining \$1 for every \$1 increase in asset price, and losing \$1 for every \$1 decline.

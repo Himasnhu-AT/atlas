@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { isDesktop } from '@atlas/core'
+import { TestResults } from '@atlas/ui'
 
 import { AppHeader } from '../components/AppHeader'
 import { BrowserBanner } from '../components/BrowserBanner'
@@ -74,7 +75,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
   const navigate = useNavigate()
   const desktop = isDesktop()
 
-  const { isComplete, markComplete, recordAttempt, recordPeek } = useProgress()
+  const { isComplete, lastAttempt, markComplete, recordAttempt, recordPeek } = useProgress()
   const { layout, setFraction, toggleNav, toggleTerminal, reset: resetLayout } = useLayout()
 
   const [prepared, setPrepared] = useState<PreparedExercise | null>(null)
@@ -85,6 +86,13 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
   const [running, setRunning] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null)
   const [exerciseMoved, setExerciseMoved] = useState(false)
+  /**
+   * The last run, kept so the results panel can name the conditions that were
+   * not met. Until now the only thing shown was one line in the status bar
+   * reading "3 of 15 tests passing", and the runner output was forwarded to
+   * the server without ever being put on the screen.
+   */
+  const [report, setReport] = useState<TestReport | null>(null)
 
   const done = isComplete(lesson.id)
   const { previous, next } = neighboursOf(lessonRef)
@@ -193,6 +201,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
     try {
       const report: TestReport = await checkExercise(prepared, code)
       savedRef.current = code
+      setReport(report.runnerError ? null : report)
 
       if (report.runnerError) {
         setStatus({ tone: 'error', text: report.runnerError })
@@ -232,6 +241,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
   const handleReset = useCallback(() => {
     if (!prepared) return
     setCode(prepared.scaffold)
+    setReport(null)
     // The banner offers this as its own action, so taking it answers the
     // question the banner asked and it should stop asking.
     setExerciseMoved(false)
@@ -333,14 +343,29 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
                   onFractionChange={(value) => setFraction('lessonFraction', value)}
                   first={<LessonPane lessonRef={lessonRef} done={done} onNavigate={goTo} />}
                   second={
-                    <EditorSlot
-                      language="python"
-                      value={code}
-                      onChange={setCode}
-                      relPath={prepared ? `${prepared.dir}/${SOLUTION_FILE}` : undefined}
-                      modified={Boolean(prepared) && code !== prepared?.scaffold}
-                      onRun={() => void handleRun()}
-                    />
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div className="min-h-0 flex-1">
+                        <EditorSlot
+                          language="python"
+                          value={code}
+                          onChange={setCode}
+                          relPath={prepared ? `${prepared.dir}/${SOLUTION_FILE}` : undefined}
+                          modified={Boolean(prepared) && code !== prepared?.scaffold}
+                          onRun={() => void handleRun()}
+                        />
+                      </div>
+
+                      {report && (
+                        <div className="max-h-[45%] shrink-0 overflow-auto border-t border-rule bg-paper px-4 py-3">
+                          <TestResults
+                            outcome={report.outcome}
+                            cases={prepared?.cases}
+                            output={report.passed ? undefined : report.output}
+                            attemptNumber={lastAttempt(lesson.exercise?.id ?? '')?.count ?? 1}
+                          />
+                        </div>
+                      )}
+                    </div>
                   }
                 />
               ) : (

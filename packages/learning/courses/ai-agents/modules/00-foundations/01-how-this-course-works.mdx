@@ -4,6 +4,111 @@ title: How this course works
 summary: What you end up having built, how an exercise is graded, why the reference solution sits behind a deliberate click, and why nothing here calls a real model.
 order: 1
 estimatedMinutes: 12
+challenges:
+  goal: Work an exercise the way this course intends, and know what a scripted client cannot teach you.
+
+  steps:
+    - id: what-the-mock-covers
+      kind: assign
+      prompt: >-
+        Every exercise here runs against mockllm, which replays a fixed script. Sort each
+        failure into the ones you will actually hit while working through this course and
+        the ones the course can only describe.
+      buckets:
+        - id: exercised
+          label: You will hit this here
+          note: Reproducible from a script, because it is a property of your code.
+        - id: described
+          label: Described, never exercised
+          note: Real, and it needs a live model to observe.
+      items:
+        - id: orphan-result
+          label: A tool result whose tool_call_id matches no earlier call
+          bucket: exercised
+          because: The pairing is checked against the request you built, so a mismatched id is a bug in your loop and shows up on every run.
+        - id: none-tool-calls
+          label: Iterating message.tool_calls on a turn where it is None
+          bucket: exercised
+          because: A scripted text turn carries None exactly as a real one does, so the TypeError is fully reproducible.
+        - id: runaway-loop
+          label: A loop that spends its whole step budget without answering
+          bucket: exercised
+          because: The budget belongs to your code. A script will let you loop until you stop yourself.
+        - id: truncated-json
+          label: A reply cut off mid document that still parses
+          bucket: exercised
+          because: mockllm scripts a truncated turn on purpose, because the bug it causes is in how you read finish_reason.
+        - id: drift
+          label: An instruction the model followed yesterday and ignores today
+          bucket: described
+          because: A script returns the same reply every run. Drift is a property of a distribution, and one sample cannot show it.
+        - id: how-often
+          label: How often a model invents a tool name under a long context
+          bucket: described
+          because: You can script one invented name and handle it. You cannot learn the rate without running a live model many times.
+      hints:
+        - The line is not easy against hard. It is reproducible from a script against needs a real provider.
+        - Anything caused by the shape of the objects, or by your own control flow, replays perfectly.
+        - What a script cannot hand you is a distribution. It hands you one reply, every time.
+      reveal: >-
+        The engineering around the model is deterministic and worth practising offline. The
+        model's own behaviour is a distribution, and nothing you can do at a desk with a
+        scripted client will teach you its shape. Knowing which half you are looking at is
+        the point of this lesson.
+
+    - id: the-shape-of-a-sitting
+      kind: order
+      prompt: Put one sitting with one exercise in the order the course intends.
+      items:
+        - { id: open, label: Open the exercise, which copies scaffold.py to solution.py }
+        - { id: run-red, label: Run test.py before writing anything }
+        - { id: pick-smallest, label: Pick the failing test with the smallest input }
+        - { id: implement, label: Implement one function }
+        - { id: rerun, label: Run the tests again }
+        - { id: compare, label: Open reference.py and compare it with what you wrote }
+      solution: [open, run-red, pick-smallest, implement, rerun, compare]
+      because:
+        run-red: Running first proves the runner works. If everything errors before you have written a line, the problem is the toolchain rather than your code.
+        pick-smallest: unittest runs alphabetically, and the first failure on screen is rarely the simplest one. The empty input case gives the cleanest signal.
+        compare: The comparison only works once you have something of your own to compare. Reading it earlier replaces the work rather than reviewing it.
+      hints:
+        - Two of these happen before you write a single line of implementation.
+        - One of them exists to tell you whether a red suite is your fault or the toolchain's.
+        - The last one is worth nothing until the one before it has happened at least once.
+      reveal: >-
+        The first run is a toolchain check and the last is a review. Everything between them
+        is a loop you go round once per function. Skipping the first turns a broken install
+        into an afternoon; skipping the last means you solved it and learned only your own
+        first idea.
+
+    - id: when-to-open-the-reference
+      kind: choice
+      prompt: >-
+        Twenty minutes are up. You have reread the same four lines twice and have no new
+        idea to try. What do you do?
+      options:
+        - id: straight-away
+          label: You should have opened reference.py at the start, to see what good looks like.
+          note: Recognising a correct solution is far easier than producing one, so reading it first buys the feeling of understanding without the ability. The exercise afterwards is typing.
+        - id: on-first-red
+          label: Open it the first time the tests go red.
+          note: The tests are red before you write a line. Red is the starting state here, not a signal about your code.
+        - id: never
+          label: Never open it. Finish it yourself, however long that takes.
+          note: The timebox exists because effort without a new hypothesis is not learning. An hour rereading four lines teaches less than five minutes with the reference in front of you.
+        - id: now
+          label: Open it now, with the specific thing you are stuck on still in your head.
+          correct: true
+          note: You arrive carrying a question, which is the state in which somebody else's decision is memorable rather than merely readable.
+      hints:
+        - The timer is advisory. What it measures is not time, it is whether you are still generating ideas.
+        - Two of these open it too early and one never opens it at all.
+        - The reference is worth most at the moment you can say what you are stuck on.
+      reveal: >-
+        The timer is a proxy for a question you should ask yourself directly: have I had a new
+        idea in the last few minutes? Still making progress, keep going past it. Rereading
+        without a hypothesis, open the reference. It is behind a confirmation click because
+        the cost of opening it early is invisible at the time and obvious a module later.
 ---
 
 Two things are true of this course, and they balance against each other: everything you write runs locally, and nothing you write calls a remote model. This lesson covers what that combination provides, what it leaves out, and how the exercises operate.

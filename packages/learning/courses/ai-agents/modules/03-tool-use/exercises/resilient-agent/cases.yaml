@@ -1,0 +1,249 @@
+version: 1
+cases:
+  TestCallSignature.test_key_order_does_not_make_a_new_call:
+    condition: 'the same two arguments written in a different order in the JSON'
+    hints:
+      - 'Models do not emit their keys in a stable order, so the same call arrives looking different.'
+      - 'Comparing the raw argument strings makes a reordered repeat look like progress.'
+      - 'Parse the arguments and re-encode them with the keys sorted before building the key.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallSignature.test_different_arguments_are_different_calls:
+    condition: 'the same tool called with a different value for the same argument'
+    hints:
+      - 'Trying a different city is the model recovering, not the model looping.'
+      - 'A key built from the tool name alone counts every attempt as the same call.'
+      - 'Include the canonical arguments in the key alongside the name.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallSignature.test_different_tools_are_different_calls:
+    condition: 'two different tools called with identical empty arguments'
+    hints:
+      - 'Switching tools after a failure is also recovery.'
+      - 'A key built from the arguments alone collides across every tool that takes none.'
+      - 'Put the tool name into the key as well as the arguments.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallSignature.test_the_name_is_in_the_signature:
+    condition: 'a key that has to be readable enough to appear in a log'
+    hints:
+      - 'The key is what you look at when working out why a run stopped.'
+      - 'A hash is stable and tells you nothing about which call was repeating.'
+      - 'Build the key as text that includes the tool name.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallSignature.test_unparseable_arguments_still_produce_a_stable_signature:
+    condition: 'an argument string that is not valid JSON, sent twice'
+    hints:
+      - 'This is the case that loops hardest: the model cannot see why its JSON is rejected, so it sends the same JSON again.'
+      - 'A parse failure here must not raise, or the loop detection dies exactly when it is needed.'
+      - 'Fall back to the raw string when it cannot be parsed, which is still stable across repeats.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestSafeDispatch.test_a_working_call:
+    condition: 'a well formed call to a tool that returns a mapping'
+    hints:
+      - 'The caller needs to know both what came back and whether it worked.'
+      - 'A mapping is not text, so it has to be serialised before it goes to the model.'
+      - 'Return the serialised content paired with a flag saying the call succeeded.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestSafeDispatch.test_an_unknown_tool_says_what_exists:
+    condition: 'a call naming a tool that is nearly, but not exactly, one that exists'
+    hints:
+      - 'A recoverable failure comes back as an observation for the model, not as an exception for your code.'
+      - 'Telling the model the tool does not exist leaves it guessing what does.'
+      - 'Return a failed observation that lists the tools actually available.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestSafeDispatch.test_unparseable_arguments:
+    condition: 'an argument string that is not valid JSON'
+    hints:
+      - 'The arguments are text the model generated, so malformed JSON is ordinary rather than exceptional.'
+      - 'Raising here ends a run the model could have recovered from on the next turn.'
+      - 'Catch the parse failure and return it as an observation marked as failed.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestSafeDispatch.test_arguments_that_are_not_an_object:
+    condition: 'arguments that parse as a bare JSON string rather than an object'
+    hints:
+      - 'The parse succeeded, so it is easy to move straight on to the call.'
+      - 'Unpacking a string as keyword arguments raises from inside the call.'
+      - 'Check the parsed value is a mapping before calling and return a failed observation otherwise.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestSafeDispatch.test_a_tool_that_raises:
+    condition: 'a city the lookup table does not hold, which makes the tool raise'
+    hints:
+      - 'The exception type separates "try a different city" from "the tool is down", and the model needs both.'
+      - 'The tool''s own message carries the hint about what would have worked.'
+      - 'Include the exception type name and its message in the observation.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestSafeDispatch.test_the_wrong_argument_names:
+    condition: 'an argument named town when the function takes a city'
+    hints:
+      - 'The call is well formed JSON and still does not fit the function signature.'
+      - 'The failure comes back as a TypeError from Python, and a generic message hides which argument was wrong.'
+      - 'Handle that case separately and name the offending argument in the observation.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestSafeDispatch.test_nothing_escapes:
+    condition: 'four different broken calls, none of which may raise'
+    hints:
+      - 'Every failure that the model could act on has to become an observation.'
+      - 'One escaping exception ends a run that had budget left to recover in.'
+      - 'Return the same pair from every branch rather than raising from any of them.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallWithRetry.test_a_call_that_works_does_not_sleep:
+    condition: 'a first call that succeeds, where any wait is wasted latency'
+    hints:
+      - 'The backoff belongs after a failure, not before an attempt.'
+      - 'Sleeping at the top of the loop adds a delay to every successful call.'
+      - 'Return as soon as the call succeeds, before any wait can happen.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallWithRetry.test_a_transient_failure_is_retried:
+    condition: 'a service unavailable response followed by a working one'
+    hints:
+      - 'A 503 means the provider is briefly overloaded, and the next call usually works.'
+      - 'Letting it escape ends a run for something that would have cleared on its own.'
+      - 'Catch the provider error and go round the loop again.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallWithRetry.test_the_backoff_doubles:
+    condition: 'two failures before a success, where the recorded waits must grow'
+    hints:
+      - 'Hitting an overloaded provider at the same rate that overloaded it does not help either side.'
+      - 'The wait comes after a failure, and there is no wait after the last attempt because nothing follows it.'
+      - 'Multiply the base delay by two raised to the attempt number, and skip the wait on the final pass.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallWithRetry.test_the_last_error_is_re_raised:
+    condition: 'a provider that never recovers within the attempt budget'
+    hints:
+      - 'The budget counts total tries, not extra tries after the first.'
+      - 'Swallowing the final error leaves the caller with nothing to report.'
+      - 'Re-raise on the last attempt rather than sleeping and looping again.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallWithRetry.test_a_client_error_is_not_retried:
+    condition: 'a bad request response that will fail identically every time'
+    hints:
+      - 'A 400 is your request being wrong, and sending it again does not make it right.'
+      - 'Retrying it turns one clear error into three and delays the fix by the whole backoff.'
+      - 'Check the status against the set of retryable ones and re-raise anything outside it immediately.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallWithRetry.test_one_attempt_means_no_retry:
+    condition: 'a budget of one against a transient failure that would have cleared'
+    hints:
+      - 'A budget of one still makes the call. What is missing is the second try.'
+      - 'An off by one here either makes an extra call or refuses to make the first.'
+      - 'Loop exactly the budgeted number of times and raise from the final pass.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestCallWithRetry.test_a_nonsense_attempt_count:
+    condition: 'a budget of zero, which would make no call at all'
+    hints:
+      - 'A loop that runs no times falls through without calling anything or raising anything useful.'
+      - 'This is the caller misconfiguring the call rather than the provider failing.'
+      - 'Validate the budget before the first attempt and raise ValueError.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestRecovery.test_a_failing_tool_does_not_end_the_run:
+    condition: 'a lookup that fails, followed by the model answering anyway'
+    hints:
+      - 'A tool failing is information the model can use, not a reason to stop.'
+      - 'The caller gets a record of the run rather than a bare string, so success and failure have the same shape.'
+      - 'Feed the failure back as an observation and return a successful run once the model answers.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestRecovery.test_the_error_reaches_the_model_as_a_tool_message:
+    condition: 'a failed lookup whose error text has to reach the next request'
+    hints:
+      - 'A failure kept in your own logs is invisible to the model, which then repeats the same call.'
+      - 'The tool''s own message is what lets the model pick a different city next turn.'
+      - 'Append the failed observation as a tool message like any other result.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestRecovery.test_the_failed_result_still_carries_its_call_id:
+    condition: 'a failed call that still has to be answered with the id it was made under'
+    hints:
+      - 'The provider does not care whether the call succeeded, only that every call was answered.'
+      - 'A tool message without the matching id makes the next request malformed.'
+      - 'Use the same id on the failure message as you would on a success.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestRecovery.test_an_unknown_tool_is_recoverable:
+    condition: 'a model asking for a tool that is not in the registry'
+    hints:
+      - 'An invented tool name is one of the most common failures and one of the easiest to recover from.'
+      - 'Raising ends a run the model could have finished by choosing a real tool.'
+      - 'Route the unknown tool through the same observation path as any other failed call.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestRecovery.test_the_model_corrects_itself_from_the_observation:
+    condition: 'a failed lookup, then a successful one, then an answer'
+    hints:
+      - 'This is the whole point of feeding failures back: the model reads the error and fixes its own call.'
+      - 'It takes three model calls, and the step count has to reflect that.'
+      - 'Count one step per model call and keep looping while the model asks for tools.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestGivingUp.test_the_same_failing_call_ends_the_run:
+    condition: 'the identical failing call repeated until it stops being recovery'
+    hints:
+      - 'A model that repeats a call it has already been told fails is not going to fix itself.'
+      - 'Waiting for the step budget to run out spends the whole budget on a call that will never work.'
+      - 'Count failures per call signature and end the run once one of them reaches the limit.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestGivingUp.test_different_arguments_are_not_repeats:
+    condition: 'three failing lookups, each for a different imaginary city'
+    hints:
+      - 'Three different calls are three attempts, not a loop.'
+      - 'Counting failures without regard to the arguments stops the run while the model is still exploring.'
+      - 'Key the failure count on the exact call rather than on the tool name.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestGivingUp.test_a_spent_budget_is_reported_not_raised:
+    condition: 'a model that keeps calling a working tool until the budget runs out'
+    hints:
+      - 'Every ending here is a value the caller can inspect, not an exception to catch.'
+      - 'The reason names which of the several endings happened.'
+      - 'Return an unsuccessful run naming the exhausted budget, with the step count and an empty answer.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestGivingUp.test_the_transcript_comes_back_either_way:
+    condition: 'a run that ended badly, where the caller still needs the history'
+    hints:
+      - 'A failed run is the one you most need the transcript for.'
+      - 'Returning only a reason leaves you rerunning the agent to see what it did.'
+      - 'Attach the accumulated messages to the run record on every exit path.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestGivingUp.test_a_provider_outage_is_retried_then_answered:
+    condition: 'a provider failure inside the first step that clears on the retry'
+    hints:
+      - 'The retries happen inside one step, so the step count must not grow with them.'
+      - 'Counting a retry as a step spends the loop budget on the provider''s bad day.'
+      - 'Put the retry inside the call and count a step once per pass through the loop.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestGivingUp.test_a_provider_outage_that_does_not_clear_ends_the_run:
+    condition: 'a provider that fails on every attempt of the first step'
+    hints:
+      - 'This is not an observation. The model never saw the request, so there is nothing for it to reason about.'
+      - 'Appending an error message here puts words into a conversation that never happened.'
+      - 'Catch the provider error at the loop level and return an unsuccessful run naming it, appending nothing.'
+    concept: ai-tool-use.when-tools-fail
+
+  TestGivingUp.test_a_nonsense_repeat_limit:
+    condition: 'a repeat limit of zero, which would end the run before any call is made'
+    hints:
+      - 'A limit of zero means the first failure is already the last one allowed.'
+      - 'This is the caller misconfiguring the run rather than the agent looping.'
+      - 'Validate the limit alongside the other bounds before the first call and raise ValueError.'
+    concept: ai-tool-use.when-tools-fail

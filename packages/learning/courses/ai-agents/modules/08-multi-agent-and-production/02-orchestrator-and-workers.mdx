@@ -7,6 +7,171 @@ estimatedMinutes: 45
 exercise:
   id: orchestrator
   timeboxMinutes: 40
+challenges:
+  goal: Turn a composite request into a plan that can genuinely fan out, and settle what to believe when workers disagree.
+
+  steps:
+    - id: pick-the-topology
+      kind: choice
+      prompt: >-
+        A user asks you to compare their pricing against two competitors and say whether
+        the competitors' seat minimums would block a deal. Which shape do you build?
+      options:
+        - id: pipeline
+          label: A fixed pipeline. Research, then compare, then write.
+          note: Three lookups that depend on nothing run one after another, so latency is their sum instead of their maximum. The shape is also fixed, and the next request names four competitors.
+        - id: orchestrator
+          label: One component that plans and aggregates, with workers that each own one lookup.
+          correct: true
+          note: The decomposition is written per request, the lookups have no dependency between them, and one component owns both the plan and what to do when two answers conflict.
+        - id: peer-group
+          label: Three agents that message each other until they agree on an answer.
+          note: Nothing owns termination, so the cost of a run is whatever the conversation happens to do. Reproducing a bad run means replaying a conversation rather than re-running a plan.
+        - id: one-agent
+          label: One agent with all the tools and a long enough prompt.
+          note: This works until the request has branches. It cannot run the lookups concurrently, and it has nowhere to put the observation that two sources disagreed.
+      hints:
+        - Count how many of the subtasks depend on each other. It is fewer than you would think.
+        - The request is different every time, so the plan has to be written every time.
+        - Ask which shape has a component whose job is to decide what the answer is once the parts come back.
+      reveal: >-
+        Orchestrator and workers is the production default because the ownership is
+        obvious: the orchestrator plans and aggregates, a worker does one bounded thing and
+        can be evaluated on its own. Peer groups are more flexible and you pay for the
+        flexibility in bounds you cannot state.
+
+    - id: validate-the-plan
+      kind: assign
+      prompt: >-
+        The planner returned these seven subtasks and wants all of them dispatched at once.
+        Sort them before any worker is spawned.
+      buckets:
+        - id: dispatch-now
+          label: Dispatch in the first wave
+        - id: hold-back
+          label: Hold until the first wave returns
+        - id: drop
+          label: Drop, it duplicates another subtask
+      items:
+        - id: our-price
+          label: Find our list price on the pricing page
+          bucket: dispatch-now
+          because: One source, one value, no input from any other subtask. This is what a worker is for.
+        - id: rival-price
+          label: Find competitor A's list price
+          bucket: dispatch-now
+          because: A different source and a different value. Nothing about it needs our own price to have been found first.
+        - id: rival-minimum
+          label: Find competitor A's seat minimum
+          bucket: dispatch-now
+          because: Independent of both prices. Running it in the first wave is free, because the wave is as slow as its slowest member either way.
+        - id: our-price-again
+          label: On the pricing page, find our list price
+          bucket: drop
+          because: The same words in a different order, so the token set fingerprint catches it exactly. It costs a worker call and returns what another worker is already returning.
+        - id: rival-price-again
+          label: Find the list price for competitor A
+          bucket: drop
+          because: The same task as the competitor price lookup, and the fingerprint misses it because a possessive is a different token. Restatement is catchable, paraphrase needs the planner prompt to be better.
+        - id: the-difference
+          label: Compute the difference between our price and competitor A's
+          bucket: hold-back
+          because: It consumes two values that do not exist yet. Dispatched in the first wave, the worker either invents them or reports that it cannot proceed.
+        - id: the-verdict
+          label: Say whether the seat minimums would block the deal
+          bucket: hold-back
+          because: This is the synthesis, and it needs everything above it. In practice it belongs to the orchestrator rather than to a worker at all.
+      hints:
+        - Two of these ask for something no worker has produced yet.
+        - Two of them are the same lookup twice, and only one of the pairs is caught by comparing token sets.
+        - Read each subtask as though it were the only thing a worker was given, because that is what a worker gets.
+      reveal: >-
+        Validating the plan costs one planning call already spent, and dispatching a bad
+        one costs a worker call for every subtask in it. The dependency check is what makes
+        the fan-out real: a plan whose subtasks feed each other is a pipeline that has been
+        drawn as a fan.
+
+    - id: what-the-fan-out-costs
+      kind: numeric
+      prompt: >-
+        Five subtasks survived validation and each goes to its own worker. Aggregation is
+        ordinary Python and calls nothing. How many tokens does the whole run spend?
+      context:
+        as: table
+        caption: Per call, for this request
+        columns: [call, prompt tokens, completion tokens, how many]
+        rows:
+          - [planner, 900, 400, 1]
+          - [worker, 2700, 200, 5]
+          - [aggregation, 0, 0, 1]
+      answer: 15800
+      tolerance: 0
+      unit: tokens
+      scaleHint: Out by roughly a factor of five means one worker got counted instead of five, or the planning call was left out of the total.
+      hints:
+        - Every worker pays the full prompt, because each one is given its own copy of the retrieved context.
+        - The planner is one call in and out, and it happens whether or not the plan turns out to be any good.
+        - Aggregation is a comparison over structured results, which is exactly why it was worth making the workers return structured results.
+      reveal: >-
+        Model calls are one plus the number of subtasks, and tokens are worse than that
+        because the retrieved context is copied into every worker prompt. Fan-out buys
+        latency, and the bill for it shows up per worker rather than per run.
+
+    - id: settle-the-disagreement
+      kind: text-contract
+      prompt: >-
+        The workers are back and two of them disagree with a third. Write the aggregate:
+        what the run concluded, and what it refuses to conclude.
+      context:
+        as: table
+        caption: Worker results
+        columns: [subtask, key, value, confidence, evidence]
+        rows:
+          - [t1, seats, "5", 0.30, onboarding-deck]
+          - [t2, seats, "5", 0.30, onboarding-deck-v2]
+          - [t3, seats, "10", 0.90, signed-contract]
+          - [t4, price, "49", 0.70, pricing-page]
+          - [t5, price, "59", 0.70, sales-quote]
+          - [t6, term, "12 months", 0.80, signed-contract]
+      lang: json
+      initial: |
+        {
+          "findings": {
+            "seats": "5",
+            "price": "49",
+            "term": "12 months"
+          },
+          "unresolved": []
+        }
+      rules:
+        - message: This no longer parses. Check the braces around findings and the brackets around unresolved.
+          check: { op: parses, as: json }
+        - message: Two workers said 5 and both of them read the same deck. Counting workers gives that deck two votes, so group by value and compare the best evidence behind each one.
+          check: { op: equals, path: findings.seats, value: "10" }
+        - message: The term is uncontested and belongs in the findings unchanged.
+          check: { op: equals, path: findings.term, value: 12 months }
+        - message: Price is 0.70 against 0.70 from two different sources. Keeping either one means the answer was decided by whichever worker returned first.
+          check: { op: absent, path: findings.price }
+        - message: A dropped key has to be recorded somewhere. Put price in unresolved so the caller knows the run looked and could not tell.
+          check: { op: equals, path: unresolved.0, value: price }
+        - message: Only price is unresolved. Seats had a clear winner once the duplicate evidence was collapsed.
+          check: { op: length, path: unresolved, min: 1, max: 1 }
+      hints:
+        - Three keys came back and one of them cannot be decided from what is here.
+        - Two of the seat results share an evidence source. Ask what a vote count does with that, and what a comparison of best evidence per distinct value does instead.
+        - A tie is a result. It is just not a finding.
+      reveal: >-
+        Grouping by value and taking the strongest evidence for each is what stops two
+        copies of one stale slide from outvoting a signed contract. Ties stay out of the
+        findings, because a tie broken by list order is a guess wearing a confidence score.
+      solution: |
+        {
+          "findings": {
+            "seats": "10",
+            "term": "12 months"
+          },
+          "unresolved": ["price"]
+        }
 ---
 
 Intent routing directs an entire query to a single specialist. However, composite requests (such as "compare our pricing against competitor pricing and evaluate seat minimums") involve multiple independent tasks and a synthesis step that exceed the scope of a single specialist.

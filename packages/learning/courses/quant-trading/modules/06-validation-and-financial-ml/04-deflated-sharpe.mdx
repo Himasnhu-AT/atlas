@@ -7,6 +7,152 @@ estimatedMinutes: 25
 exercise:
   id: deflated-sharpe
   timeboxMinutes: 35
+challenges:
+  goal: Count the trials a backtest really ran, and deflate its Sharpe for both the search and the shape of the returns.
+
+  steps:
+    - id: count-the-trials
+      kind: numeric
+      prompt: >-
+        This is the whole research log for one idea. How many configurations were evaluated
+        before the reported one was chosen?
+      context:
+        as: log
+        lines:
+          - 'signal in {momentum, carry, reversal}'
+          - 'lookback in {5, 10, 20, 60} days'
+          - 'entry_z in {1.0, 1.5, 2.0, 2.5, 3.0}'
+          - 'hold in {1, 5} days'
+          - 'full grid run, all results written to results.parquet'
+          - 'reported: momentum, 20 day, entry_z 2.0, hold 5. Sharpe 2.8'
+      answer: 120
+      tolerance: 0
+      unit: configurations
+      scaleHint: >-
+        Out by more than a factor of ten, which usually means the axes were added rather
+        than multiplied. A grid search evaluates every combination, not every option.
+      hints:
+        - Every point on the grid was run and written to a file, so every point was evaluated.
+        - The four axes are independent, so the count is their product.
+        - Three signals, four lookbacks, five thresholds, two holding periods.
+      reveal: >-
+        The noise benchmark for 120 independent trials is about 2.6 Sharpe units, so a
+        reported 2.8 leaves roughly 0.2 of claimed skill, and that is before any standard
+        error enters the calculation. Report the trial count as 1 and the benchmark is zero
+        and the whole 2.8 becomes skill. The number that changed was in the research log,
+        not in the returns.
+
+    - id: what-counts-as-a-trial
+      kind: assign
+      prompt: >-
+        A trial is a look at a result that could have changed what you reported. Sort each
+        of these by whether it belongs in the count.
+      buckets:
+        - id: counts
+          label: Adds to the trial count
+          note: A result was produced and it had the power to change the reported strategy.
+        - id: free
+          label: Does not add to the trial count
+          note: Either nothing was evaluated, or the decision was fixed before any result existed.
+      items:
+        - id: fit-in-sample
+          label: Choosing the lookback window from the same history the reported Sharpe is measured on
+          bucket: counts
+          because: The window was selected because of what it did to the result. That is a trial, and it is the one people most often forget to count.
+        - id: abandoned-family
+          label: Trying a fourth signal family and dropping it after one look at the equity curve
+          bucket: counts
+          because: A trial you did not like is still a trial. The maximum of a set is not smaller because you stopped recording most of the set.
+        - id: cost-assumption
+          label: Picking the slippage assumption after seeing which one made the curve look best
+          bucket: counts
+          because: The cost model is a parameter as much as the lookback is, and choosing it on the result is the same search over a different axis.
+        - id: drop-2008
+          label: Cutting 2008 from the sample because the strategy loses money in it
+          bucket: counts
+          because: The sample window is another axis. Removing a period because of what it did to the result is a trial, and an expensive one, because it also removes the regime you would most want tested.
+        - id: universe-first
+          label: Fixing the universe to US large caps before any backtest was run
+          bucket: free
+          because: Decided in advance and never revisited, so no result influenced it. Constraints chosen before you look are how you keep the count down.
+        - id: bug-fix
+          label: Re-running everything after finding a sign error in the P&L calculation
+          bucket: free
+          because: A run that computed the wrong P&L tested nothing, so it is neither evidence for nor against the hypothesis. The runs after the fix are the trials.
+        - id: reproduce
+          label: Running the winning configuration a second time to reproduce the same number
+          bucket: free
+          because: Same configuration, same data, same answer. Nothing could have come out differently, so nothing was selected.
+      hints:
+        - Ask of each one whether a different outcome would have led you to report something else.
+        - Two of these produced no result at all, and one produced a result that could not have differed.
+        - Four of the seven changed what you reported, and only one of those four looks like a parameter.
+      reveal: >-
+        The trial count is a property of the researcher rather than of the data, which is
+        why nobody downstream can reconstruct it and why it has to be written down as it
+        accumulates. A team that shares a dataset shares a trial count too, and neither
+        person's log has the whole number in it.
+
+    - id: what-fat-tails-cost
+      kind: tune
+      prompt: >-
+        The Sharpe standard error is the square root of this term over T minus 1. Under
+        normal returns at a Sharpe of 2 it sits at 3. Push it into the 6 to 8 band and watch
+        which slider does the work.
+      inputs:
+        - { id: sharpe, label: Observed Sharpe, min: 0.5, max: 4, step: 0.1, initial: 2 }
+        - { id: skew, label: Return skewness, min: -2, max: 1, step: 0.1, initial: 0 }
+        - { id: kurt, label: Return kurtosis, min: 3, max: 15, step: 0.5, initial: 3 }
+      outputs:
+        - id: variance-term
+          label: Sharpe variance term
+          terms:
+            - { coef: 1, of: [] }
+            - { coef: -1, of: [skew, sharpe] }
+            - { coef: 0.25, of: [kurt, sharpe, sharpe] }
+            - { coef: -0.25, of: [sharpe, sharpe] }
+          target: { min: 6, max: 8 }
+          note: Not in the band yet. Negative skew and fat tails both push this up, and the Sharpe you are claiming multiplies each of them.
+      hints:
+        - Move skewness negative first and watch which way the term goes.
+        - Kurtosis of 3 is the normal case and adds nothing beyond the Sharpe squared. Every half point above 3 is a fatter tail.
+        - Skewness of minus one with kurtosis around five lands in the band at a Sharpe of two.
+      reveal: >-
+        Selling volatility, or stopping out hard on losers, produces exactly this shape:
+        small frequent gains, rare large losses, negative skew and heavy tails. Going from
+        3 to 7 raises the standard error by about half again, and the deflated Sharpe is a
+        normal CDF of a difference divided by that error. The returns did not change. The
+        error bar around the Sharpe did, and it was always that wide.
+
+    - id: what-a-low-dsr-obliges
+      kind: choice
+      prompt: >-
+        The benchmark for your 120 trials is 2.6, your Sharpe is 2.8, and the deflated Sharpe
+        comes out at 0.31. What does that oblige you to do?
+      options:
+        - id: search-harder
+          label: Keep working the grid until something clears the benchmark
+          note: Every extra configuration raises the benchmark, so it moves away faster than a noisy Sharpe can chase it. This is the loop that produces a 3.5 backtest and a flat live account.
+        - id: report-n-as-one
+          label: Report the Sharpe on its own and let the reader ask about the search
+          note: The benchmark depends on your search rather than on the data, so no reader can reconstruct it. Dropping the trial count removes the only term that makes the Sharpe comparable to anyone else's.
+        - id: size-it-small
+          label: Trade it small, and record the trial count so the next review can deflate it again
+          correct: true
+          note: A deflated Sharpe of 0.31 says the result is consistent with luck, not that it is luck. Small size buys out-of-sample evidence at a price you set before you find out.
+        - id: shelve-it
+          label: Discard the strategy and start a fresh search
+          note: This throws away the one thing the backtest did produce, a hypothesis cheap enough to test live. The fresh search then accumulates trials of its own, and they will need deflating too.
+      hints:
+        - Two of these four make the trial count larger.
+        - Ask which action produces new evidence rather than new trials.
+        - The statistic is about how hard you searched, and only data you have not searched can settle it.
+      reveal: >-
+        Deflation does not tell you a strategy is bad. It tells you the backtest has stopped
+        being evidence, and the only thing that restores evidence is a sample the search
+        never touched. Live trading at small size is that sample, bought at a known cost,
+        which is why the trial count belongs in the deployment record rather than in the
+        research write-up alone.
 ---
 
 When a quant researcher tests 1,000 parameter variations on historical price data, several variations will produce Sharpe ratios exceeding 2.0 purely by random chance (data snooping / selection bias).

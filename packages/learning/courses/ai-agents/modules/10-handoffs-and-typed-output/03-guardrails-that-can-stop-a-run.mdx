@@ -7,6 +7,213 @@ estimatedMinutes: 40
 exercise:
   id: guardrail-tripwire
   timeboxMinutes: 25
+challenges:
+  goal: Put each control where it belongs, trip loudly, and spend nothing on a request you were always going to refuse.
+  readingOptional: true
+
+  steps:
+    - id: where-the-control-goes
+      kind: assign
+      prompt: >-
+        Eight rules somebody wants enforced on a support agent. Put each one where it can
+        actually hold.
+      buckets:
+        - id: input-guard
+          label: An input guardrail
+        - id: output-guard
+          label: An output guardrail
+        - id: in-the-tool
+          label: Inside the tool
+        - id: not-wired
+          label: Not given to this agent
+      items:
+        - id: homework
+          label: Refuse requests that are somebody's maths homework
+          bucket: input-guard
+          because: Decidable from the input alone, and refusing it before the first call is the only version of this rule that saves anything.
+        - id: huge-input
+          label: Refuse inputs longer than twenty thousand characters
+          bucket: input-guard
+          because: A property of the text, checkable for free, and the request it stops is the most expensive kind you take.
+        - id: card-number
+          label: Do not send a reply containing a full card number
+          bucket: output-guard
+          because: You cannot know what the model will write until it has written it. This one protects the customer and cannot protect the budget.
+        - id: competitor
+          label: Do not name a competitor in a reply
+          bucket: output-guard
+          because: Also a property of generated text. The tokens are spent by the time it runs, which is the defining limitation of the position rather than a flaw in the rule.
+        - id: refund-cap
+          label: Never refund more than five hundred dollars
+          bucket: in-the-tool
+          because: A limit written in text is a limit that can be argued with. Written as a comparison inside issue_refund, it holds against every phrasing anybody invents.
+        - id: refund-owner
+          label: Never refund an order belonging to a different customer
+          bucket: in-the-tool
+          because: Authorisation, which needs the session and the order record. A prompt-level check has neither and would be guessing from names in the text.
+        - id: delete-account
+          label: The support agent must never delete an account
+          bucket: not-wired
+          because: The strongest version of never call this tool is not declaring it. Structural, unarguable, and it costs nothing at runtime.
+        - id: admin-db
+          label: The support agent must never query the admin database
+          bucket: not-wired
+          because: Same remedy. A tool the model has not been shown is a tool no prompt can talk it into using.
+      hints:
+        - Two of these can be decided before a single token is spent, and two cannot be decided until after.
+        - Two are business rules about money and ownership, and text checks are the wrong place for both.
+        - For two of them the cheapest enforcement is to leave something out of a list.
+      reveal: >-
+        Guardrails are a filter on text, so they belong on the rules that are about text.
+        Money, ownership and permission live in the code that does the thing, and the
+        rules about tools an agent should never touch are enforced by not handing them over.
+
+    - id: the-guard-that-swallows
+      kind: spot
+      prompt: >-
+        One of these guards has a bad regular expression and raises when it runs. Click the
+        line that turns that bug into a policy decision.
+      lang: python
+      source: |
+        def check_all(guards, value):
+            for guard in guards:
+                try:
+                    tripped = guard.check(value)
+                except Exception:
+                    tripped = False
+                if tripped:
+                    raise TripwireTriggered(guard.name, value)
+            return value
+      targets: [5]
+      decoys:
+        "1": Walking the guards in order is right, and the order is the order they were declared in.
+        "4": Catching in order to do something specific could be defensible. What gets done on the next line is what makes this version unsafe.
+        "6": Acting on the verdict is the point of the function. The verdict it is acting on was decided above.
+        "7": Raising rather than returning a flag is deliberate. A caller cannot forget to check an exception.
+        "8": Returning the value on a clean pass is the normal path and has nothing to do with the failure.
+      hints:
+        - The guard did not decide anything. Ask what this code decided on its behalf.
+        - There are three outcomes here and the code has room for two.
+        - A broken check that reports pass is worse than a broken check that reports fail, because nobody finds out.
+      reveal: >-
+        A guardrail that cannot run has not approved anything. Let the error propagate: a
+        five hundred on one request is a page somebody answers, and a silent pass is a
+        policy that stopped existing on the day somebody edited a pattern.
+
+    - id: write-the-gate
+      kind: blanks
+      prompt: >-
+        Fill in the three values that decide which rules run, what counts as a trip, and
+        what the caller is told.
+      lang: python
+      template: |
+        def guarded_run(agent, user_input, client):
+            for guard in {{1}}:
+                if guard.check(user_input) is {{2}}:
+                    raise TripwireTriggered(rule={{3}}, value=user_input)
+            return run(agent, user_input, client)
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'agent.input_guardrails'
+            - 'agent.output_guardrails'
+            - 'sorted(agent.input_guardrails)'
+            - 'ALL_GUARDRAILS'
+          accept: ['agent.input_guardrails']
+          note: In declaration order, unsorted, because the first rule that fires is the one the caller hears about and you decided that order when you wrote the list.
+        - n: 2
+          as: select
+          options: ['True', 'False', 'None']
+          accept: ['True']
+          note: The check returns True when the tripwire fires. Reading it the other way round makes every clean input a rejection, which at least fails loudly on the first test.
+        - n: 3
+          as: select
+          options: ['guard.name', 'agent.name', '"input guardrail"', 'None']
+          accept: ['guard.name']
+          note: The exception names the rule that fired, because the caller writes a different message to the user for homework than for an oversized payload.
+      hints:
+        - This function runs before the client is touched, so only one of the two guardrail lists belongs in it.
+        - Ask what the caller needs in order to write a useful rejection.
+        - Nothing here catches anything, and that is deliberate.
+      reveal: >-
+        Short-circuiting on the first trip means the error names one rule rather than a
+        list, and running in declaration order means you control which rule that is. Put
+        the free checks above the ones that cost a model call and the ordering pays for
+        itself.
+
+    - id: spend-nothing-on-a-refusal
+      kind: machine
+      prompt: >-
+        An out-of-scope request arrives that the deny list does not catch. Refuse it, and
+        keep the whole run under five units of spend.
+      initial: arrived
+      vars: { spend: 0 }
+      states:
+        arrived:
+          label: Request received, nothing run
+        passed-cheap:
+          label: The deny list guard passed
+          note: Free, and it was never going to catch this one. It still runs first, because free checks that sometimes catch something belong above checks that always cost.
+        agent-ran:
+          label: The agent has produced a reply
+          note: Forty units gone. Everything after this point protects the customer and none of it protects the budget.
+        rejected:
+          label: Refused before the agent ran
+          terminal: true
+        rejected-late:
+          label: Refused after the agent ran
+          note: The right answer reached at the wrong time. The user is protected and the tokens are gone.
+          terminal: true
+          error: true
+        answered:
+          label: Out-of-scope request answered
+          terminal: true
+          error: true
+      transitions:
+        - from: arrived
+          on: run the deny list guard
+          to: passed-cheap
+          note: A pattern match over the input. No tokens, no round trip.
+        - from: arrived
+          on: call the agent
+          to: agent-ran
+          effects: [{ var: spend, op: inc, value: 40 }]
+          note: Skipping the input guardrails entirely. Fast, and it forfeits the only saving on offer.
+        - from: passed-cheap
+          on: classify on the small model
+          to: rejected
+          effects: [{ var: spend, op: inc, value: 2 }]
+          note: A cheap classifier used as a guardrail. It costs a fraction of the agent and it runs first, which is the entire trade.
+        - from: passed-cheap
+          on: classify on the main model
+          to: rejected
+          effects: [{ var: spend, op: inc, value: 25 }]
+          note: The same verdict from the same family at twelve times the price. A guardrail that costs most of what it saves has stopped being a saving.
+        - from: passed-cheap
+          on: call the agent
+          to: agent-ran
+          effects: [{ var: spend, op: inc, value: 40 }]
+        - from: agent-ran
+          on: run the output guardrail
+          to: rejected-late
+          effects: [{ var: spend, op: inc, value: 2 }]
+        - from: agent-ran
+          on: return the reply
+          to: answered
+      mode: drive
+      win:
+        state: rejected
+        maxSteps: 6
+        requires: [{ var: spend, cmp: lte, value: 5 }]
+      hints:
+        - Two paths end in a refusal before the agent runs. They differ only in what the classifier costs.
+        - The free check goes first even though it will not catch this one.
+        - Refusing after the agent has answered is the correct verdict and the wrong position.
+      reveal: >-
+        Everything an input guardrail is worth comes from its position, and everything it
+        costs comes from the model you picked for it. Two units to avoid forty is a good
+        trade; twenty-five to avoid forty is a rounding error you added latency for.
 ---
 
 A guardrail is an evaluation function that assesses inputs or outputs and decides whether execution

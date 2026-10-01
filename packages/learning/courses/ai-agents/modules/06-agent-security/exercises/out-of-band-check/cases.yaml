@@ -1,0 +1,169 @@
+version: 1
+cases:
+  TestModelGuardrail.test_reads_the_transcript_into_its_request:
+    condition: 'a checker whose request has to carry the transcript it is judging'
+    hints:
+      - 'A model asked to judge an action needs to see the conversation it came out of.'
+      - 'That is exactly how the injection ends up in the checker''s context too.'
+      - 'Put the transcript into the request alongside the proposed action.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestModelGuardrail.test_calls_the_model_exactly_once:
+    condition: 'a single check that must cost one call'
+    hints:
+      - 'A guardrail runs on every action, so its cost multiplies through the whole system.'
+      - 'Asking twice and comparing does not fix a checker reading a poisoned transcript.'
+      - 'Make one call and read the verdict off it.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestModelGuardrail.test_returns_the_verdict:
+    condition: 'a refusal that has to reach the caller as a verdict rather than prose'
+    hints:
+      - 'The caller compares against fixed words, so the reply has to be reduced to one.'
+      - 'Returning the raw text leaves every caller parsing English.'
+      - 'Return a mapping carrying the verdict word.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestModelGuardrail.test_normalises_case_and_whitespace:
+    condition: 'a verdict returned in lower case with a trailing newline'
+    hints:
+      - 'Models add whitespace and choose their own capitalisation.'
+      - 'Comparing the raw reply fails on a verdict that is otherwise perfectly clear.'
+      - 'Strip the reply and fold its case before comparing.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestModelGuardrail.test_an_unparseable_answer_is_not_a_pass:
+    condition: 'a hedged reply that is neither of the two words asked for'
+    hints:
+      - 'A check whose answer you could not parse has not passed.'
+      - 'Defaulting to safe means every confused reply opens the gate.'
+      - 'Accept only the two known words and treat anything else as a refusal.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestModelGuardrail.test_the_injection_walks_it:
+    condition: 'a poisoned transcript that persuades the checker as well as the agent'
+    hints:
+      - 'When the attack succeeds it succeeds twice, and the same sentence does both.'
+      - 'You now have an approving verdict on the record making the action look reviewed.'
+      - 'Do not filter the transcript here. The finding is that this layer cannot hold on its own.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestDeterministicGuardrail.test_refuses_the_same_action_the_model_approved:
+    condition: 'a four hundred pound refund against a limit of one hundred'
+    hints:
+      - 'This is the action the persuaded checker waved through.'
+      - 'The limit lives on the account record, which no sentence in the conversation can change.'
+      - 'Compare the amount against the account limit and refuse when it is over.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestDeterministicGuardrail.test_never_reads_the_transcript:
+    condition: 'a check that has to declare it looked at no conversation at all'
+    hints:
+      - 'The whole claim of this layer is that nothing written in the conversation reaches it.'
+      - 'Accepting a transcript argument, even unused, invites somebody to start reading it.'
+      - 'Take only the action and the account, and record on the result that no transcript was read.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestDeterministicGuardrail.test_allows_a_legitimate_refund:
+    condition: 'a delivered order refunded for its exact total, under the limit'
+    hints:
+      - 'A guardrail that refuses everything is as useless as one that allows everything.'
+      - 'Every condition passed here, so the verdict is the safe one.'
+      - 'Return the safe verdict with no reason attached once all the checks pass.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestDeterministicGuardrail.test_refuses_an_unknown_tool:
+    condition: 'an action naming a wire transfer rather than a refund'
+    hints:
+      - 'This layer knows one action, and anything else is outside what it can reason about.'
+      - 'Falling through to the refund checks would apply order rules to something that is not an order operation.'
+      - 'Refuse any action whose tool is not the one this check understands.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestDeterministicGuardrail.test_refuses_an_order_that_is_not_this_accounts:
+    condition: 'an order id that appears nowhere in the account record'
+    hints:
+      - 'The account record came from authentication, not from anything the model or a document said.'
+      - 'Trusting the id as given lets the conversation choose whose money moves.'
+      - 'Look the id up in the account''s delivered orders and refuse when it is absent.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestDeterministicGuardrail.test_refuses_the_right_order_for_the_wrong_amount:
+    condition: 'a real order of forty refunded for four thousand'
+    hints:
+      - 'The right order for the wrong amount is the same failure as the wrong order.'
+      - 'Checking only that the order exists lets any amount through on a valid id.'
+      - 'Compare the requested amount against the order''s recorded total.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestIndependence.test_the_model_check_is_not_independent:
+    condition: 'a check that read the transcript it was meant to be guarding'
+    hints:
+      - 'A check that reads the same context it is guarding shares the context''s compromise.'
+      - 'Whether it is independent is a property of what it read, not of how it answered.'
+      - 'Report independence from the flag each check records about its own inputs.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestIndependence.test_the_deterministic_check_is:
+    condition: 'a check whose only inputs were the action and the account record'
+    hints:
+      - 'Nothing an attacker can write reached this decision.'
+      - 'That is what makes it worth stacking behind the model based one.'
+      - 'The same flag, unset, is what makes this check report as independent.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestLayering.test_the_deterministic_layer_holds_when_the_model_is_talked_round:
+    condition: 'an approving model verdict against a deterministic refusal'
+    hints:
+      - 'This is the whole reason for two layers: one of them was compromised and the other was not.'
+      - 'The blocking layer has to be named, so a reviewer can see which one held.'
+      - 'Check the deterministic verdict first and report it as the blocker.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestLayering.test_a_model_veto_can_still_stop_an_allowed_action:
+    condition: 'a model refusal on an action the deterministic layer would permit'
+    hints:
+      - 'The model layer catches things the rules do not encode, so its refusal still counts.'
+      - 'Ignoring it whenever the rules pass throws away the only judgement in the system.'
+      - 'After the deterministic check passes, refuse when the model verdict is a refusal.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestLayering.test_a_model_pass_cannot_rescue_a_deterministic_refusal:
+    condition: 'a model approval paired with a deterministic refusal, checked directly'
+    hints:
+      - 'A model based check may only make the answer more restrictive, never less.'
+      - 'Any rule that lets one approval outvote a refusal makes the persuadable layer decisive.'
+      - 'Return refused whenever either layer refuses, and never allow on an approval alone.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestLayering.test_both_passing_allows_it:
+    condition: 'a legitimate refund that both layers approve'
+    hints:
+      - 'Two refusing layers must not mean nothing ever gets through.'
+      - 'With nothing blocking, the blocker field is empty rather than naming a layer.'
+      - 'Return allowed with an empty blocker once both verdicts are safe.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestAudit.test_records_what_was_attempted_and_what_happened:
+    condition: 'a blocked attempt whose log entry has to carry both the action and the outcome'
+    hints:
+      - 'A log of decisions with no actions in it cannot answer what was tried.'
+      - 'The attempt id is what ties this entry to everything else about the turn.'
+      - 'Record the id, the tool, its arguments, whether it was allowed and which layer blocked it.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestAudit.test_stores_a_copy_of_the_arguments:
+    condition: 'a caller that edits the action mapping after the entry was written'
+    hints:
+      - 'A later mutation must not rewrite what the log says was attempted.'
+      - 'Holding a reference means the log changes whenever the caller does.'
+      - 'Build a new mapping for the arguments rather than storing the one you were given.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of
+
+  TestAudit.test_logs_allowed_actions_too:
+    condition: 'an approved action that still belongs in the record'
+    hints:
+      - 'A log of refusals alone cannot answer what the agent actually did.'
+      - 'Skipping the allowed ones is what makes an audit trail useless after an incident.'
+      - 'Write an entry whatever the decision was.'
+    concept: ai-agent-security.a-guardrail-that-cannot-be-talked-out-of

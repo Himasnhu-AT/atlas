@@ -1,0 +1,65 @@
+version: 1
+cases:
+  TestLimitOrderBook.test_empty_book:
+    condition: 'a book opened for the day with nothing resting on either side'
+    hints:
+      - 'There is no bid and no ask yet, so there is no midpoint and no spread to quote either.'
+      - 'Zero is a price. Returning 0.0 for the best bid says somebody is bidding nothing, which is a different claim from having no bid at all.'
+      - 'Return None from all four properties while the corresponding side of the book is empty, and let mid and spread return None whenever either side is missing.'
+    concept: quant-microstructure.limit-order-book
+
+  TestLimitOrderBook.test_add_passive_orders:
+    condition: 'two bids and two offers that rest without crossing each other'
+    hints:
+      - 'None of these four orders trades. They are all priced away from the other side, so they queue.'
+      - 'Best bid is the highest price anyone will pay and best ask is the lowest price anyone will sell at, so the two are read from opposite ends of the sorted prices.'
+      - 'Keep the resting prices in sorted order per side, then take the last bid price and the first ask price, with mid as their mean and spread as ask minus bid.'
+    concept: quant-microstructure.limit-order-book
+
+  TestLimitOrderBook.test_crossing_limit_order:
+    condition: 'a buy limit priced through two ask levels, filling at each maker price in turn'
+    hints:
+      - 'A limit price is the worst price the taker will accept, not the price it pays. A buy at 101 that crosses an offer at 100 trades at 100.'
+      - 'The cheaper level has to be exhausted before the more expensive one is touched, and each maker consumed is its own trade rather than one averaged fill.'
+      - 'Loop while the taker has quantity left and the best opposing price is still acceptable, emitting a trade per maker at the maker price, and drop a price level once its queue empties.'
+    concept: quant-microstructure.limit-order-book
+
+  TestLimitOrderBook.test_market_order_execution:
+    condition: 'a market sell for 70 when the top bid level holds only 40'
+    hints:
+      - 'A market order names no price, so it keeps walking to worse levels until the size is gone or the book runs out.'
+      - 'The 30 that could not fill at 100 fills at 99, which is a second trade at a second price, not a repriced first one.'
+      - 'Return the leftover size alongside the trades. It is 0.0 here because the two bid levels together held enough depth.'
+    concept: quant-microstructure.limit-order-book
+
+  TestLimitOrderBook.test_cancel_order:
+    condition: 'a cancelled bid that a later market sell must not match against'
+    hints:
+      - 'Returning True from the cancel is not the whole job. The order is still sitting in its price queue where the matching loop will find it.'
+      - 'Cancelling an id that was never open answers False. It is an ordinary outcome, not an error.'
+      - 'Drop the order from the open order map and zero its remaining quantity, then have the matching loop skip past any maker with nothing left to give.'
+    concept: quant-microstructure.limit-order-book
+
+  TestLimitOrderBook.test_partially_filled_taker_stays_registered:
+    condition: 'a taker that fills part of its size and rests the remainder under the same id'
+    hints:
+      - 'Two different memberships are at work here: every id ever submitted, and the orders that still carry open quantity. A partial fill sits in both, a fully filled maker sits only in the first.'
+      - 'Resubmitting an id is a ValueError whether the earlier order is still resting or was consumed, so nothing is ever removed from the record of used ids.'
+      - 'Record the id when the order is accepted and never discard it. Remove the order from the open map only when its remainder reaches zero or a cancel arrives.'
+    concept: quant-microstructure.limit-order-book
+
+  TestLimitOrderBook.test_market_order_price_time_priority:
+    condition: 'two sell orders at the same price, entered a second apart'
+    hints:
+      - 'Equal prices are not a tie. The order that arrived first owns the front of the queue and fills first, which is the half of price-time priority that is easy to drop.'
+      - 'A dict or set of orders at a level gives you no arrival order to honour once two orders share a price.'
+      - 'Hold each price level as a FIFO queue: append on arrival, and always match against the head until it is exhausted.'
+    concept: quant-microstructure.limit-order-book
+
+  TestLimitOrderBook.test_invalid_orders_do_not_mutate_book:
+    condition: 'a limit order at a negative price and a market order for zero size'
+    hints:
+      - 'A rejected order has to leave no trace. Creating its price level and then bailing out still moves the best bid.'
+      - 'The rejected limit answers with an empty trade list, and the zero size market order hands that same zero straight back as the unfilled amount.'
+      - 'Check price and quantity as the first thing each method does, before anything touches the levels or the open order map.'
+    concept: quant-microstructure.limit-order-book

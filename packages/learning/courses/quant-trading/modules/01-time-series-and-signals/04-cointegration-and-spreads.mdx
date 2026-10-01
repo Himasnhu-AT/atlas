@@ -7,6 +7,179 @@ estimatedMinutes: 25
 exercise:
   id: cointegration-spread
   timeboxMinutes: 35
+challenges:
+  goal: Tell a cointegrated pair from a merely correlated one, and turn its residual into a z-score you can size against.
+
+  steps:
+    - id: what-the-spread-reads-today
+      kind: numeric
+      prompt: >-
+        The hedge was fitted last night and both legs have just printed. How many sigma wide
+        is the spread right now?
+      context:
+        as: pairs
+        items:
+          - { k: Hedge ratio beta, v: '0.80' }
+          - { k: Intercept alpha, v: '1.20' }
+          - { k: Latest Y, v: '61.20' }
+          - { k: Latest X, v: '72.00' }
+          - { k: Residual mean over the fit window, v: '0.00' }
+          - { k: Residual standard deviation, v: '0.80' }
+      answer: 3.0
+      tolerance: 0.01
+      scaleHint: >-
+        That is out by more than a factor of ten. The residual is a couple of dollars wide
+        and the sigma is under a dollar, so the answer is a small number of sigma.
+      hints:
+        - The residual is what Y has left over once the fitted line in X is taken away from it.
+        - Alpha plus beta times X is 58.80, and Y printed at 61.20.
+        - Subtract the residual mean and divide by the residual standard deviation.
+      reveal: >-
+        Three sigma is a signal on any desk, and it is three sigma of a residual rather than
+        of a price. Every threshold in a pairs book is denominated in the spread's own
+        dispersion, which is what lets one rule govern a 6 dollar name and a 600 dollar one.
+
+    - id: which-relationships-hold
+      kind: assign
+      prompt: >-
+        Sort each pair by what actually holds between the two series over a long sample.
+      buckets:
+        - id: cointegrated
+          label: Cointegrated
+          note: Some fixed combination of the two levels is stationary.
+        - id: correlated-only
+          label: Correlated but not cointegrated
+          note: The returns move together and the levels are free to separate without limit.
+        - id: neither
+          label: Neither
+      items:
+        - id: share-classes
+          label: Class A and class B shares of the same company
+          bucket: cointegrated
+          because: >-
+            Both are claims on the same cash flows, so the ratio is pinned by the capital
+            structure rather than by a statistical habit. This is about as close to a
+            guaranteed equilibrium as the market offers.
+        - id: etf-basket
+          label: An equity ETF and the basket of shares it holds
+          bucket: cointegrated
+          because: >-
+            Creation and redemption make any gap an arbitrage that an authorised participant
+            is paid to close, which is a mechanism enforcing the equilibrium rather than a
+            pattern in the data.
+        - id: spot-future
+          label: The spot price of a commodity and its front month future
+          bucket: cointegrated
+          because: >-
+            The basis is storage plus financing minus convenience yield, all of which are
+            bounded. The two levels wander together because the difference between them
+            cannot get large without paying someone to close it.
+        - id: drifting-walks
+          label: Two independently simulated random walks that both happen to drift upward
+          bucket: correlated-only
+          because: >-
+            Both climb, so the correlation of the levels comes back near one over almost any
+            sample. Nothing links them, so no fixed combination of the two is stationary.
+            This is the spurious regression the whole distinction exists to catch.
+        - id: two-megacaps
+          label: Two large cap technology names that both rose 60 percent last year
+          bucket: correlated-only
+          because: >-
+            Shared exposure to the same factor makes the returns move together, and shared
+            factor exposure says nothing about the ratio of the levels. One can keep
+            compounding after the other stops.
+        - id: flat-walks
+          label: Two independently simulated random walks with no drift
+          bucket: neither
+          because: >-
+            With no shared trend the sample correlation is as likely to come back near zero
+            as near one, and there is still no stationary combination. Independence usually
+            shows up as neither property rather than as one of them.
+      hints:
+        - Ask what would have to close the gap if it opened. Three of these have an answer that names a person or a contract.
+        - Correlation is a statement about returns and cointegration is a statement about levels, so the two can disagree completely.
+        - Two of these are simulated from nothing at all, and the only thing separating them is whether the simulation was given a drift.
+      reveal: >-
+        The three in the first bucket are held together by a mechanism, not by a p-value. A
+        cointegration test on the other three would still reject the null often enough to
+        get a strategy funded, which is why the question you ask first is what forces the
+        spread back rather than what the test says.
+
+    - id: the-backtest-that-knew-the-future
+      kind: spot
+      prompt: >-
+        This pairs backtest reports a Sharpe of 3.1 in sample and loses money live. Click
+        every line that uses information the trader did not have at the time.
+      lang: python
+      source: |
+        def backtest_pair(y, x):
+            alpha, beta = ols(x, y)
+            spread = y - (alpha + beta * x)
+            z = (spread - spread.mean()) / spread.std()
+            position = np.where(z > 2.0, -1.0, np.where(z < -2.0, 1.0, 0.0))
+            return position[:-1] * np.diff(spread)
+      targets: [1, 3]
+      requireAll: true
+      decoys:
+        '2': >-
+          The residual is formed correctly from whatever alpha and beta it is handed. The
+          problem is where those two numbers came from.
+        '4': >-
+          Two sigma in and flat otherwise is the strategy as specified. The thresholds are
+          honest; the z-score they are compared against is not.
+        '5': >-
+          Lagging the position by one bar before applying it to the change in the spread is
+          right. This is the one line here that does respect the arrow of time.
+      hints:
+        - Two lines here are fitted once over the whole file and then applied to every bar in it, including the ones that came first.
+        - The very first signal in the backtest is scored against a mean and a standard deviation computed from data years ahead of it.
+        - There is more than one line, and both of them are statistics taken over the entire array.
+      reveal: >-
+        Both the hedge ratio and the normalisation have to be rolling, refitted on a window
+        that ends at the bar being traded. A pair that is cointegrated over the full sample
+        can be a divergent mess over the first half of it, and a full-sample fit hands the
+        early bars a hedge ratio that nobody could have known.
+
+    - id: the-order-of-a-pair-study
+      kind: order
+      prompt: Put the steps of establishing a tradable pair in the order they have to happen.
+      items:
+        - { id: legs, label: Confirm each price series on its own has a unit root }
+        - { id: regress, label: Regress one level on the other for alpha and beta }
+        - { id: residual, label: Test the residual series for a unit root }
+        - { id: half-life, label: Estimate the half-life of the residual }
+        - { id: thresholds, label: Set entry and exit thresholds in units of residual sigma }
+        - { id: shares, label: Convert beta into a share count for each leg }
+      solution: [legs, regress, residual, half-life, thresholds, shares]
+      because:
+        legs: >-
+          Cointegration is a claim about two non-stationary series. If a leg is already
+          stationary the regression is an ordinary one and none of the apparatus below
+          applies.
+        regress: >-
+          There is no residual to test until beta exists, so the fit has to come before
+          anything that examines what it left over.
+        residual: >-
+          A regression always returns a beta. Only the test on the residual tells you
+          whether that beta bought you a stationary series or a slightly tidier drift.
+        half-life: >-
+          The half-life is what turns a stationary residual into a holding period, and the
+          holding period is what decides whether any threshold is worth setting.
+        thresholds: >-
+          Thresholds are denominated in sigma of the residual, which does not exist as a
+          number until the residual does.
+        shares: >-
+          Sizing is last because it converts a ratio into share counts, and every step above
+          it is what establishes that the ratio is real.
+      hints:
+        - Two of these examine series for a unit root, and they are not adjacent, because something has to be built in between.
+        - Nothing downstream of the regression exists until the regression has run.
+        - The last two steps both turn a statistical quantity into an order, and one of them is measured in sigma while the other is measured in shares.
+      reveal: >-
+        Skipping the first step is how a pairs book fills up with pairs that were never a
+        pair. Two stationary series regressed on each other produce a stationary residual
+        every time, the test passes, and what has been discovered is that both legs already
+        mean-revert on their own.
 ---
 
 Two assets can be highly correlated while drifting apart indefinitely over time. Trading a diverging spread based purely on correlation leads to catastrophic drawdowns.

@@ -1,0 +1,65 @@
+version: 1
+cases:
+  TestStructPaddingCalculator.test_empty_fields:
+    condition: 'a struct declared with no fields in it at all'
+    hints:
+      - 'An empty struct has nothing to align to, so taking a maximum alignment across its fields has nothing to work with.'
+      - 'The size is 0 and the alignment falls back to 1, the weakest requirement there is.'
+      - 'Answer the empty case before the placement loop, and have the reorder hand back an empty list.'
+    concept: intro-c-data-structures.struct-layout-and-alignment
+
+  TestStructPaddingCalculator.test_single_field:
+    condition: 'one four byte field, which already sits where it needs to'
+    hints:
+      - 'The first field always lands at offset 0, because zero is a multiple of every alignment.'
+      - 'The struct takes its alignment from its strictest field, which here is the only field there is.'
+      - 'The end offset is already a multiple of 4, so nothing is rounded up and no padding appears.'
+    concept: intro-c-data-structures.struct-layout-and-alignment
+
+  TestStructPaddingCalculator.test_single_byte_field:
+    condition: 'one byte sized field, so the struct constrains nothing about its address'
+    hints:
+      - 'A one byte field can sit at any address, so the struct as a whole has an alignment of 1.'
+      - 'Rounding a size up to a multiple of 1 changes nothing.'
+      - 'Size 1, alignment 1, and no padding, which the general arithmetic gives without a special case.'
+    concept: intro-c-data-structures.struct-layout-and-alignment
+
+  TestStructPaddingCalculator.test_sensor_reading_unaligned:
+    condition: 'a char before an int, then another char before an eight byte field'
+    hints:
+      - 'The int cannot begin at offset 1. The compiler pushes it out to the next multiple of 4, and the skipped bytes become padding.'
+      - 'Padding is the gap between the bytes the fields hold and the bytes the struct occupies, so count it once at the end.'
+      - 'Before placing a field, advance the running offset to the next multiple of that field''s alignment, then add its size.'
+    concept: intro-c-data-structures.struct-layout-and-alignment
+
+  TestStructPaddingCalculator.test_trailing_padding:
+    condition: 'a one byte field declared after the widest field in the struct'
+    hints:
+      - 'The last field ends at offset 9, but an array of these structs has to keep every element on an eight byte boundary.'
+      - 'Bytes at the end are padding too, even though no field comes after them.'
+      - 'Round the final offset up to a multiple of the struct''s own alignment, which is the strictest alignment among its fields.'
+    concept: intro-c-data-structures.struct-layout-and-alignment
+
+  TestStructPaddingCalculator.test_already_aligned_struct:
+    condition: 'fields declared widest first, so each lands on its own boundary unaided'
+    hints:
+      - 'Declaring from widest to narrowest is what removes the gaps. Nothing here has to be pushed forward.'
+      - 'The struct ends at 16, already a multiple of 8, so there is no trailing round up either.'
+      - 'Every offset is already a multiple of its field''s alignment, which leaves the padding count at 0.'
+    concept: intro-c-data-structures.struct-layout-and-alignment
+
+  TestStructPaddingCalculator.test_optimize_struct_layout:
+    condition: 'a declaration order that scatters single byte fields between wide ones'
+    hints:
+      - 'Reordering changes nothing about what the struct holds, only where the holes fall.'
+      - 'Putting the strictest alignments first keeps every later offset aligned as the widths come down.'
+      - 'Sort by alignment descending with size descending as the tiebreak, and leave the caller''s list untouched.'
+    concept: intro-c-data-structures.struct-layout-and-alignment
+
+  TestStructPaddingCalculator.test_optimize_stability:
+    condition: 'three fields sharing one alignment and size, whose declared order has to survive'
+    hints:
+      - 'Fields with identical alignment and size are interchangeable as far as padding goes, so nothing justifies moving them past one another.'
+      - 'Somebody reading the header expects field_a still ahead of field_b.'
+      - 'Sort on the alignment and size key with a stable sort, which leaves ties in the order they arrived.'
+    concept: intro-c-data-structures.struct-layout-and-alignment

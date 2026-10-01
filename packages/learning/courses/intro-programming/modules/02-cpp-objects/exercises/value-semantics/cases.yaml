@@ -1,0 +1,145 @@
+version: 1
+cases:
+  TestMoneyValidation.test_valid_initialization:
+    condition: 'an amount and a currency code that both satisfy the class invariant'
+    hints:
+      - 'Rejecting sound input is as broken as accepting bad input. The ordinary construction has to succeed quietly.'
+      - 'Once the checks pass, the two values are kept and read back through the properties.'
+      - 'Hold the cents and the code on the instance and hand them back unchanged.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyValidation.test_default_currency:
+    condition: 'a construction that names an amount and says nothing about the currency'
+    hints:
+      - 'A default is part of the type''s contract, not something the caller has to spell out every time.'
+      - 'The default still has to survive the same validation an explicit code does.'
+      - 'Give the currency parameter a default of USD and run the same checks over it.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyValidation.test_invalid_cents_type:
+    condition: 'an amount given as 12.34, as the string "100", and as True'
+    hints:
+      - 'Cents are whole. A float amount is the very thing an integer representation exists to avoid.'
+      - 'In Python a bool is a subclass of int, so a plain isinstance check lets True through as an amount.'
+      - 'Require the type to be exactly int, which turns away floats, strings and bools alike, and raise TypeError.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyValidation.test_invalid_currency:
+    condition: 'a lowercase code, a two letter code, a four letter one, one with a digit in it, and an integer'
+    hints:
+      - 'usd and USD are not the same code as far as the invariant goes, because every later comparison is exact.'
+      - 'A wrong type and a wrong shape are different failures, and the caller is told them apart.'
+      - 'Raise TypeError when the code is not a string, and ValueError when it is not exactly three uppercase letters.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyImmutability.test_properties_are_read_only:
+    condition: 'an assignment to the amount, and to the currency, after the object exists'
+    hints:
+      - 'A value object is settled once it is built. If a holder could rewrite the amount, every reference to it would be suspect.'
+      - 'The invariant is established in the constructor, and a plain public attribute lets a later write walk straight past it.'
+      - 'Keep the fields private behind read only properties, so an assignment raises AttributeError.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_addition:
+    condition: 'two amounts added, with both of the originals checked afterwards'
+    hints:
+      - 'Adding must leave both operands as they were. The sum is a third value, not a mutation of the first.'
+      - 'Every operation on a value object hands back a new instance rather than adjusting this one.'
+      - 'Build and return a new Money from the summed cents and the shared currency.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_addition_currency_mismatch:
+    condition: 'dollars added to euros, with no rate available to convert between them'
+    hints:
+      - 'Adding the two cent counts would give a number that means nothing in either currency.'
+      - 'The code is part of the value, so amounts in different currencies are not comparable quantities.'
+      - 'Raise ValueError when the two codes differ, after the type check and before any arithmetic.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_addition_type_error:
+    condition: 'a bare integer handed in where another amount was expected'
+    hints:
+      - '100 carries no currency, so there is no telling what it would be added to.'
+      - 'The type check has to run before anything reads a field off the argument.'
+      - 'Raise TypeError when the argument is not a Money.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_subtraction:
+    condition: 'one amount taken from a larger amount in the same currency'
+    hints:
+      - 'Subtraction mirrors addition, including that both operands come out of it untouched.'
+      - 'The difference carries the same currency the operands share.'
+      - 'Return a new Money holding the difference in cents and that same code.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_subtraction_negative_result:
+    condition: 'a larger amount taken from a smaller one, so the result falls below zero'
+    hints:
+      - 'A negative amount is legitimate. It is a debt, not a mistake to be corrected.'
+      - 'Nothing clamps the result at zero and nothing takes its absolute value.'
+      - 'Let the difference go negative and pass it to the constructor as it stands.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_subtraction_currency_mismatch:
+    condition: 'an amount in one currency subtracted from an amount in another'
+    hints:
+      - 'The mismatch matters here exactly as much as it does when adding.'
+      - 'Subtraction needs the same guard, and writing the guard once for addition is the easy mistake.'
+      - 'Raise ValueError from subtract as well when the two codes differ.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_subtraction_type_error:
+    condition: 'a string handed in where another amount was expected'
+    hints:
+      - 'The string "100" reads like an amount and is not one.'
+      - 'Subtract needs the same type check add does, on the same argument.'
+      - 'Raise TypeError when the argument is not a Money.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_multiplication:
+    condition: 'an amount scaled by one and a half'
+    hints:
+      - 'Scaling is unlike adding: the other operand is a plain number, not another amount of money.'
+      - 'The currency is carried straight through. Only the cents move.'
+      - 'Multiply the cents by the factor and build a new Money with the same code.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_multiplication_rounding:
+    condition: 'a factor that lands the product between two whole cents'
+    hints:
+      - '105 times 0.333333 is 34.99996 cents, and there is no fraction of a cent to store.'
+      - 'Truncating quietly loses money on every transaction, which is why the result is rounded rather than cut off.'
+      - 'Round the product to the nearest whole cent before it reaches the constructor.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyOperations.test_multiplication_type_error:
+    condition: 'a factor given as the string "2.5", and a factor given as True'
+    hints:
+      - 'A factor has to be a number, and True counting as an int in Python lets it slip past a naive check.'
+      - 'The bool case has to be settled ahead of the numeric test, not after it.'
+      - 'Turn away bools explicitly, then require an int or a float, raising TypeError for anything else.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyEqualityAndFormatting.test_equals_method:
+    condition: 'a matching value, one differing only in currency, one differing only in amount, and a string'
+    hints:
+      - 'Two values match only when both halves match. The same cent count in another currency is a different value.'
+      - 'Comparing against something that is not money answers false rather than raising.'
+      - 'Return False for an argument that is not a Money, otherwise compare the cents and the code together.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyEqualityAndFormatting.test_dunder_eq:
+    condition: 'two amounts compared with the equality operator rather than through the method'
+    hints:
+      - 'Without an equality operator, two separate instances holding the same value compare unequal, which defeats the point of a value object.'
+      - 'The operator should not carry a second copy of the comparison logic that can drift from the first.'
+      - 'Have __eq__ hand off to the equals method.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes
+
+  TestMoneyEqualityAndFormatting.test_to_string_formatting:
+    condition: 'five cents, zero, a whole unit, and negative amounts whose sign goes ahead of the symbol'
+    hints:
+      - '-$12.34 puts the minus in front of the symbol, so formatting the raw negative number lands it in the wrong place.'
+      - 'Five cents is $0.05, not $0.5. The cents part is always two digits.'
+      - 'Format the absolute value as whole units and a two digit remainder, then put a leading minus in front when the amount is below zero.'
+    concept: intro-cpp-objects.from-c-structs-to-cpp-classes

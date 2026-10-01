@@ -7,6 +7,159 @@ estimatedMinutes: 20
 exercise:
   id: dollar-bars
   timeboxMinutes: 25
+challenges:
+  goal: Sample a tick stream by the money that changed hands rather than by the clock, and set the threshold so the bars stay comparable.
+
+  readingOptional: true
+  steps:
+    - id: where-the-bars-land
+      kind: numeric
+      prompt: >-
+        Dollar bars close every time one million dollars has transacted. How many complete
+        bars does this trading day produce?
+      context:
+        as: table
+        caption: One session, split into three periods
+        columns: [Period, Minutes, Dollar volume]
+        rows:
+          - [Open auction and first half hour, 30, $9.0M]
+          - [Midday, 300, $3.0M]
+          - [Last half hour and close, 30, $6.0M]
+      answer: 18
+      tolerance: 0
+      unit: bars
+      scaleHint: >-
+        Out by a factor of ten or more, which means the minutes column got into the
+        arithmetic. Nothing about a dollar bar depends on how long it took.
+      hints:
+        - The threshold is one million dollars, and the table is already denominated in millions.
+        - Each period contributes its dollar volume divided by the threshold.
+        - Nine plus three plus six.
+      reveal: >-
+        Thirty minute time bars would give this day twelve observations, one for the open,
+        ten for the midday, and one for the close. Dollar bars give it eighteen, and they put
+        nine of them in the half hour where nine million dollars traded. The midday hours
+        get three bars because three million dollars of information arrived, and a return
+        computed over one of them is roughly as informative as a return computed over any
+        other. That is the whole trade: bars stop being evenly spaced in time and start being
+        evenly spaced in activity.
+
+    - id: build-the-bar
+      kind: text-contract
+      prompt: >-
+        These five ticks completed one bar. The aggregator emitted this record. Repair it
+        until it describes the ticks.
+      context:
+        as: table
+        caption: Ticks in the completed bar, in arrival order
+        columns: [Tick, Price, Size]
+        rows:
+          - [1, 100.10, 300]
+          - [2, 100.60, 200]
+          - [3, 99.90, 500]
+          - [4, 100.40, 100]
+          - [5, 100.20, 300]
+      lang: json
+      initial: |
+        {
+          "open": 99.90,
+          "high": 100.20,
+          "low": 100.10,
+          "close": 100.20,
+          "volume": 140200
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The open is the price of the first tick in arrival order, not the lowest price in the bar.
+          check: { op: equals, path: open, value: 100.1 }
+        - message: The high is the highest price any tick printed at. Here that tick is neither the open nor the close, so an aggregator that reads only those two will never see it.
+          check: { op: equals, path: high, value: 100.6 }
+        - message: The low has the same problem in the other direction, and it is the tick that would have taken out a stop.
+          check: { op: equals, path: low, value: 99.9 }
+        - message: The close is the price of the last tick before the threshold was crossed.
+          check: { op: equals, path: close, value: 100.2 }
+        - message: Volume is a share count. The number sitting there is the dollar value, in the wrong field.
+          check: { op: equals, path: volume, value: 1400 }
+        - message: The dollar value is missing, and it is the quantity the threshold test reads. A bar that does not carry it cannot be audited against the threshold that produced it.
+          check: { op: exists, path: dollar_value }
+        - message: The dollar value is the sum of price times size over the five ticks, not the last price times the total size.
+          check: { op: equals, path: dollar_value, value: 140200 }
+      hints:
+        - Four of the five OHLC fields are wrong, and each one is wrong for a different reason.
+        - The high and the low come from the path through the bar, not from its endpoints.
+        - One field holds a number that belongs in a field that is not there.
+      reveal: >-
+        Time bars and dollar bars build the OHLC the same way, and the aggregator is the same
+        code. What changes is the line that decides when to emit, and that one line moves the
+        return distribution from something with a kurtosis in the twenties to something a
+        regression will not choke on. Everything else about the bar is bookkeeping, which is
+        why the bookkeeping is where the bugs are.
+      solution: |
+        {
+          "open": 100.10,
+          "high": 100.60,
+          "low": 99.90,
+          "close": 100.20,
+          "volume": 1400,
+          "dollar_value": 140200
+        }
+
+    - id: the-aggregation-loop
+      kind: order
+      prompt: Put one pass of the dollar bar aggregator in order.
+      items:
+        - { id: open-bar, label: Take the open from the first tick after the last reset }
+        - { id: accumulate, label: 'Add price times size to the running dollar total, and update the high, low, close and share volume' }
+        - { id: test, label: Compare the running dollar total against the threshold }
+        - { id: emit, label: Emit the completed bar }
+        - { id: reset, label: Clear the accumulators so the next tick opens a new bar }
+        - { id: tail, label: Decide what happens to the partial bar left when the stream ends }
+      solution: [open-bar, accumulate, test, emit, reset, tail]
+      because:
+        accumulate: The tick has to be inside the bar before the threshold is tested, or the bar that crosses the threshold is emitted without the trade that crossed it.
+        test: Testing after accumulating is what makes the bar close on the crossing tick rather than one tick later.
+        reset: The reset has to happen after the emit and before the next tick, and forgetting it is how one bar's high leaks into the next.
+        tail: The stream always ends mid bar. That leftover is not a bar and it never reached the threshold, so treating it as one puts a short, unrepresentative observation at the end of every series.
+      hints:
+        - The threshold test reads a running total, so something has to have run before it.
+        - Two of these six only happen on the ticks that complete a bar.
+        - One of them happens once, after every tick has been seen.
+      reveal: >-
+        The partial tail is the step people leave out, and it is the one that shows up in
+        live trading rather than in the backtest. In a backtest the stream ends once. In
+        production it ends every time the process restarts, and a system that emits the
+        partial bar on shutdown produces a short bar at every restart, all of which have
+        larger returns per unit of dollar volume than any real bar does.
+
+    - id: setting-the-threshold
+      kind: choice
+      prompt: >-
+        You are running dollar bars across a universe of 500 names over twelve years. How do
+        you set the threshold?
+      options:
+        - id: fixed-forever
+          label: One constant dollar threshold, fitted once on the first year of data
+          note: Traded value grows with the market and with the company. Twelve years on, the same threshold produces several times as many bars a day, so the number of observations per year is a fact about the calendar rather than about information.
+        - id: adv-fraction
+          label: A rolling fraction of trailing dollar volume, retargeted so an average day gives a fixed number of bars
+          correct: true
+          note: This holds the bar count roughly constant per name per day, so a one bar return means about the same amount of trading in 2014 as in 2026 and in a mega cap as in a small cap. The labels and features built on top can then be pooled.
+        - id: tick-count
+          label: Sample every N trades, since trade arrivals already track activity
+          note: Closer to information time than the clock is, and still fooled by order slicing. One parent order chopped into 200 child fills prints 200 events, and the algorithm doing the chopping changes from year to year.
+        - id: share-volume
+          label: Sample every N shares
+          note: Invariant to how the size is sliced, but not to price. A name that triples transacts three times the value per share bar, and a split resets the entire series to a different meaning of the same threshold.
+      hints:
+        - Ask what each threshold means to a name whose price has tripled since the sample started.
+        - Two of these are broken by the same thing, which is that value per unit changes over time.
+        - The property you want is a stable number of bars per day, so make that the thing you set.
+      reveal: >-
+        The threshold is chosen to hit a bar count, not a dollar figure, and the dollar figure
+        is whatever delivers that count on trailing volume. It gets recomputed on a schedule
+        and never from the period being sampled, because a threshold fitted on the same window
+        it samples has already seen how that window ends.
 ---
 
 Standard financial analysis aggregates transactions into fixed time bars (e.g. 1-minute, 5-minute, or 1-day OHLCV candles).

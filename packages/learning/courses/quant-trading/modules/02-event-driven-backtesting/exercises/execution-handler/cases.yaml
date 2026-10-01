@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestExecutionHandler.test_buy_fill_with_slippage_and_commission:
+    condition: 'a 100 share buy against a 400.00 bid and 400.10 offer with volume to spare'
+    hints:
+      - 'A buy takes the offer, so the reference price is the ask rather than the midpoint. Filling at the mid quietly hands the strategy half the spread for free.'
+      - 'Slippage moves the price against the order: up for a buy, down for a sell. The commission is then charged on that slipped notional, not on the untouched quote.'
+      - 'Charge the greater of the minimum and the notional times the commission rate, and report slippage as a cash amount, the distance from the reference price multiplied by the quantity filled.'
+    concept: quant-backtesting.slippage-and-costs
+
+  TestExecutionHandler.test_volume_participation_cap:
+    condition: 'an order for 1000 shares against a bar that printed 500, at a 20 percent cap'
+    hints:
+      - 'The bar traded 500 shares. Filling the whole 1000 assumes liquidity that was never there, which is most of what makes a backtest look better than the strategy is.'
+      - 'The cap is a fraction of the volume that traded, so it is 20 percent of 500 and not 20 percent of the order.'
+      - 'Fill the smaller of the requested size and the bar volume times the participation rate, then price and cost that reduced quantity rather than the size that was asked for.'
+    concept: quant-backtesting.slippage-and-costs

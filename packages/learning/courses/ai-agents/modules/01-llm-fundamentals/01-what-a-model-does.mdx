@@ -4,6 +4,126 @@ title: What a model does
 summary: A model scores every token in its vocabulary and something else picks one. The confident wrong answers, the missing memory and the cost of an agent loop all fall out of that single fact.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Trace one token from the forward pass to the output, and derive the missing memory and the confident wrong answer from it.
+
+  steps:
+    - id: one-step-of-decoding
+      kind: order
+      prompt: Put one step of generation in order, from the text going in to the next token coming out.
+      items:
+        - { id: tokenize, label: Cut the text into ids from a fixed vocabulary }
+        - { id: forward, label: Run one forward pass over the whole sequence }
+        - { id: logits, label: Read one unbounded score per vocabulary entry }
+        - { id: softmax, label: Normalise those scores into a distribution }
+        - { id: pick, label: A sampler chooses one entry from the distribution }
+        - { id: append, label: Append the chosen token and start again }
+      solution: [tokenize, forward, logits, softmax, pick, append]
+      because:
+        softmax: The scores leaving the model are unbounded and sum to nothing in particular. They are not probabilities until this has happened.
+        pick: This is not the model. Temperature, top-p and top-k all live here, in software, after the forward pass has finished.
+        append: The token that was chosen becomes part of the input to the next pass, which is why one bad token colours everything after it.
+      hints:
+        - The model's own contribution is one of these six, and everything after it is arithmetic.
+        - Two steps sit between the raw scores and a token. One turns them into probabilities and one chooses.
+        - The last step is what makes this a loop rather than a single call.
+      reveal: >-
+        The model produces a distribution and stops. Choosing is a separate step you
+        configure, which is why temperature is a request parameter rather than a property of
+        the weights, and why two calls with the same prompt can return different text without
+        anything having changed inside the model.
+
+    - id: where-the-answer-came-from
+      kind: choice
+      prompt: >-
+        Call 2 gets the author right and call 3, in a new session, is wrong again. What
+        changed between them?
+      context:
+        as: code
+        lang: python
+        source: |
+          ask([{"role": "user", "content": "Who wrote Dune?"}])
+          # "Isaac Asimov."
+
+          ask([
+              {"role": "user", "content": "Who wrote Dune?"},
+              {"role": "assistant", "content": "Isaac Asimov."},
+              {"role": "user", "content": "No, Frank Herbert. Who wrote Dune?"},
+          ])
+          # "Frank Herbert."
+
+          ask([{"role": "user", "content": "Who wrote Dune?"}])
+          # "Isaac Asimov." again.
+      options:
+        - id: in-the-array
+          label: Nothing changed. Call 2 had the answer in its own input array and call 3 did not.
+          correct: true
+          note: The correct name was in the tokens you sent, so continuing from them was easy. Take those tokens away and the model is back to whatever the weights favour.
+        - id: weights
+          label: The correction updated the weights, and the new session loaded an older copy.
+          note: Weights are frozen during inference. No request writes to them, and there is no per-session copy that could be stale.
+        - id: expired
+          label: It remembered for a while and the memory expired.
+          note: There is nothing to expire. Between two calls the provider holds no state about your conversation at all.
+        - id: cache
+          label: Call 2 was served from a cache that missed on call 3.
+          note: Prompt caching reuses computation over a repeated prefix. It changes what a call costs and never what it answers.
+      hints:
+        - Compare the three arrays rather than the three answers.
+        - One of the three calls contains something the other two do not, and it is not a flag.
+        - Ask what the model would have to write to in order for call 3 to be right.
+      reveal: >-
+        Nothing the model does between calls is memory, because there is nothing between
+        calls. Every technique you will build that looks like memory is you putting tokens
+        back in the array: few shot examples, retrieved passages, tool results, chat history.
+        If it is not in the array, the model does not have it.
+
+    - id: what-removes-an-invented-citation
+      kind: assign
+      prompt: >-
+        Your agent cited a paper that does not exist. Sort each proposed fix by whether it
+        can actually remove the invented citation.
+      buckets:
+        - id: can
+          label: Can remove it
+          note: Puts the real answer where the model can reach it, or checks the output against something real.
+        - id: cannot
+          label: Cannot remove it
+          note: Changes how the distribution is shaped, or asks nicely. Neither adds a fact that is not there.
+      items:
+        - id: retrieval
+          label: Retrieve the real bibliography and put it in the context
+          bucket: can
+          because: The citation is now in the tokens, so continuing from them is the likely path rather than inventing a plausible year.
+        - id: lookup-tool
+          label: Give it a search tool and refuse any citation not carried by a tool result
+          bucket: can
+          because: This moves the fact out of the weights and into a call whose answer you can check.
+        - id: validate
+          label: Check every citation against a real index before the answer ships
+          bucket: can
+          because: It does not stop the invention, but it stops the invention reaching a reader, which is what you were asked to fix.
+        - id: directive
+          label: Add "never make anything up" to the system prompt
+          bucket: cannot
+          because: The model is not choosing to invent. After "Smith et al. (" a four digit year is simply the likely continuation, and an instruction does not put the real one in the weights.
+        - id: temperature
+          label: Set the temperature to zero
+          bucket: cannot
+          because: That makes it pick the most likely token every time. When the fact is absent, the most likely token is still a plausible looking year, produced deterministically.
+        - id: thinking
+          label: Switch to a reasoning model and let it think for longer
+          bucket: cannot
+          because: More intermediate tokens help when the answer is derivable from what is already there. They do not supply knowledge the weights never held.
+      hints:
+        - Ask of each one whether it puts the real citation somewhere the model or your code can read.
+        - Three of these change how a token is chosen. None of those can choose a token that encodes a fact the model does not have.
+        - One of the working three does not prevent the invention at all, and still counts.
+      reveal: >-
+        Softmax has to distribute all its probability across the vocabulary even when no good
+        continuation exists, and prediction happens a token at a time, so the shape of a
+        citation is learned separately from any particular citation. Nothing you do to the
+        sampler fixes that. Ground it, look it up, or check it.
 ---
 
 A language model takes a sequence of input tokens and calculates a score for every token in its vocabulary. A decoding algorithm selects one token from this distribution, appends it to the sequence, and runs the forward pass again.

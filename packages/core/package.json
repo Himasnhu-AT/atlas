@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test src/*.test.ts src/game/*.test.ts"
+    "test": "node --import tsx --test src/*.test.ts src/game/*.test.ts src/challenges/*.test.ts"
   },
   "dependencies": {
     "zod": "^4.4.3"

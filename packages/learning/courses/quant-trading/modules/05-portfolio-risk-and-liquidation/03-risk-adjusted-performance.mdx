@@ -7,6 +7,178 @@ estimatedMinutes: 20
 exercise:
   id: performance-metrics
   timeboxMinutes: 25
+challenges:
+  goal: Annualise a Sharpe ratio without inflating it, build a downside deviation, and read the gap between the two ratios.
+
+  steps:
+    - id: annualise-it
+      kind: numeric
+      prompt: >-
+        Compute the annualised Sharpe ratio from these daily figures. The returns are already
+        net of the risk-free rate.
+      context:
+        as: pairs
+        items:
+          - { k: Mean daily excess return, v: '0.00045' }
+          - { k: Daily standard deviation, v: '0.00900' }
+          - { k: Periods per year, v: '252' }
+          - { k: Square root of 252, v: '15.8745' }
+      answer: 0.794
+      tolerance: 0.01
+      scaleHint: >-
+        That is out by more than a factor of ten, which almost always means the annualisation
+        used 252 rather than its square root.
+      hints:
+        - The per-period ratio comes first, and it is a small number.
+        - 0.00045 over 0.009 is 0.05, which is the Sharpe of a single day.
+        - Volatility grows with the square root of time, so the ratio scales by the square root of the number of periods.
+      reveal: >-
+        Mean scales with time and standard deviation scales with the square root of time, so
+        the ratio picks up the difference between the two. That is also why a Sharpe ratio is
+        meaningless without its period stated: the same strategy is 0.05 daily, 0.79
+        annualised and 1.58 if somebody quietly annualises from monthly data.
+
+    - id: the-sharpe-of-twelve-point-six
+      kind: spot
+      prompt: >-
+        This reports a Sharpe of 12.6 for a strategy that returned 4 percent last year with
+        ordinary daily swings. Click the line responsible.
+      lang: python
+      source: |
+        def annualised_sharpe(returns, rf_per_period, periods_per_year):
+            excess = [r - rf_per_period for r in returns]
+            mean = statistics.mean(excess)
+            sd = statistics.pstdev(excess)
+            if sd == 0.0:
+                return 0.0
+            return mean / sd * periods_per_year
+      targets: [6]
+      requireAll: true
+      decoys:
+        '1': >-
+          Subtracting the risk-free rate per period is right, and doing it before anything
+          else means both the mean and the deviation are computed on excess returns.
+        '2': >-
+          The mean of the excess series is the numerator, and it is computed correctly.
+        '3': >-
+          The population deviation is the convention this ratio is defined with, and either
+          choice is defensible on a sample of hundreds.
+        '4': >-
+          Guarding a zero denominator is right. A series with no dispersion has no risk
+          adjusted return to report.
+        '5': >-
+          Returning zero rather than raising is a reasonable choice for a metric that gets
+          computed across hundreds of strategies at once.
+      hints:
+        - Every line here is right except for one constant, and the constant is not wrong so much as unrooted.
+        - The numerator grows with time and the denominator grows with the square root of time, so the ratio grows with the square root too.
+        - 0.79 times 15.87 is 12.6.
+      reveal: >-
+        The tell is that the number is impossible. A Sharpe above about 4 on a liquid daily
+        strategy is a bug or a leak until proven otherwise, and 12.6 is not a strategy anybody
+        has ever run. Metrics need a plausibility band asserted somewhere in the pipeline,
+        because the alternative is a research process that spends a fortnight on a bug in a
+        multiplier.
+
+    - id: the-denominator-that-only-counts-losses
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions. Downside deviation differs from ordinary deviation in
+        exactly two of them.
+      lang: python
+      template: |
+        def annualised_sortino(returns, rf, mar, periods_per_year):
+            excess = [r - rf for r in returns]
+            shortfalls = [{{1}} for x in excess]
+            semivariance = sum(s * s for s in shortfalls) / {{2}}
+            downside = math.sqrt(semivariance)
+            if downside == 0.0:
+                return 0.0
+            return (statistics.mean(excess) - mar) / downside * {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'min(0.0, x - mar)'
+            - 'max(0.0, x - mar)'
+            - 'abs(x - mar)'
+          accept: ['min(0.0, x - mar)']
+          note: >-
+            Only shortfalls below the acceptable return count, and everything above it
+            contributes zero. Taking the absolute value rebuilds ordinary volatility with
+            extra steps.
+        - n: 2
+          as: select
+          options:
+            - 'len(excess)'
+            - 'len([s for s in shortfalls if s < 0.0])'
+            - 'len(excess) - 1'
+          accept: ['len(excess)']
+          note: >-
+            The divisor is every period, not only the losing ones. Dividing by the count of
+            losses makes a strategy that rarely loses look riskier than one that loses
+            constantly, which inverts what the measure is for.
+        - n: 3
+          as: select
+          options:
+            - 'math.sqrt(periods_per_year)'
+            - 'periods_per_year'
+            - '1.0'
+          accept: ['math.sqrt(periods_per_year)']
+          note: >-
+            Downside deviation is still a deviation, so it still grows with the square root of
+            time and the ratio still annualises the same way as Sharpe.
+      hints:
+        - Two things change relative to an ordinary standard deviation, and the divisor is only one of them.
+        - Every period contributes to the average, and the good ones contribute zero rather than being excluded.
+        - The annualisation is the same as it was for Sharpe, because the denominator is still a standard deviation.
+      reveal: >-
+        Keeping every period in the divisor is what makes the two ratios comparable. Divide by
+        the number of losing days instead and you have built the average size of a bad day,
+        which is a perfectly reasonable statistic and is not a deviation, so a Sortino
+        computed that way cannot be put beside a Sharpe on the same page.
+
+    - id: what-the-gap-means
+      kind: choice
+      prompt: >-
+        A trend following programme reports a Sharpe of 0.7 and a Sortino of 1.6. What does
+        the gap between them tell you?
+      options:
+        - id: upside-dispersion
+          label: Most of its dispersion is on the upside, and Sharpe is charging it for that
+          correct: true
+          note: >-
+            Trend following makes its money in a few very large winning months. Those months
+            inflate the standard deviation and leave downside deviation untouched, so the same
+            returns look mediocre by one measure and strong by the other.
+        - id: better-strategy
+          label: The strategy is better than its Sharpe suggests, so use the Sortino
+          note: >-
+            The gap tells you the return distribution is skewed, not which number is right.
+            Picking whichever ratio flatters the strategy is how a research process stops
+            being a research process.
+        - id: fat-tails
+          label: It has fat downside tails
+          note: >-
+            Fat downside tails push Sortino below Sharpe rather than above it, since they
+            enlarge the downside denominator and leave the upside alone. This gap points the
+            other way.
+        - id: error
+          label: One of the two was computed wrongly, since Sortino cannot exceed Sharpe
+          note: >-
+            Sortino exceeds Sharpe whenever the distribution is right skewed, which is common
+            and expected. They coincide only when the dispersion above and below the threshold
+            is equal.
+      hints:
+        - The two ratios share a numerator, so the whole gap lives in the denominators.
+        - Sortino ignores everything above the acceptable return, so ask what kind of month it is ignoring here.
+        - Which of the two denominators is larger, and what has to be true of the returns for that to happen?
+      reveal: >-
+        A gap this way round is the signature of a convex payoff, and a gap the other way is
+        the signature of a strategy that sells one. Neither ratio is the right one; the pair
+        is informative and either alone is not. The useful habit is to report both and read
+        their difference as a statement about skew, because that is the only thing the
+        difference can be.
 ---
 
 Total return alone does not indicate investment quality. A portfolio generating 15% with 5% volatility demonstrates higher skill and leverage capability than a portfolio generating 15% with 25% volatility.

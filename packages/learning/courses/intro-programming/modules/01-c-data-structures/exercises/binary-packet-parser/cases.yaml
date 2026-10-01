@@ -1,0 +1,49 @@
+version: 1
+cases:
+  TestBinaryPacketParser.test_round_trip_empty_payload:
+    condition: 'a frame carrying no payload, which still has a header and a trailer on the wire'
+    hints:
+      - 'A zero length payload is an ordinary frame. The length field says 0 and the checksum still has to be written.'
+      - 'Twelve bytes go out: ten of header, nothing in between, two of checksum.'
+      - 'Declare a length of 0, write no payload bytes, and sum the header alone for the trailer.'
+    concept: intro-c-data-structures.binary-serialization-and-parsing
+
+  TestBinaryPacketParser.test_round_trip_with_payload:
+    condition: 'a real payload sent with a sequence number at the top of the 32 bit range'
+    hints:
+      - '4294967295 fills all thirty two bits of the sequence field, so anything narrower truncates it without complaint.'
+      - 'Every multi byte field goes out most significant byte first and has to be read back the same way, or the number comes home reversed.'
+      - 'Pack the sequence as a big endian four byte unsigned value, and slice the payload back out using the length the header declares.'
+    concept: intro-c-data-structures.binary-serialization-and-parsing
+
+  TestBinaryPacketParser.test_truncated_buffer_shorter_than_header:
+    condition: 'a buffer of no bytes, one of four bytes, and one that stops right after the header'
+    hints:
+      - 'A buffer this short cannot even be unpacked, so reading the header first crashes instead of reporting a bad frame.'
+      - 'Ten bytes of header plus two of checksum is the smallest frame that can exist, whatever length the header would have claimed.'
+      - 'Compare the buffer length against that minimum before unpacking anything, and raise ValueError when it falls short.'
+    concept: intro-c-data-structures.binary-serialization-and-parsing
+
+  TestBinaryPacketParser.test_wrong_magic_bytes:
+    condition: 'a frame whose leading byte has been overwritten, so the magic no longer matches'
+    hints:
+      - 'The magic is how a reader knows it is looking at the start of a frame rather than at the middle of one.'
+      - 'The check belongs right after the header is unpacked, before the declared length or the trailer is trusted.'
+      - 'Compare the two leading bytes against the expected constant and raise ValueError when they differ.'
+    concept: intro-c-data-structures.binary-serialization-and-parsing
+
+  TestBinaryPacketParser.test_payload_length_mismatch:
+    condition: 'a frame three bytes shorter than its header declares, and one with extra bytes tacked on the end'
+    hints:
+      - 'The length in the header is a claim about the wire, and a reader that takes it on trust reads straight into the next frame.'
+      - 'Too many bytes is as wrong as too few, because the trailer would then be read from the wrong place.'
+      - 'Work out header plus declared payload plus trailer and require the buffer to be exactly that long.'
+    concept: intro-c-data-structures.binary-serialization-and-parsing
+
+  TestBinaryPacketParser.test_checksum_corruption:
+    condition: 'a flipped byte in the payload, and separately a flipped bit in the trailing checksum'
+    hints:
+      - 'The magic and the length both still check out here, so only recomputing the sum catches the damage.'
+      - 'Corrupting the trailer has to fail the same way as corrupting the data the trailer covers.'
+      - 'Sum every byte ahead of the trailer modulo 65536 and compare that against the value the trailer carries.'
+    concept: intro-c-data-structures.binary-serialization-and-parsing

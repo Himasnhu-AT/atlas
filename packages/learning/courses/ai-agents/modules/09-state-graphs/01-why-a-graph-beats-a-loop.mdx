@@ -4,6 +4,161 @@ title: Why a graph beats a loop
 summary: Where the graph runtime sits underneath higher level harnesses, what branching and durability buy, and when a graph adds unnecessary ceremony around a while loop.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Tell when a graph earns its ceremony, and name the runtime part that explains each way a run goes wrong.
+
+  steps:
+    - id: loop-or-graph
+      kind: choice
+      prompt: >-
+        A nightly job runs five stages in a fixed order. Stage four calls a paid enrichment
+        API, and the whole thing takes eleven minutes. Loop or graph?
+      options:
+        - id: plain-loop
+          label: A while loop. The stages are linear, so a graph is ceremony.
+          note: The linearity is a real argument, right up to the failure at minute nine. Then the loop starts again and pays for stages one to three a second time.
+        - id: graph-for-durability
+          label: A graph, so there is a checkpoint after each stage.
+          correct: true
+          note: The reason is durability across a failure eleven minutes in rather than branching. One checkpoint per super-step turns a restart into a resume, and stage four is the expensive one to repeat.
+        - id: loop-with-retry
+          label: A while loop with a retry wrapped around the API call.
+          note: That covers a flaky call and nothing else. A crash, a deploy or an out-of-memory kill still sends you back to stage one with the earlier work gone.
+        - id: graph-for-parallel
+          label: A graph, so the five stages can run at the same time.
+          note: Stage four consumes what stage three produced, so there is nothing here to parallelise. Fan-out is a good reason to want a graph and it is not this job's reason.
+      hints:
+        - Ask what happens at minute nine when the process dies.
+        - Two options are the same loop with different amounts of hope attached.
+        - One of the graph answers claims a benefit this workflow cannot use.
+      reveal: >-
+        Durability and branching are separate reasons to reach for a runtime, and this job
+        only needs one of them. That is still enough, because the thing a loop cannot do is
+        survive its own process.
+
+    - id: one-super-step
+      kind: order
+      prompt: >-
+        Put one super-step in order. Two of these happen at a moment that is chosen
+        deliberately rather than for convenience.
+      items:
+        - { id: eligible, label: Find every node whose subscribed channels changed since it last ran }
+        - { id: snapshot, label: Take one copy of the channel values for the whole step }
+        - { id: run, label: Run those nodes against that copy }
+        - { id: merge, label: Push all their writes through the reducers }
+        - { id: mark, label: Record, for each node that ran, the versions it saw }
+        - { id: checkpoint, label: Write the checkpoint }
+      solution: [eligible, snapshot, run, merge, mark, checkpoint]
+      because:
+        snapshot: The copy is taken before a single node runs, which is what makes two nodes in the same step unable to see each other's writes.
+        merge: Merging happens once every node has returned. Merging as each one finishes would make the result depend on which node was quickest.
+        mark: Marking comes after the merge and records the versions from the start of the step. Recording post-merge versions would let a node mark its own write as seen and never wake itself again.
+        checkpoint: The checkpoint is written per step rather than per node, which is what makes a super-step the unit of durability.
+      hints:
+        - Nothing runs until the scheduler has decided what is stale, and staleness is a comparison of version numbers.
+        - There is exactly one read of state per step and one write of state per step.
+        - The versions written into versions_seen are not the versions that exist when they are written.
+      reveal: >-
+        Snapshot before, merge after. Everything determinstic about a graph runtime comes
+        from those two moments, because they are what stop the answer depending on the
+        order the nodes happened to finish in.
+
+    - id: declare-the-graph
+      kind: blanks
+      prompt: >-
+        Fill in the three values that decide how writes combine, whether the run has a
+        history, and which history it belongs to.
+      lang: python
+      template: |
+        class State(TypedDict):
+            findings: Annotated[list[str], {{1}}]
+            draft: str
+
+        builder = StateGraph(State)
+        builder.add_edge(START, "search")
+        builder.add_conditional_edges("critique", route)
+
+        graph = builder.compile(checkpointer={{2}})
+        graph.invoke(
+            {"question": "did the deploy break checkout?"},
+            config={"configurable": {"thread_id": {{3}}}},
+        )
+      blanks:
+        - n: 1
+          as: select
+          options: ['operator.add', 'operator.or_', 'list', 'str']
+          accept: ['operator.add']
+          note: The annotation is the reducer. Without one, findings takes the last write, so two branches searching in parallel end with whichever list merged second.
+        - n: 2
+          as: select
+          options: ['InMemorySaver()', 'None', '"memory"', 'True']
+          accept: ['InMemorySaver()']
+          note: No checkpointer is valid Python and a graph with no history. Resume, replay and forking all read from this object, and none of them exist without it.
+        - n: 3
+          as: select
+          options: ['"incident-4181"', 'str(uuid4())', 'None', 'user.email']
+          accept: ['"incident-4181"']
+          note: The thread id is the name of this run's history. A fresh id on every invoke starts a new thread each time, so the checkpointer fills up and resume never finds anything.
+      hints:
+        - The draft field has no annotation and it does not need one, because taking the last write is what a draft wants.
+        - Two of these three are about persistence, and they answer different questions about it.
+        - Ask what resuming would look for, and what it would have to be given in order to find it.
+      reveal: >-
+        Three values and they configure three different subsystems. The annotation is the
+        channel layer, the checkpointer is durability, and the thread id is the address
+        durability is filed under. Getting the third one wrong is the quiet failure, because
+        everything still runs.
+
+    - id: which-part-explains-it
+      kind: assign
+      prompt: >-
+        Each of these is a real bug report against a graph runtime. Sort them by which of
+        the three components you would open first.
+      buckets:
+        - id: channels
+          label: Channels and reducers
+        - id: scheduler
+          label: The scheduler
+        - id: checkpointer
+          label: The checkpointer
+      items:
+        - id: lost-findings
+          label: Two branches both wrote findings and only one branch's results are in the output
+          bucket: channels
+          because: The default reducer keeps the last write. A channel that several nodes write to needs a reducer that combines rather than replaces.
+        - id: history-all-same
+          label: Every checkpoint in the thread shows the same final findings list
+          bucket: channels
+          because: A reducer appended in place and returned the same object, so every stored checkpoint is pointing at one list that kept growing.
+        - id: node-runs-twice
+          label: A node ran again in the next step although nothing it subscribes to changed
+          bucket: scheduler
+          because: Eligibility is a strict comparison against versions_seen. Either the mark did not happen or it recorded the wrong numbers.
+        - id: join-fires-early
+          label: The join node produced a summary with only one of the two branches in it
+          bucket: scheduler
+          because: The join subscribes to one branch's channel instead of both, so the first branch to write woke it up.
+        - id: budget-wakeups
+          label: The summary node re-runs every time an unrelated counter ticks down
+          bucket: scheduler
+          because: It is subscribed to a channel it only reads. Reading state and subscribing to it are separate decisions and this one conflated them.
+        - id: paid-twice
+          label: A resumed run called the paid enrichment API a second time
+          bucket: checkpointer
+          because: The node's write was not persisted before the side effect happened, so on resume it looked like a node that had never run.
+        - id: no-step-nine
+          label: Nobody can see what the state looked like at step nine of a seventeen step run
+          bucket: checkpointer
+          because: Either checkpoints are not being kept per step or they are being overwritten. History is the whole reason the record has an id that sorts.
+      hints:
+        - Three of these are about which node ran and when, which is one component's entire job.
+        - Two are about what happened to a value once two nodes wrote it.
+        - Ask which bugs would still happen in a run that never crashed and never resumed.
+      reveal: >-
+        Almost every confusing thing a graph runtime does reduces to one of these three:
+        a reducer that combined wrongly, a version comparison that woke the wrong node, or
+        a record that was written too late or not at all. The rest of this module builds
+        all three so the next bug report is readable.
 ---
 
 Earlier modules modeled an agent as a state graph or a loop. This module opens

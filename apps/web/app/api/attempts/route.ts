@@ -7,13 +7,21 @@ import { accessFor, canOpen } from '@/lib/server/access'
 import {
   BadRequestError,
   ForbiddenError,
+  json,
   parseBody,
   preflight,
   route,
 } from '@/lib/server/respond'
 import { requireUser } from '@/lib/server/session'
 import { store } from '@/lib/server/store'
-import { awardsForAttempt, evaluateSeals, evaluateWeek, grant } from '@/lib/server/xp'
+import {
+  awardsForAttempt,
+  evaluateSeals,
+  evaluateWeek,
+  grant,
+  levelCrossing,
+  xpTotalFor,
+} from '@/lib/server/xp'
 
 /**
  * Test results posted by the desktop app.
@@ -44,6 +52,8 @@ export const POST = route(async (request) => {
     throw new ForbiddenError(`${module.name} opens once you have finished what comes before it`)
   }
 
+  const before = await xpTotalFor(user.id)
+
   await store().recordAttempt(user.id, {
     ...body,
     stdoutTail: body.stdoutTail?.slice(-4000),
@@ -54,12 +64,26 @@ export const POST = route(async (request) => {
   // already reflects this run. A failing run pays nothing; a passing one pays
   // once, ever, because the award key names the exercise and nothing else.
   const now = new Date().toISOString()
-  const awards = await awardsForAttempt(user.id, body.exerciseId, body.passed)
-  await grant(user.id, awards, now)
-  await grant(user.id, await evaluateWeek(user.id), now)
-  await grant(user.id, await evaluateSeals(user.id), now)
+  let awarded = 0
+  awarded += (await grant(user.id, await awardsForAttempt(user.id, body.exerciseId, body.passed), now))
+    .points
+  awarded += (await grant(user.id, await evaluateWeek(user.id), now)).points
+  awarded += (await grant(user.id, await evaluateSeals(user.id), now)).points
 
-  return new Response(null, { status: 204 })
+  // Counted after the write, so this includes the run being answered: attempt
+  // one is the first run, which is what the hint tiers assume.
+  const stats = (await store().exerciseStats(user.id)).find(
+    (row) => row.exerciseId === body.exerciseId,
+  )
+
+  // This was a 204 with no body while `browser-exercise.tsx` read `levelledTo`
+  // off the response, so crossing a level by passing an exercise on the web
+  // could never fire. `/api/progress` has always returned this shape.
+  return json({
+    awarded,
+    levelledTo: levelCrossing(before, awarded),
+    attemptNumber: (stats?.passes ?? 0) + (stats?.failures ?? 0),
+  })
 })
 
 /** CORS preflight, so the desktop app can send an Authorization header. */

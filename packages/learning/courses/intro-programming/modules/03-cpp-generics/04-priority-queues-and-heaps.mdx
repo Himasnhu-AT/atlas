@@ -7,6 +7,141 @@ estimatedMinutes: 20
 exercise:
   id: binary-heap-priority-queue
   timeboxMinutes: 25
+challenges:
+  goal: Keep a complete tree inside a flat array, and repair the heap property in both directions it can break.
+
+  steps:
+    - id: where-floyd-starts
+      kind: numeric
+      prompt: >-
+        An array of 100 elements is about to be turned into a heap bottom up. Which index does
+        the loop start at?
+      context:
+        as: code
+        lang: python
+        source: |
+          def heapify(array):
+              n = len(array)          # n == 100, indices 0 through 99
+              for i in range(?, -1, -1):
+                  sift_down(array, i, n)
+      answer: 49
+      tolerance: 0
+      hints:
+        - Leaves are already heaps of one element, so the loop has no reason to visit any of them.
+        - The first node worth sifting is the last one that has a child at all.
+        - The last element sits at index 99, and the node the loop starts at is its parent.
+      reveal: >-
+        Half the array is leaves and Floyd's algorithm never touches them, which is where the
+        linear bound begins. Repeated insertion sifts up from the bottom, where most of the
+        nodes are and the distance to the root is longest. Sifting down from the top runs the
+        long walks on the few nodes that are near the root. Same array, same invariant, O(n)
+        against O(n log n).
+
+    - id: walking-a-new-element-up
+      kind: blanks
+      prompt: >-
+        Complete sift_up. It runs after a new element has been appended at the end of the array
+        and has to find its level.
+      lang: python
+      template: |
+        def sift_up(heap, i):
+            while i > 0:
+                parent = {{1}}
+                if heap[i] < heap[parent]:
+                    heap[i], heap[parent] = heap[parent], heap[i]
+                    i = {{2}}
+                else:
+                    {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options: ["(i - 1) // 2", "i // 2", "2 * i + 1", "(i + 1) // 2"]
+          accept: ["(i - 1) // 2"]
+          note: The minus one is what zero-based indexing costs. With a one-based array the parent really would be i // 2, and mixing the two conventions is the most common bug in heap code.
+        - n: 2
+          as: select
+          options: ["parent", "i - 1", "i // 2", "0"]
+          accept: ["parent"]
+          note: The element moved into the parent's slot, so the next comparison is the one between that slot and its own parent.
+        - n: 3
+          as: select
+          options: ["break", "continue", "pass", "return heap"]
+          accept: ["break"]
+          note: Once the element is no smaller than its parent it is where it belongs, and every node above it was already in order. Anything that keeps looping compares the same unchanged pair forever.
+      hints:
+        - This walks upward, so every index it computes has to go toward the root rather than away from it.
+        - After a swap the element is no longer at the index the loop variable names.
+        - The loop has two ways out, one when the element reaches the root and one when it stops being out of place.
+      reveal: >-
+        Sift-up is cheap because the heap property already holds everywhere the new element is
+        not. One path from a leaf to the root is the whole of what can be wrong, and that path
+        is log n long however many elements the heap holds.
+
+    - id: taking-the-root-out
+      kind: order
+      prompt: >-
+        Put the steps of extracting the minimum from a min-heap in order.
+      items:
+        - { id: save-root, label: "Read the value at index 0, which is what the call returns" }
+        - { id: move-last, label: "Copy the last element into index 0" }
+        - { id: shrink, label: "Shrink the live size of the heap by one" }
+        - { id: pick-smaller, label: "Compare the node with its children and pick the smaller child" }
+        - { id: swap, label: "Swap the node with that child, if the child is smaller" }
+        - { id: repeat, label: "Repeat from the node's new position until no child is smaller" }
+      solution: [save-root, move-last, shrink, pick-smaller, swap, repeat]
+      because:
+        save-root: The root is the answer and it is about to be written over, so it has to come out first.
+        move-last: The last element is the only one that can leave its position without breaking the complete shape, which is what makes it the one that fills the hole.
+        shrink: The vacated slot has to stop being part of the heap before anything sifts, or the walk will compare against an element that is no longer in it.
+        pick-smaller: A min-heap needs the parent below both children, so the one to test against is whichever child is smaller. Swapping with the larger one leaves the other side broken.
+        swap: Only if the child really is smaller. A node already no larger than both of them is where it belongs and the walk stops there.
+        repeat: One swap fixes one level. The node keeps descending until both children are no smaller or it runs out of children.
+      hints:
+        - One value has to be read before something is written over it.
+        - The tree has to stay complete at every moment, and that decides which element is allowed to move into the hole at the root.
+        - Three of these happen exactly once and the rest happen up to log n times.
+      reveal: >-
+        Extraction leaves a hole at the root and fills it with the element furthest from it,
+        which is almost always the wrong element, and then walks it back down. It is cheap only
+        because the tree is shallow, and the tree is shallow only because the array shape forces
+        it to stay complete.
+
+    - id: the-child-that-might-not-be-there
+      kind: spot
+      prompt: >-
+        This sift_down is correct on an odd number of elements and wrong on an even number.
+        Click the line that goes wrong.
+      lang: python
+      source: |
+        def sift_down(heap, i, n):
+            while True:
+                left = 2 * i + 1
+                right = 2 * i + 2
+                if left >= n:
+                    return
+                smallest = left
+                if heap[right] < heap[smallest]:
+                    smallest = right
+                if heap[smallest] >= heap[i]:
+                    return
+                heap[i], heap[smallest] = heap[smallest], heap[i]
+                i = smallest
+      targets: [7]
+      decoys:
+        '4': Checking that the left child exists is right, and a node with no left child is a leaf that is already a heap of one element.
+        '6': Starting from the assumption that the left child is the smaller one is fine, because at this point it is the only child known to exist.
+        '9': Stopping once the parent is no larger than the smaller child is the heap property itself, and this is the right place to test it.
+        '11': Swapping the parent with the smaller child is what repairs the invariant one level at a time.
+      hints:
+        - One of the two children is checked for existence and the other is not.
+        - A complete tree can hold a node with a left child and no right child, and it happens exactly when the array has an even number of elements.
+        - The bound n is the live size of the heap, and one line reads at an index that can be equal to it.
+      reveal: >-
+        A complete tree has at most one node with a single child, and it exists precisely when
+        the length is even. So the bug is present on half of all inputs and absent on the other
+        half, which is how it survives a test suite built out of arrays that happen to be odd.
+        Because n is the live size rather than the array length, the read often lands on an
+        element that was extracted earlier and compares against it in silence.
 ---
 
 A priority queue provides access to the element with the highest priority (or lowest numerical key value in a min-heap) in $O(1)$ time, while supporting insertion and deletion in logarithmic time. In C++, `std::priority_queue` implements a max-heap backed by a dynamic array (`std::vector`).

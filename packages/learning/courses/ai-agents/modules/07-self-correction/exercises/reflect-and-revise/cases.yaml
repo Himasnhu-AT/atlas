@@ -1,0 +1,193 @@
+version: 1
+cases:
+  TestCritique.test_returns_one_finding_per_line:
+    condition: 'a critique reply carrying two findings on separate lines'
+    hints:
+      - 'The caller needs the findings separately so it can count them and feed them back.'
+      - 'Returning the whole reply as one string makes an empty critique indistinguishable from a short one.'
+      - 'Split the reply on newlines and return the lines as a list.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestCritique.test_none_means_no_findings:
+    condition: 'a reply of the single word the prompt asked for when there is nothing wrong'
+    hints:
+      - 'A prompt asking what is wrong will find something wrong with a perfect answer unless it is given a way out.'
+      - 'Treating that word as a finding means the loop never stops early.'
+      - 'Compare the whole reply against the sentinel and return an empty list when it matches.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestCritique.test_none_is_recognised_whatever_the_case_and_spacing:
+    condition: 'the sentinel returned in lower case, and with surrounding whitespace'
+    hints:
+      - 'Models choose their own capitalisation and add trailing newlines.'
+      - 'An exact comparison fails on a reply that is otherwise perfectly clear.'
+      - 'Strip and fold the case before comparing against the sentinel.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestCritique.test_drops_blank_lines:
+    condition: 'a reply padded with empty lines between and after the findings'
+    hints:
+      - 'A blank finding is fed back to the reviser as an instruction to fix nothing.'
+      - 'It also makes the finding count wrong, which is what decides whether the loop continues.'
+      - 'Skip the lines that are empty once stripped.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestCritique.test_sends_the_criteria_and_the_draft:
+    condition: 'a request that has to carry both what is being judged and what it is judged against'
+    hints:
+      - 'Without the criteria the model invents its own, and the critique changes every run.'
+      - 'Without the draft there is nothing to critique at all.'
+      - 'Put the criteria and the draft into the request, clearly separated.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestCritique.test_calls_the_model_once:
+    condition: 'a critique that must cost one call rather than one per criterion'
+    hints:
+      - 'A call per criterion multiplies the cost of every pass by the length of the rubric.'
+      - 'The model can hold several criteria at once and report against all of them.'
+      - 'Send the criteria as a list inside one request.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestRevise.test_returns_the_revision:
+    condition: 'a revision reply padded with spaces at both ends'
+    hints:
+      - 'The revision becomes the next draft, so stray whitespace accumulates through the passes.'
+      - 'It also makes two otherwise identical drafts compare as different.'
+      - 'Strip the reply before returning it.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestRevise.test_sends_the_findings:
+    condition: 'a revision request that has to say what needs fixing'
+    hints:
+      - 'A reviser given only the draft rewrites it for style and fixes nothing specific.'
+      - 'The findings are the whole reason the critique call was made.'
+      - 'Render the findings into the request alongside the draft.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestRevise.test_tells_the_model_to_change_nothing_else:
+    condition: 'an instruction that has to bound how far the rewrite may go'
+    hints:
+      - 'Without it, each pass makes small changes to please the critic and the answer drifts away from the question.'
+      - 'The drift is invisible per pass and obvious after three.'
+      - 'Put the constraint into the system message of the revision call.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestReflectLoop.test_stops_early_when_the_critique_is_clean:
+    condition: 'a first critique that finds nothing on an already good draft'
+    hints:
+      - 'Revising a draft nobody complained about spends a call to make it worse.'
+      - 'The pass count is revisions made, so it is zero here even though a call happened.'
+      - 'Break out before the revision call when the critique came back empty.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestReflectLoop.test_runs_a_pass_then_stops_clean:
+    condition: 'one finding, one revision, then a clean critique on the result'
+    hints:
+      - 'The revised draft becomes the input to the next critique, not the original.'
+      - 'Critiquing the original again would find the same problem forever.'
+      - 'Assign the revision to the working draft before going round again.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestReflectLoop.test_respects_the_bound:
+    condition: 'a critic that always finds something and a reviser that always revises'
+    hints:
+      - 'Without the bound this never terminates, because there is always something to say about any text.'
+      - 'The reason for stopping matters as much as stopping: hitting the limit is not the same as being clean.'
+      - 'Loop at most the bounded number of times and report the limit as the reason when the loop runs out.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestReflectLoop.test_never_calls_more_than_the_bound_allows:
+    condition: 'a bound of two, which allows at most two critiques and two revisions'
+    hints:
+      - 'Each pass is two calls, and an off by one doubles the cost of a long loop.'
+      - 'Critiquing once more after the last revision spends a call whose answer nobody acts on.'
+      - 'Keep both calls inside one pass of the loop and let the loop bound them together.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestReflectLoop.test_history_records_each_pass:
+    condition: 'a pass whose input draft, findings and output all belong in the record'
+    hints:
+      - 'The history is what lets somebody check afterwards whether the loop helped.'
+      - 'Recording only the final text hides every change the passes made.'
+      - 'Append an entry per pass carrying the draft going in, the findings, and the revision coming out.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestReflectLoop.test_a_clean_first_critique_still_records_an_entry:
+    condition: 'a clean critique on the first pass, which still made a model call'
+    hints:
+      - 'A call was made and a judgement was reached, so there is something to record.'
+      - 'An empty history makes it look as though the loop never ran.'
+      - 'Append an entry with no findings whose revised text is the draft unchanged.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestScore.test_adds_up_matches:
+    condition: 'text containing two of the rubric keys, worth different amounts'
+    hints:
+      - 'The rubric maps a phrase to what it is worth, so the score is a weighted count.'
+      - 'Counting matches without their weights makes every criterion equally important.'
+      - 'Sum the points of the keys that appear.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestScore.test_is_case_insensitive:
+    condition: 'a rubric key written in capitals in the text'
+    hints:
+      - 'Capitalisation changes across a rewrite for reasons that have nothing to do with quality.'
+      - 'A case sensitive score drops when the reviser capitalises a heading.'
+      - 'Fold both the text and the key before testing for the substring.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestScore.test_counts_each_key_once:
+    condition: 'a rubric key that appears twice in the same text'
+    hints:
+      - 'Saying source twice is not twice as well sourced.'
+      - 'Counting occurrences rewards a reviser for repeating the magic word.'
+      - 'Test each key for presence rather than counting how often it occurs.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestScore.test_nothing_matching_is_zero:
+    condition: 'text containing none of the rubric keys'
+    hints:
+      - 'A draft that satisfies nothing scores nothing.'
+      - 'A baseline of one would make every comparison look better than it is.'
+      - 'Summing over no matches already gives zero.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestImprovement.test_reports_a_real_improvement:
+    condition: 'a pass whose revision scores higher than the draft it came from'
+    hints:
+      - 'This is what the loop is supposed to do, and it has to be distinguishable from the cases where it does not.'
+      - 'The comparison is between the draft going in and the revision coming out of the same pass.'
+      - 'Score both and report the better verdict when the score went up.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestImprovement.test_reports_a_regression:
+    condition: 'a pass whose revision dropped something the draft had'
+    hints:
+      - 'A reviser told to fix one thing can remove another without mentioning it.'
+      - 'Reporting only improvements makes a loop that damages the answer look silent rather than harmful.'
+      - 'Report the worse verdict when the score went down.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestImprovement.test_a_rewrite_that_scores_the_same_is_unchanged:
+    condition: 'a pass that swapped a word for a synonym and moved no score'
+    hints:
+      - 'The text moved and the score did not, which is the drift this harness exists to expose.'
+      - 'Reporting anything other than unchanged here hides the most common outcome of reflection.'
+      - 'Report the unchanged verdict when the two scores are equal.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestImprovement.test_numbers_each_pass:
+    condition: 'two passes whose entries have to be numbered from one'
+    hints:
+      - 'The numbering is what lets somebody line a verdict up with the history entry it came from.'
+      - 'Numbering from zero makes the first pass read as pass zero, which nobody says.'
+      - 'Enumerate the history starting at one.'
+    concept: ai-self-correction.reflection-and-its-failure-mode
+
+  TestLaundering.test_reflection_fixes_the_form_and_leaves_the_error:
+    condition: 'a factually wrong draft whose critique finds only a cosmetic problem'
+    hints:
+      - 'The loop was perfectly happy, and the wrong number survived into a better written answer.'
+      - 'The rubric agrees it improved, which is exactly the trap: the run now carries evidence of review.'
+      - 'Do not add a fact check here. The finding is that this loop cannot produce one.'
+    concept: ai-self-correction.reflection-and-its-failure-mode

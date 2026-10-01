@@ -4,6 +4,171 @@ title: What makes an agent an agent
 summary: A loop, the ability to act, and a reason to stop. Most of what gets called an agent is further down that list than the marketing suggests, and knowing where you are is the useful part.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Say where the boundary between a pipeline and an agent falls, and bound a loop that crosses it.
+
+  steps:
+    - id: which-one-loops
+      kind: choice
+      prompt: Four programs, all of them calling a model. Which one is an agent?
+      options:
+        - id: one-shot
+          label: One call that returns a ticket summary as JSON.
+          note: A function. Text in, text out, and the number of model calls was decided when you wrote the line.
+        - id: pipeline
+          label: Classify, then draft a reply, then check the draft, always in that order.
+          note: Three calls, and you chose all three at design time. Adding a branch is a code change, which is the tell that this is a pipeline.
+        - id: tool-loop
+          label: The model names a tool, your code runs it, the result goes back, and it goes round again.
+          correct: true
+          note: The only one where the model decides how many more calls there will be. That decision arriving at runtime is the whole structural difference.
+        - id: chatbot
+          label: A chat window that keeps the whole conversation history across turns.
+          note: History is memory, not control. Every turn is still one call that a human started and that ends when the reply arrives.
+      hints:
+        - Count the model calls in each. Three of them you could count by reading the source.
+        - The question is not how many calls happen, it is who decides how many.
+        - Look for the one where your code runs something in between and hands the result back.
+      reveal: >-
+        The loop is the line. Once your code executes something between calls and feeds the
+        result back, the length of the run is chosen at runtime by the model, so you can no
+        longer enumerate the paths, read the cost off the source, or test by exhausting the
+        branches.
+
+    - id: who-decides
+      kind: order
+      prompt: >-
+        Put these shapes in order by how much of the next-step decision has moved from your
+        code to the model, least first.
+      items:
+        - id: structured
+          label: One call that returns a structured payload
+        - id: single-tool
+          label: One tool call, which you then handle yourself
+        - id: fixed-pipeline
+          label: A fixed sequence of model calls
+        - id: bounded-loop
+          label: A loop over your tools with a step budget
+        - id: code-writing
+          label: A loop that can write and run new code
+      solution: [structured, single-tool, fixed-pipeline, bounded-loop, code-writing]
+      because:
+        single-tool: The model picked which tool, so one decision moved. You still decided that exactly one call happens and what to do with it.
+        fixed-pipeline: You still decide the order, but you decided it at design time rather than per input, so an input with no branch has nowhere to go.
+        bounded-loop: The model now chooses the tool, the arguments and the number of iterations. Your tools and your budget are what is left of your control.
+        code-writing: The tool set stops being a list you wrote. Nothing on this ladder is above it because there is nothing left to hand over.
+      hints:
+        - Start at the end where you can read the whole control flow off the page.
+        - Two of these have the model choosing a tool, and they differ in how many times that can happen.
+        - The last one is the only one where the set of things that can run is not fixed before the run starts.
+      reveal: >-
+        Most systems sold as agents sit on the third or fourth rung, and that is not a
+        shortfall. The rung tells you what breaks: the third fails on an input it has no
+        branch for, the fourth fails by looping, by calling the wrong tool confidently, and
+        by returning a wrong answer in a confident voice.
+
+    - id: no-way-out
+      kind: spot
+      prompt: >-
+        This loop runs, and on a bad input it never comes back. Click every line that is
+        part of why.
+      lang: python
+      source: |
+        while True:
+            response = client.chat.completions.create(model="mock", messages=messages, tools=TOOLS)
+            if "final answer" in response.choices[0].message.content.lower():
+                break
+            messages.append(assistant_turn(response.choices[0]))
+            for call in response.choices[0].message.tool_calls:
+                result = dispatch(registry, call.function.name, call.function.arguments)
+                messages.append(tool_result_turn(call.id, to_tool_content(result)))
+        return response.choices[0].message.content
+      targets: [0, 2]
+      requireAll: true
+      decoys:
+        '1': The call itself is fine. Sending the tool list on every turn is what the protocol asks for.
+        '3': Breaking out is right. What is wrong is the test above it that decides when to break.
+        '4': Appending the assistant turn before the results is required, or the next call has a tool result answering nothing.
+        '5': Dispatching by name against a registry you own is the correct shape.
+        '6': Building the tool result turn is fine.
+        '7': Appending it is fine.
+        '8': Returning the content is fine once you have actually arrived at an answer.
+      hints:
+        - Two things are missing, and one of them is missing so completely that there is no line for it. Click the line that should have had it.
+        - Ask what happens when the model is done. Then ask what happens when it is never done.
+        - A model that is calling a tool often has no text content at all, and the phrase you are searching for is a phrase you hoped it would write.
+      reveal: >-
+        A run ends for one of two reasons and this loop has neither. The natural exit is
+        finish_reason, which the provider sets, rather than a phrase you sniff for in text
+        that may be None. The backstop is a hard cap on calls, and it has to raise, because
+        a loop that returns partial output on exhaustion returns something the caller cannot
+        tell from an answer.
+
+    - id: run-it-once
+      kind: machine
+      prompt: >-
+        Step through one run. You need an answer resting on at least two tool results, and
+        the budget is four model calls.
+      initial: goal
+      vars: { calls: 0, facts: 0 }
+      states:
+        goal:
+          label: A question arrives
+          note: Nothing has been spent yet.
+        thinking:
+          label: Model call in flight
+          note: The model is choosing between naming a tool and answering.
+        acting:
+          label: Your code is running a tool
+          note: This costs no model call. It costs whatever the tool costs.
+        answered:
+          label: Answered with no tool asked for
+          terminal: true
+        burned:
+          label: Budget spent, run abandoned
+          terminal: true
+          error: true
+      transitions:
+        - from: goal
+          on: send the question
+          to: thinking
+          effects: [{ var: calls, op: inc, value: 1 }]
+          note: The first call is a call like any other, and it is already on the budget.
+        - from: thinking
+          on: the model names a tool
+          to: acting
+          when: [{ var: calls, cmp: lt, value: 5 }]
+          note: Naming a tool is not running one. Your code decides whether to run it.
+        - from: acting
+          on: append the result and call again
+          to: thinking
+          effects: [{ var: calls, op: inc, value: 1 }, { var: facts, op: inc, value: 1 }]
+          note: Every tool result costs another model call, and the whole history goes with it.
+        - from: thinking
+          on: the model answers with no tool
+          to: answered
+          note: The natural exit. Read it off finish_reason, not off the text.
+        - from: thinking
+          on: give up, the budget is spent
+          to: burned
+          when: [{ var: calls, cmp: gte, value: 5 }]
+          note: This is what a spent budget has to look like from outside, and it has to be loud.
+      mode: drive
+      win:
+        state: answered
+        maxSteps: 12
+        requires:
+          - { var: facts, cmp: gte, value: 2 }
+          - { var: calls, cmp: lte, value: 4 }
+      hints:
+        - Answering on the first turn arrives at the right state with nothing behind it.
+        - A round trip is two moves, and only one of them costs a model call.
+        - Count before you spend. Four calls buys the opening question and three round trips.
+      reveal: >-
+        This is the whole runtime. The model chooses whether the next move is a tool or an
+        answer, your code chooses what a tool is allowed to do, and the counter chooses when
+        the run stops regardless. You own two of those three, and the counter is the one
+        that keeps a bad run from being an invoice.
 ---
 
 A model call is a function. Text goes in, text comes out, and nothing in the world has

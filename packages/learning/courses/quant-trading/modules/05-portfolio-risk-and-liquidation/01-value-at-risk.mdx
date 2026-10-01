@@ -7,6 +7,173 @@ estimatedMinutes: 20
 exercise:
   id: var-cvar-calculator
   timeboxMinutes: 25
+challenges:
+  goal: Compute a loss quantile and the average loss beyond it, and say what each number is entitled to claim.
+
+  readingOptional: true
+  steps:
+    - id: the-parametric-quantile
+      kind: numeric
+      prompt: >-
+        Assume daily returns are normal with the mean and deviation below. What is the 95
+        percent daily Value at Risk, as a percentage of the book?
+      unit: '%'
+      context:
+        as: pairs
+        items:
+          - { k: Mean daily return, v: plus 0.04 percent }
+          - { k: Daily standard deviation, v: '1.20 percent' }
+          - { k: Normal quantile at 5 percent, v: minus 1.645 }
+          - { k: VaR, v: minus the sum of the mean and the quantile times the deviation }
+      answer: 1.934
+      tolerance: 0.02
+      scaleHint: >-
+        That is out by more than a factor of ten. A daily loss quantile on a book with 1.2
+        percent daily volatility is a small number of percent.
+      hints:
+        - The quantile is negative, so multiplying it by the deviation gives the return at the fifth percentile.
+        - 1.645 times 1.20 is 1.974, and the drift pulls that back a little.
+        - VaR is quoted as a positive loss, so the sign flips at the end.
+      reveal: >-
+        The drift moved this figure by four hundredths of a percent and the volatility moved
+        it by two percent, which is why one day VaR is essentially a volatility number with a
+        multiplier on it. It is also why the normal assumption matters so much here: at 99
+        percent the multiplier is 2.326 and real equity returns breach that far more often
+        than one day in a hundred.
+
+    - id: the-tail-averaged-backwards
+      kind: spot
+      prompt: >-
+        This reports a 95 percent VaR of 1.9 percent and an expected shortfall of minus 0.1
+        percent, which would make the average bad day a profit. Click the line responsible.
+      lang: python
+      source: |
+        def historical_var_cvar(returns, alpha=0.05):
+            ordered = sorted(returns)
+            index = int(alpha * len(ordered))
+            var = -ordered[index]
+            tail = ordered[index:]
+            cvar = -statistics.mean(tail)
+            return var, cvar
+      targets: [4]
+      requireAll: true
+      decoys:
+        '1': >-
+          Sorting ascending puts the worst returns at the front, which is where a loss
+          quantile has to be read from.
+        '2': >-
+          Five percent of the sample is the right cut point for a 95 percent figure, and
+          truncating to an integer index is the usual convention.
+        '3': >-
+          The quantile itself is right. VaR is quoted as a positive loss, so negating a
+          negative return is what produces it.
+        '5': >-
+          Averaging the slice and negating it is correct for whatever slice it is handed. The
+          slice is the problem.
+        '6': >-
+          Returning both is right. They answer different questions and a risk report needs
+          both of them.
+      hints:
+        - Expected shortfall is the average of the losses that are worse than VaR, so ask which end of a sorted array those live at.
+        - The sort puts the worst day at index zero, so the tail is in front of the cut point rather than behind it.
+        - This slice contains 95 percent of the sample, including every profitable day.
+      reveal: >-
+        Expected shortfall coming back smaller than VaR is arithmetically impossible, so the
+        one assertion that catches this is a comparison between two numbers you already have.
+        A risk library that does not assert its own inequalities will report a plausible
+        figure through a slicing bug for years, because nobody checks a number they have no
+        independent way to compute.
+
+    - id: the-breach-that-was-nine-times-the-limit
+      kind: choice
+      prompt: >-
+        Your 99 percent daily VaR is 1.2 million. Today the book lost 9 million. What is the
+        correct reading?
+      options:
+        - id: model-broken
+          label: The model is broken, because a 99 percent figure should not be breached
+          note: >-
+            A 99 percent daily figure is expected to be breached two or three times a year by
+            construction. A single breach is not evidence about the model at all, and treating
+            it as one is how risk limits get widened after every bad day.
+        - id: size-not-promised
+          label: The frequency was within tolerance and the size was never being measured
+          correct: true
+          note: >-
+            VaR bounds how often you cross a line and says nothing about how far past it you
+            land. The nine million is a fact about the shape of the tail, which is exactly the
+            quantity expected shortfall reports and VaR does not.
+        - id: raise-confidence
+          label: Move to 99.9 percent so a loss this size is inside the limit
+          note: >-
+            That moves the threshold and leaves the tail beyond it just as unmeasured. The
+            same question returns at a rarer confidence level, with a thinner sample to
+            estimate it from.
+        - id: noise
+          label: Nothing, one bad day in a long sample is noise
+          note: >-
+            The frequency is within tolerance and the magnitude is not, and only one of those
+            two was ever being measured. Dismissing both because one is fine is the mistake.
+      hints:
+        - Separate two questions. How often does the limit break, and how bad is it when it does?
+        - VaR is a statement about a probability, not about a loss size beyond the threshold.
+        - Only one measure in this lesson has anything to say about a nine million dollar day.
+      reveal: >-
+        This is why regulators moved capital requirements from VaR to expected shortfall.
+        Two books can share a VaR to the cent while one loses 1.3 million on its worst day and
+        the other loses 40, and no amount of raising the confidence level distinguishes them,
+        because the difference lives in the shape of the tail rather than in where it starts.
+
+    - id: complete-the-risk-report
+      kind: text-contract
+      prompt: >-
+        Fill in the daily risk block from the sample below. VaR is the fifth worst day of a
+        hundred and expected shortfall is the average of the five worst.
+      context:
+        as: table
+        caption: The five worst of 100 daily returns, book value 20,000,000
+        columns: [rank, daily return]
+        rows:
+          - [1, '-4.80%']
+          - [2, '-3.60%']
+          - [3, '-3.10%']
+          - [4, '-2.40%']
+          - [5, '-2.20%']
+      lang: json
+      initial: |
+        {
+          "var_95_pct": 2.2,
+          "es_95_pct": 2.2,
+          "breaches_expected_per_year": 5,
+          "es_dollars": 440000
+        }
+      rules:
+        - message: The block no longer parses as JSON. Check the braces and the commas.
+          check: { op: parses, as: json }
+        - message: VaR is the fifth worst return of the hundred, quoted as a positive loss.
+          check: { op: range, path: var_95_pct, min: 2.19, max: 2.21 }
+        - message: Expected shortfall is the average of all five worst days, not the least bad of them.
+          check: { op: range, path: es_95_pct, min: 3.21, max: 3.23 }
+        - message: A 95 percent daily limit is expected to break on five percent of the 252 trading days in a year.
+          check: { op: range, path: breaches_expected_per_year, min: 12.5, max: 12.7 }
+        - message: Convert the expected shortfall percentage to dollars against the 20 million book.
+          check: { op: range, path: es_dollars, min: 643000, max: 645000 }
+      hints:
+        - One of the four fields is already right, and it is the one the other three were derived from by mistake.
+        - The five worst returns add to 16.10, and five percent of 252 is not five.
+        - The dollar figure follows from the expected shortfall percentage rather than from the VaR percentage.
+      reveal: >-
+        The gap between 2.20 and 3.22 is the whole reason both numbers appear on a risk
+        report. Sizing a book against the VaR figure and then losing an average of 3.22 on
+        every breach day is how a limit that was never violated in the model gets violated
+        twelve times a year in the accounts. Report both, and size against the second.
+      solution: |
+        {
+          "var_95_pct": 2.2,
+          "es_95_pct": 3.22,
+          "breaches_expected_per_year": 12.6,
+          "es_dollars": 644000
+        }
 ---
 
 Standard deviation treats upside gains and downside losses symmetrically. Institutional risk management focuses specifically on downside tail losses.

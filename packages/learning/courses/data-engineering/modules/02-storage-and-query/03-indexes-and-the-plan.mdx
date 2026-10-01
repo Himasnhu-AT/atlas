@@ -7,6 +7,159 @@ estimatedMinutes: 30
 exercise:
   id: query-plan
   timeboxMinutes: 25
+challenges:
+  goal: Read the one line the planner gives you, and index the column the filter actually names.
+
+  steps:
+    - id: what-the-composite-covers
+      kind: assign
+      prompt: >-
+        One index exists on the orders table. Sort each filter onto whether the planner can
+        use it or has to walk every row.
+      context:
+        as: code
+        lang: sql
+        source: |
+          CREATE INDEX orders_cp ON orders (customer, placed_at);
+      buckets:
+        - id: uses-index
+          label: SEARCH, using the index
+          note: The planner can navigate straight to the matching rows.
+        - id: scans
+          label: SCAN, every row
+          note: The index cannot answer this filter, so the engine reads the table.
+      items:
+        - id: customer-only
+          label: WHERE customer = ?
+          bucket: uses-index
+          because: The leftmost column of the index on its own. A composite index is sorted by its first column first, so a filter on that column alone is exactly what it is sorted for.
+        - id: both-in-order
+          label: WHERE customer = ? AND placed_at >= ?
+          bucket: uses-index
+          because: Both columns, in the order the index stores them. This is the query the index was created for.
+        - id: both-reversed
+          label: WHERE placed_at >= ? AND customer = ?
+          bucket: uses-index
+          because: The same filter written the other way round. The planner reorders the conditions itself, so the order you type them in changes nothing.
+        - id: customer-and-total
+          label: WHERE customer = ? AND total > ?
+          bucket: uses-index
+          because: The index narrows on customer and the engine checks total on the few rows that come back. An index does not have to cover every condition to be worth using.
+        - id: date-only
+          label: WHERE placed_at >= ?
+          bucket: scans
+          because: The second column with the first one missing. The index is sorted by customer, so the dates inside it are scattered rather than in one range.
+        - id: lowered-customer
+          label: WHERE lower(customer) = ?
+          bucket: scans
+          because: The index stores customer as it was written. Nothing in it knows what the lowercased form of each value is, so every row has to be lowercased and compared.
+        - id: leading-wildcard
+          label: WHERE customer LIKE '%example.com'
+          bucket: scans
+          because: A sorted structure can find a prefix. A pattern that starts with a wildcard names no prefix, so there is nowhere in the index to start looking.
+      hints:
+        - The index is sorted by customer first. Ask what that makes cheap to find and what it scatters.
+        - Two of the scanning filters name customer and still miss. Something has happened to the column between the index and the filter.
+        - The order you write two conditions in is not the order the planner evaluates them in.
+      reveal: >-
+        A composite index is usable from the left, and only from the left. Wrapping the
+        column in a function or starting a pattern with a wildcard breaks the same
+        property for the same reason, which is that neither one names a place in a sorted
+        list to begin at.
+
+    - id: why-it-still-scans
+      kind: spot
+      prompt: >-
+        The index exists on the column the report filters, and EXPLAIN QUERY PLAN still
+        says SCAN orders. Click the line that stops the planner using it.
+      lang: sql
+      source: |
+        CREATE INDEX orders_customer ON orders (customer);
+
+        SELECT order_id, total
+        FROM orders
+        WHERE lower(customer) = lower(?)
+          AND placed_at >= ?
+        ORDER BY placed_at;
+      targets: [4]
+      decoys:
+        "0": The index names the column the report filters on. Creating it is not the problem.
+        "5": A range on an unindexed column is checked against whatever rows the access path returned. It does not decide what that path is.
+        "6": Sorting happens after the rows have been found, so it cannot be what chose how they were found.
+      hints:
+        - The index holds the values as they were stored. The filter is not comparing against those values.
+        - Both sides of that comparison are wrapped in something, and one of the two sides is a column.
+        - Normalising at load time, or an index on the expression itself, both fix it. Ad hoc normalising in the query does not.
+      reveal: >-
+        An index on customer answers questions about customer. lower(customer) is a
+        different value that nothing has stored, so the engine has to compute it for every
+        row to find out. This is why case folding belongs at the ingestion boundary, where
+        it happens once, rather than in each query, where it happens on every row.
+
+    - id: the-order-of-tuning
+      kind: order
+      prompt: Put the steps of turning a slow query into a fast one in the order that can prove it worked.
+      items:
+        - { id: measure, label: Time the query on data the size of production }
+        - { id: plan, label: Read the plan and see whether it says SCAN or SEARCH }
+        - { id: column, label: Settle which column the filter names, untransformed }
+        - { id: create, label: Create the index }
+        - { id: replan, label: Read the plan again and check it now says SEARCH }
+        - { id: remeasure, label: Time it again and compare against the first reading }
+      solution: [measure, plan, column, create, replan, remeasure]
+      because:
+        measure: A query nobody has timed on production-sized data is not known to be slow. An index on a fast query is a write cost with nothing on the other side of it.
+        column: An index on customer does nothing for a filter on lower(customer). What the filter really names has to be settled before anything gets created.
+        replan: Creating an index is not the same as the planner choosing it. It will tell you which it did, and it costs one line to ask.
+        remeasure: On a small table a scan beats an index lookup. The plan says which path was taken and only the clock says whether that was better.
+      hints:
+        - Two of these happen before anything is created, and two happen after.
+        - Something has to establish that there is a problem, and the same thing has to establish that it is gone.
+        - Between reading the plan and creating the index there is a decision that has nothing to do with either.
+      reveal: >-
+        The plan says which path the engine chose and the clock says whether the choice was
+        better. Skipping the first reading is how a table collects six indexes and the same
+        latency, with every insert paying for all six.
+
+    - id: index-for-the-queries
+      kind: text-contract
+      prompt: >-
+        These three queries are everything that reads the orders table. Replace the index
+        below with the smallest set that serves all three.
+      context:
+        as: code
+        lang: sql
+        source: |
+          -- every minute, from the customer page
+          SELECT * FROM orders WHERE customer = ?;
+
+          -- every minute, from the customer page
+          SELECT * FROM orders WHERE customer = ? AND placed_at >= ?;
+
+          -- once a night, from the finance extract
+          SELECT * FROM orders WHERE placed_at >= ?;
+      lang: sql
+      initial: |
+        CREATE INDEX orders_by_date ON orders (placed_at, customer);
+      rules:
+        - message: Both minute-by-minute queries filter on customer, and an index whose first column is placed_at cannot start from a customer.
+          check: { op: matches, pattern: '\(\s*customer\s*,\s*placed_at\s*\)', flags: i }
+        - message: The nightly extract filters on placed_at with no customer, so it needs an index that leads with placed_at.
+          check: { op: matches, pattern: '\(\s*placed_at\s*\)', flags: i }
+        - message: An index on customer alone is already covered by the leftmost column of the composite one, and it would be rewritten on every insert for nothing.
+          check: { op: notMatches, pattern: '\(\s*customer\s*\)', flags: i }
+      hints:
+        - The two frequent queries begin their filter with the same column. The nightly one does not.
+        - A composite index serves any filter that names its columns from the left without a gap. Work out which of the three queries that leaves behind.
+        - Two indexes cover all three. A third one that looks obvious would be written on every insert and read by nothing.
+      reveal: >-
+        A composite index reads from the left, so one on (customer, placed_at) already
+        serves every filter on customer alone. Only the nightly extract needs a second
+        index. The third index people reach for here is the one on customer, and it is
+        paid for on every write and used by no query at all.
+      solution: |
+        CREATE INDEX orders_by_customer ON orders (customer, placed_at);
+        CREATE INDEX orders_by_date ON orders (placed_at);
 ---
 
 Query latency issues often stem from full table scans rather than sheer data volume. The database query planner provides insight into access paths through query explanation commands.

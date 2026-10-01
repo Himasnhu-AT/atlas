@@ -1,0 +1,41 @@
+version: 1
+cases:
+  TestDrawdownTracker.test_monotonic_growth:
+    condition: 'an equity curve that makes a new high on every observation'
+    hints:
+      - 'Every point sets a new high-water mark, so the curve is never underwater and there is no depth or duration to report.'
+      - 'A drawdown is measured against the running peak, not against the first value and not against the previous one.'
+      - 'Raise the peak whenever the current value reaches or passes it, and leave both the depth and the duration untouched on that branch.'
+    concept: quant-risk.drawdown-analysis
+
+  TestDrawdownTracker.test_drawdown_and_recovery:
+    condition: 'a fall from 100 to 80 that climbs back to the old peak before making a new high'
+    hints:
+      - 'The drawdown ends when the curve regains the old peak, not when it starts going back up. The bar at 90 is still underwater.'
+      - 'The maximum has to survive the recovery. The deepest point was 20 percent even though the curve finishes at a new high and is flat by the end.'
+      - 'Keep the running peak and a separate count of consecutive underwater bars, reset that count only when the value regains the peak, and carry the largest depth and the longest run seen so far.'
+    concept: quant-risk.drawdown-analysis
+
+  TestDrawdownTracker.test_unrecovered_drawdown:
+    condition: 'a curve that ends 25 percent under its peak and never recovers'
+    hints:
+      - 'The current drawdown is not always zero. It is the last point of the curve measured against the all-time peak.'
+      - 'The peak here is the very first observation, so a running maximum seeded at zero or at negative infinity gives the wrong denominator.'
+      - 'After the loop, take the peak minus the final value over the peak, and report it alongside the maximum rather than in place of it.'
+    concept: quant-risk.drawdown-analysis
+
+  TestDrawdownTracker.test_flat_curve_is_not_underwater:
+    condition: 'a curve that never moves, so every point sits exactly on the peak'
+    hints:
+      - 'An unchanged equity is not a loss. Sitting level with the high-water mark is not being under it.'
+      - 'The comparison against the peak has to include equality, or a flat stretch accrues duration it never spent underwater.'
+      - 'Treat a value greater than or equal to the peak as a new high, which resets the underwater counter and leaves the depth at zero.'
+    concept: quant-risk.drawdown-analysis
+
+  TestDrawdownTracker.test_new_peak_resets_duration:
+    condition: 'a one bar dip, then a new high at 110, then a shallower dip that is still running'
+    hints:
+      - 'The two underwater stretches are separate. The longest is one bar, not the two bars that sit below the level the curve started at.'
+      - 'A new high clears the clock. The counter starts again from nothing rather than continuing from where it was.'
+      - 'Reset the counter on each new peak after recording the maximum, and measure the final drawdown against the 110 peak rather than the 100 the curve opened at.'
+    concept: quant-risk.drawdown-analysis

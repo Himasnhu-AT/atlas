@@ -185,42 +185,65 @@ export function storageMode(): 'firebase' {
   return 'firebase'
 }
 
+export function ensureFirebaseAdmin() {
+  const { getApps, initializeApp, cert } = require('firebase-admin/app')
+  if (getApps().length) return getApps()[0]
+
+  const fs = require('node:fs')
+  const defaultSaPath = path.resolve(process.cwd(), 'service-account.json')
+  const altSaPath = path.resolve(process.cwd(), 'apps/web/service-account.json')
+
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    let creds: Record<string, unknown>
+    try {
+      creds = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
+    } catch {
+      creds = require(path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_KEY))
+    }
+    return initializeApp({
+      credential: cert(creds),
+      projectId: (creds.project_id as string) || process.env.FIREBASE_PROJECT_ID || 'synthai-learn',
+    })
+  }
+
+  if (fs.existsSync(defaultSaPath)) {
+    const creds = JSON.parse(fs.readFileSync(defaultSaPath, 'utf8'))
+    return initializeApp({
+      credential: cert(creds),
+      projectId: creds.project_id || process.env.FIREBASE_PROJECT_ID || 'synthai-learn',
+    })
+  }
+
+  if (fs.existsSync(altSaPath)) {
+    const creds = JSON.parse(fs.readFileSync(altSaPath, 'utf8'))
+    return initializeApp({
+      credential: cert(creds),
+      projectId: creds.project_id || process.env.FIREBASE_PROJECT_ID || 'synthai-learn',
+    })
+  }
+
+  if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    return initializeApp({
+      credential: cert({
+        projectId: process.env.FIREBASE_PROJECT_ID || 'synthai-learn',
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      }),
+      projectId: process.env.FIREBASE_PROJECT_ID || 'synthai-learn',
+    })
+  }
+
+  return initializeApp({
+    projectId: process.env.FIREBASE_PROJECT_ID || 'synthai-learn',
+  })
+}
+
 // Firebase Firestore store.
 
 class FirebaseStore implements Store {
   private db() {
-    // Imported lazily so the local path never loads the SDK.
-    const { getApps, initializeApp, cert } = require('firebase-admin/app')
+    ensureFirebaseAdmin()
     const { getFirestore } = require('firebase-admin/firestore')
-
-    if (!getApps().length) {
-      if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-        let creds: Record<string, unknown>
-        try {
-          creds = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
-        } catch {
-          creds = require(path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_KEY))
-        }
-        initializeApp({
-          credential: cert(creds),
-          projectId: (creds.project_id as string) || process.env.FIREBASE_PROJECT_ID,
-        })
-      } else if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-        initializeApp({
-          credential: cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-          }),
-          projectId: process.env.FIREBASE_PROJECT_ID,
-        })
-      } else {
-        initializeApp({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-        })
-      }
-    }
-
     return getFirestore()
   }
 

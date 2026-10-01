@@ -1,3 +1,4 @@
+import { ChallengeSet, CompiledChallengeSet } from '@atlas/core'
 import { z } from 'zod'
 
 /**
@@ -93,6 +94,85 @@ export const ExerciseSpec = z.object({
 })
 export type ExerciseSpec = z.infer<typeof ExerciseSpec>
 
+/**
+ * What one test is checking, in words the learner has not read before.
+ *
+ * `test_ignores_braces_inside_strings` failing tells a learner what they
+ * already knew, which is that something about braces went wrong. "You did not
+ * handle: a closing brace that appears inside a string literal" tells them the
+ * case they forgot, which is the only thing they were actually missing.
+ *
+ * None of the 1775 test methods in this repo carries a docstring, so there is
+ * nothing to derive this from. It is authored, and the build gates on it.
+ */
+export const ExerciseCase = z.object({
+  /**
+   * One clause naming the input or the situation, not the assertion. Lower
+   * case and no trailing period: the app writes "You did not handle: {this}."
+   */
+  condition: z.string().min(8).max(160),
+  /**
+   * Escalating. The first names the misconception, the last is close to the
+   * answer. Fewer than three is allowed; more is a lesson, and a lesson goes
+   * in the lesson.
+   */
+  hints: z.array(z.string().min(8).max(400)).min(1).max(3),
+  /** A lesson id in the same course. Nothing crosses a course boundary. */
+  concept: z.string().max(160).optional(),
+})
+export type ExerciseCase = z.infer<typeof ExerciseCase>
+
+/**
+ * An exercise's case map: `exercises/<id>/cases.yaml`.
+ *
+ * Keyed on `ClassName.test_method`, the same id the shared runner reports, so
+ * a key that validates cannot fail to match at runtime. The build discovers
+ * the real key set by asking unittest's loader rather than by reading the file
+ * with an AST, because the loader is what will actually run.
+ */
+export const ExerciseCases = z.object({
+  version: z.literal(1),
+  cases: z.record(
+    z.string().regex(/^[A-Za-z_]\w*\.[A-Za-z_]\w*$/, 'a case key is ClassName.test_method'),
+    ExerciseCase,
+  ),
+})
+export type ExerciseCases = z.infer<typeof ExerciseCases>
+
+/**
+ * Interactive visual sandbox / game spec declared in a lesson's frontmatter.
+ */
+export const InteractiveSpec = z.object({
+  type: z.string().min(1),
+  props: z.record(z.string(), z.any()).default({}),
+})
+export type InteractiveSpec = z.infer<typeof InteractiveSpec>
+
+export const LessonFrontmatter = z.object({
+  id: lessonId,
+  title: z.string().min(1).max(120),
+  summary: z.string().min(1).max(300),
+  order: z.number().int().nonnegative(),
+  estimatedMinutes: z.number().int().positive().max(600),
+  exercise: ExerciseSpec.optional(),
+  /**
+   * @deprecated Superseded by `challenges`, which is a sequence rather than a
+   * single widget. The build lowers a lesson still using this into a sequence
+   * of one so it keeps rendering, and counts it in the coverage line it prints.
+   * Removed once that count reaches zero.
+   */
+  interactive: InteractiveSpec.optional(),
+  /**
+   * Stage 1: three or four hands-on challenges, in order.
+   *
+   * This is where a lesson is meant to start. Reading is stage 2 and optional;
+   * it is kept because it is what a search engine is served, not because it is
+   * how anybody is expected to learn here.
+   */
+  challenges: ChallengeSet.optional(),
+})
+export type LessonFrontmatter = z.infer<typeof LessonFrontmatter>
+
 /** One track a course declares. `id` is what a module's `track` names. */
 export const TrackMeta = z.object({
   id: slug,
@@ -137,16 +217,6 @@ export const ModuleMeta = z.object({
   estimatedHours: z.number().positive().max(100),
 })
 export type ModuleMeta = z.infer<typeof ModuleMeta>
-
-export const LessonFrontmatter = z.object({
-  id: lessonId,
-  title: z.string().min(1).max(120),
-  summary: z.string().min(1).max(300),
-  order: z.number().int().nonnegative(),
-  estimatedMinutes: z.number().int().positive().max(600),
-  exercise: ExerciseSpec.optional(),
-})
-export type LessonFrontmatter = z.infer<typeof LessonFrontmatter>
 
 /**
  * A lesson as it appears in the manifest. The body is deliberately absent:
@@ -200,6 +270,30 @@ export const CompiledLesson = z.object({
   html: z.string(),
   /** Files copied into the student's workspace, keyed by filename. */
   exerciseFiles: z.record(z.string(), z.string()).optional(),
+  /**
+   * Stage 1, normalised.
+   *
+   * An authored `challenges:` passes through. A lesson still on the deprecated
+   * `interactive:` spec is lowered into a sequence of one, which is why the
+   * compiled form allows a single step where the authoring form demands three.
+   */
+  stage1: CompiledChallengeSet.optional(),
+  /**
+   * The superseded single-widget spec, still emitted so a client that has not
+   * been updated keeps working. Declared here at last: the build has always
+   * written this field and this schema never mentioned it, so both apps have
+   * been reading an undeclared key off the compiled artifact.
+   */
+  interactive: InteractiveSpec.optional(),
+  /**
+   * The exercise's case map, keyed on `ClassName.test_method`.
+   *
+   * It rides on the compiled lesson rather than in `exerciseFiles` for two
+   * reasons: it must not be copied into the learner's workspace, and it must
+   * not enter `exerciseHash`, or editing a hint would tell every learner mid
+   * exercise that the exercise moved underneath them.
+   */
+  exerciseCases: z.record(z.string(), ExerciseCase).optional(),
   /**
    * Hash of every file in `exerciseFiles`, so a client can tell whether the
    * exercise under a student's `solution.py` is the one they last worked

@@ -7,6 +7,201 @@ estimatedMinutes: 25
 exercise:
   id: factor-rebalancer
   timeboxMinutes: 30
+challenges:
+  goal: Build a dollar-neutral book from a factor ranking, and name the risks that summing to zero does not remove.
+
+  readingOptional: true
+  steps:
+    - id: neutral-on-monday-not-on-friday
+      kind: numeric
+      prompt: >-
+        The book was built dollar neutral at Monday's rebalance and has not been touched
+        since. What is its net exposure at Friday's close, in dollars?
+      unit: dollars
+      context:
+        as: pairs
+        items:
+          - { k: Equity at the rebalance, v: '1,000,000' }
+          - { k: Gross exposure, v: 1.0 split evenly between the two sleeves }
+          - { k: Long sleeve over the week, v: up 10 percent }
+          - { k: Short sleeve over the week, v: down 2 percent }
+      answer: 60000
+      tolerance: 1
+      scaleHint: >-
+        That is out by more than a factor of ten. Each sleeve started at half a million and
+        neither moved by more than a tenth of that.
+      hints:
+        - Each sleeve started at 500,000, one long and one short.
+        - The long sleeve is now worth 550,000 and the short sleeve is a liability of 490,000.
+        - Net exposure is what is left when you add a positive and a negative that no longer match.
+      reveal: >-
+        Neutrality is a property of the moment you set it, and it decays from the next tick
+        onward. A book that only rebalances monthly spends most of its life with a directional
+        position it never chose, and the drift is largest exactly when the factor is working,
+        because that is when the two sleeves diverge fastest.
+
+    - id: what-neutrality-actually-removes
+      kind: assign
+      prompt: >-
+        Your book sums to zero dollars. Sort each risk by what that fact does to it.
+      buckets:
+        - id: removed
+          label: Removed by construction
+        - id: untouched
+          label: Left exactly where it was
+        - id: introduced
+          label: Introduced by the short leg
+      items:
+        - id: index-crash
+          label: The whole index falls 20 percent overnight
+          bucket: removed
+          because: >-
+            Every name moves by roughly its beta times the index, and with equal dollars on
+            both sides the first-order effect cancels. This is the one thing dollar
+            neutrality is actually for.
+        - id: rate-repricing
+          label: A rate move reprices every equity in the universe by the same multiple
+          bucket: removed
+          because: >-
+            A common multiplicative shock to all names is the same thing as an index move as
+            far as the book is concerned, and it cancels the same way.
+        - id: sector-tilt
+          label: Every long is a semiconductor and every short is a utility
+          bucket: untouched
+          because: >-
+            Dollar neutral is not sector neutral. In most naive factor books the largest
+            single source of variance is an industry bet nobody intended to place, because
+            the factor happens to rank one industry highly this quarter.
+        - id: beta-mismatch
+          label: The longs average a beta of 1.4 and the shorts a beta of 0.7
+          bucket: untouched
+          because: >-
+            Equal dollars is not equal beta. This book is net long the market by half its
+            gross exposure while summing to zero, which is why beta neutrality is a separate
+            constraint rather than a consequence.
+        - id: borrow
+          label: A short becomes hard to borrow and the rate goes to 30 percent a year
+          bucket: introduced
+          because: >-
+            A long-only book cannot have this problem. The short leg is a loan of stock, and
+            the lender reprices it whenever they like.
+        - id: squeeze
+          label: A crowded short doubles in a week on no news
+          bucket: introduced
+          because: >-
+            The loss on a short is unbounded and grows as it goes against you, so the
+            position gets larger exactly as it gets worse. Nothing in a long book behaves
+            that way.
+      hints:
+        - Two of these are the same shock described twice, and both of them are what neutrality was designed for.
+        - Two of them are things a long-only manager could not experience at all.
+        - Summing to zero in dollars says nothing about what those dollars are exposed to.
+      reveal: >-
+        Dollar neutrality removes exactly one risk and quietly adds two. That is still a good
+        trade, but it is why production factor books carry sector and beta constraints in the
+        optimiser rather than trusting the sum, and why the borrow desk has a veto on the
+        short list before anything is sent.
+
+    - id: the-overlap-nobody-checked
+      kind: spot
+      prompt: >-
+        On a universe of three names with k of 2, this returns a book that is 25 percent net
+        short and raises nothing. Click the line where the overlap is created.
+      lang: python
+      source: |
+        def weights(scores, k):
+            order = sorted(scores, key=scores.get, reverse=True)
+            longs, shorts = order[:k], order[-k:]
+            w = {name: 0.0 for name in scores}
+            for name in longs:
+                w[name] = 0.5 / k
+            for name in shorts:
+                w[name] = -0.5 / k
+            return w
+      targets: [2]
+      requireAll: true
+      decoys:
+        '1': >-
+          Sorting descending by score is the ranking step, and it is right. The highest
+          scores end up at the front where the long slice looks for them.
+        '3': >-
+          Starting every name at zero is right, and it is what makes the middle of the
+          universe explicitly flat rather than missing.
+        '5': >-
+          Half the capital split evenly across k longs is the sleeve weight the specification
+          asks for.
+        '7': >-
+          The short sleeve mirrors the long one, and the sign is right. A negative weight is
+          a short.
+      hints:
+        - Write out the slices by hand for a list of three and a k of 2.
+        - The front two and the back two of a three element list are not disjoint.
+        - The second loop overwrites a name the first loop had already made long, and the book ends up with one long, one short and half the gross it was supposed to have.
+      reveal: >-
+        The universe has to be at least twice k or the two slices meet in the middle, and
+        nothing about the code says so. It is a one line guard, and without it the failure is
+        silent, produces plausible-looking weights, and only shows up as a book that is
+        mysteriously net short in the weeks when the universe shrinks.
+
+    - id: build-the-book
+      kind: text-contract
+      prompt: >-
+        These weights came from the ranking below with k of 2, and they are wrong in two
+        different ways. Correct them.
+      context:
+        as: table
+        caption: Factor scores, universe of six, long the top two and short the bottom two
+        columns: [name, factor score]
+        rows:
+          - [AAA, 2.4]
+          - [BBB, 1.1]
+          - [CCC, 0.3]
+          - [DDD, -0.2]
+          - [EEE, -0.9]
+          - [FFF, -1.7]
+      lang: json
+      initial: |
+        {
+          "AAA": 0.5,
+          "BBB": 0.0,
+          "CCC": 0.5,
+          "DDD": 0.0,
+          "EEE": -0.5,
+          "FFF": -0.5
+        }
+      rules:
+        - message: The weights no longer parse as JSON. Check the braces and the commas.
+          check: { op: parses, as: json }
+        - message: CCC is third of six on this factor, which is the middle of the universe, and a cross-sectional book takes no view on the middle.
+          check: { op: equals, path: CCC, value: 0 }
+        - message: BBB has the second highest score, so it belongs in the long sleeve at the same weight as every other long.
+          check: { op: equals, path: BBB, value: 0.25 }
+        - message: Two longs share the long sleeve, so each carries half of 0.5. Two names at 0.5 apiece is a gross exposure of two.
+          check: { op: equals, path: AAA, value: 0.25 }
+        - message: DDD is fourth of six and belongs to the middle, which carries no weight at all.
+          check: { op: equals, path: DDD, value: 0 }
+        - message: The short sleeve mirrors the long one, so each of its two names carries minus 0.25.
+          check: { op: equals, path: EEE, value: -0.25 }
+        - message: FFF has the lowest score and belongs in the short sleeve, at the same weight as the other short.
+          check: { op: equals, path: FFF, value: -0.25 }
+      hints:
+        - Two of the six names are in the wrong bucket, and all six carry the wrong magnitude.
+        - Rank the six by score and take the front two and the back two. The middle two are flat.
+        - Half the capital goes to each sleeve, and inside a sleeve it is split evenly, so each name carries 0.25.
+      reveal: >-
+        Net weight is zero in both the broken version and the fixed one, which is why checking
+        that the weights sum to zero catches nothing. The two invariants that matter are the
+        net and the gross, and only the gross would have caught this. A build that asserts
+        both is the cheapest test a factor book can carry.
+      solution: |
+        {
+          "AAA": 0.25,
+          "BBB": 0.25,
+          "CCC": 0,
+          "DDD": 0,
+          "EEE": -0.25,
+          "FFF": -0.25
+        }
 ---
 
 Time-series strategies trade one asset against its own history. **Cross-sectional factor strategies** rank an entire universe of assets simultaneously at timestamp $t$.

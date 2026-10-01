@@ -4,6 +4,225 @@ title: The event loop
 summary: Vectorized backtests leak future state across array operations. An event-driven loop enforces causal message passing.
 order: 1
 estimatedMinutes: 20
+challenges:
+  goal: Trace one trading decision from bar to ledger entry, and see where a vectorized backtest quietly skips a step.
+
+  steps:
+    - id: the-return-nobody-could-have-caught
+      kind: spot
+      prompt: >-
+        This vectorized backtest reports a Sharpe of 2.4 on a signal that is a coin flip out
+        of sample. Click the line that hands the strategy a return it could not have
+        captured.
+      lang: python
+      source: |
+        signal = (close > close.rolling(20).mean()).astype(int)
+        returns = close.pct_change()
+        strategy = signal * returns
+        sharpe = strategy.mean() / strategy.std() * np.sqrt(252)
+      targets: [2]
+      requireAll: true
+      decoys:
+        '0': >-
+          A trailing 20 bar mean reads only bars that have already closed, so this line is
+          causal. Pandas rolling windows end at the current row rather than straddling it.
+        '1': >-
+          A percentage change lines every return up with the bar it was earned on, which is
+          what a return series is supposed to do.
+        '3': >-
+          Annualising by the square root of 252 is a convention, not a leak. What is being
+          annualised is the problem.
+      hints:
+        - Three of these four lines are honest on their own. Ask which bar each array element belongs to.
+        - The signal in row t was computed from the close of bar t, and the return in row t was earned between the open and close of bar t.
+        - Multiplying them together buys at a price that had already printed by the time the decision was made.
+      reveal: >-
+        One missing shift is the difference between a fund and a spreadsheet. Nothing in the
+        array API objects, because the two series are the same length and line up perfectly,
+        which is exactly the property that makes the mistake invisible. An event loop cannot
+        make it, because the return does not exist yet when the strategy runs.
+
+    - id: what-the-queue-carries
+      kind: order
+      prompt: Put the objects that pass through the queue for one trading decision in order.
+      items:
+        - { id: market, label: 'A MarketEvent carrying a new bid, ask and volume' }
+        - { id: signal, label: A SignalEvent carrying a target weight }
+        - { id: order, label: 'An OrderEvent carrying a symbol, a side and a quantity' }
+        - { id: fill, label: 'A FillEvent carrying executed quantity, price and commission' }
+        - { id: snapshot, label: A mark to market snapshot of total equity }
+      solution: [market, signal, order, fill, snapshot]
+      because:
+        market: >-
+          Nothing in the system moves until data arrives. Every other event in the chain
+          exists because a bar or a tick woke the loop up.
+        signal: >-
+          A target weight comes before a share count because the strategy is not entitled to
+          know the size of the book. It says which way and how much of the risk budget,
+          and something else prices that.
+        order: >-
+          The share count needs equity and current position, both of which live in the
+          ledger rather than in the strategy.
+        fill: >-
+          A fill is what the market did, not what you asked for. Quantity and price can both
+          differ from the order, which is the reason it is a separate object at all.
+        snapshot: >-
+          Equity is recorded after the fill has landed in the ledger. Snapshot first and the
+          equity curve shows the cost of a trade one bar after the trade.
+      hints:
+        - Two of these carry an intention and two carry something that actually happened.
+        - A target weight is not yet a number of shares, and a number of shares is not yet an execution.
+        - The only one that reads state rather than changing it comes last.
+      reveal: >-
+        Each arrow in this chain is a place where reality can differ from intention, and
+        that is the point of separating them. A vectorized backtest collapses all five into
+        one array operation, which is why it has nowhere to put a partial fill.
+
+    - id: who-owns-the-decision
+      kind: assign
+      prompt: Sort each decision into the component that is allowed to make it.
+      buckets:
+        - id: strategy
+          label: Strategy
+          note: Sees the current bar and the ledger. Emits an intention.
+        - id: portfolio
+          label: Portfolio and risk
+          note: Owns equity, current positions and the limits.
+        - id: execution
+          label: Execution handler
+          note: Stands in for the broker and the exchange.
+      items:
+        - id: indicator
+          label: Compute the 20 bar moving average of the mid
+          bucket: strategy
+          because: >-
+            The indicator is the strategy's own view of the data and nothing downstream has
+            an opinion about it.
+        - id: target-weight
+          label: Decide the book should be 60 percent long this name
+          bucket: strategy
+          because: >-
+            A weight is an intention scaled to the risk budget rather than to the account, so
+            the strategy can express it without knowing what the account holds.
+        - id: shares
+          label: Turn 60 percent of equity into a share count
+          bucket: portfolio
+          because: >-
+            This needs current equity and the current position, and both live in the ledger.
+            Letting the strategy do it is how a strategy ends up reading the balance.
+        - id: gross-cap
+          label: Refuse an order that pushes gross exposure past two times equity
+          bucket: portfolio
+          because: >-
+            A limit that the thing being limited can waive is not a limit. Risk sits between
+            the signal and the order for exactly this reason.
+        - id: pov
+          label: Cap the filled quantity at 10 percent of the bar's volume
+          bucket: execution
+          because: >-
+            How much of an order the market can absorb is a fact about the market, and the
+            execution handler is the only component that models it.
+        - id: commission
+          label: Charge the minimum ticket fee on a 40 share order
+          bucket: execution
+          because: >-
+            The fee schedule belongs to the broker being simulated. Putting it anywhere else
+            means changing the strategy when you change brokers.
+      hints:
+        - Ask what each decision needs to read. Two of them need the account balance and two need the order book.
+        - The strategy is deliberately kept ignorant of how large the book is, so anything denominated in shares or dollars is not its call.
+        - Two of these are properties of the venue rather than of the trade.
+      reveal: >-
+        This split is what lets the same strategy object run against a simulator and against
+        a live broker without editing. The strategy never learns which one it is talking to,
+        because everything that differs between them lives on the other side of the queue.
+
+    - id: drive-one-decision-through
+      kind: machine
+      prompt: >-
+        Take one signal from the bar that produced it to a ledger entry, without filling it
+        against a price the strategy had already seen.
+      initial: idle
+      vars: { bars: 0 }
+      states:
+        idle:
+          label: Queue empty
+          note: The loop is waiting for the data handler to push something.
+        market:
+          label: MarketEvent on the queue
+          note: A new bid, ask and volume have arrived for this bar.
+        signal:
+          label: SignalEvent on the queue
+          note: The strategy has a target weight. Nothing has been sized yet.
+        order:
+          label: OrderEvent on the queue
+          note: A symbol, a side and a quantity, not yet sent anywhere.
+        resting:
+          label: Order resting, no new data
+          note: The order exists and there is no price it is allowed to trade against yet.
+        fill:
+          label: FillEvent on the queue
+          note: The broker has reported a quantity, a price and a commission.
+        settled:
+          label: Ledger updated and equity recorded
+          terminal: true
+        leaked:
+          label: Filled against the bar that produced the signal
+          terminal: true
+          error: true
+      transitions:
+        - from: idle
+          on: push the next bar
+          to: market
+          effects: [{ var: bars, op: inc, value: 1 }]
+          note: The data handler wakes the loop with a MarketEvent.
+        - from: market
+          on: run the strategy
+          to: signal
+          note: The strategy sees this bar and the ledger, and nothing after it.
+        - from: market
+          on: push the next bar
+          to: market
+          effects: [{ var: bars, op: inc, value: 1 }]
+          note: A bar the strategy has nothing to say about. Most bars are this one.
+        - from: signal
+          on: size it against equity
+          to: order
+          note: The portfolio manager turns a target weight into a share count.
+        - from: order
+          on: fill at this bar's close
+          to: leaked
+          note: >-
+            This bar's close is the number the strategy just read. Filling against it books
+            a trade at a price that had already printed when the decision was made.
+        - from: order
+          on: hold until new data
+          to: resting
+          note: The order waits. There is no price yet that the strategy has not already seen.
+        - from: resting
+          on: push the next bar
+          to: fill
+          effects: [{ var: bars, op: inc, value: 1 }]
+          note: The execution handler now has a price that arrived after the decision.
+        - from: fill
+          on: apply to the ledger
+          to: settled
+          note: Cash, position and average price move, and equity is recorded after they do.
+      mode: drive
+      win:
+        state: settled
+        maxSteps: 10
+        requires: [{ var: bars, cmp: gte, value: 2 }]
+      hints:
+        - There is a fast route to a fill and it ends in the red state. Look at what price that route is trading against.
+        - The order has to survive a moment where nothing is happening, because the only honest price is one that has not arrived yet.
+        - Two bars have to go by before the ledger can be touched.
+      reveal: >-
+        The gap between the order and the fill is not a modelling nicety, it is the whole
+        guarantee. Because the execution handler can only ever see data pushed after the
+        strategy ran, no strategy written against this loop can leak, whatever it does
+        inside its own callback. That property is structural rather than something a
+        reviewer has to check.
 ---
 
 A vectorized backtest applies operations across entire Pandas series simultaneously. While fast to compute, vectorized backtesting introduces three structural flaws:

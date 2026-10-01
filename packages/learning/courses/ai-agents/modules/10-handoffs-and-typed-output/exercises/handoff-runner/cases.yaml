@@ -1,0 +1,185 @@
+version: 1
+cases:
+  TestHandoffToolName.test_prefixes_and_lowercases:
+    condition: 'an agent whose name is capitalised'
+    hints:
+      - 'The name has to be recognisable as a transfer and derivable from the agent both ways.'
+      - 'Capitals in a tool name make the reverse lookup depend on how the agent was declared.'
+      - 'Fold the case and put a fixed prefix in front of it.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffToolName.test_spaces_and_hyphens_become_underscores:
+    condition: 'agent names containing a space and a hyphen'
+    hints:
+      - 'A provider rejects a tool name containing a space.'
+      - 'Dropping the character entirely runs two words together and makes the name ambiguous.'
+      - 'Replace both separators with underscores.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestToolSchemas.test_describes_a_real_tool_from_its_signature:
+    condition: 'an ordinary tool whose schema has to come from its own definition'
+    hints:
+      - 'Writing the schema by hand alongside the function means the two drift the first time somebody edits one.'
+      - 'The docstring is what tells the model when to use it, and it arrives indented from the source.'
+      - 'Read the name, the parameters and the cleaned docstring off the function.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestToolSchemas.test_only_parameters_without_defaults_are_required:
+    condition: 'a tool with one plain parameter and one carrying a default'
+    hints:
+      - 'A parameter with a default is optional, so the model may leave it out.'
+      - 'Marking it required forces the model to invent a value on every call.'
+      - 'Add a parameter to the required list only when its default is empty.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestToolSchemas.test_one_synthetic_tool_per_handoff_target:
+    condition: 'an agent that can hand off to one other agent'
+    hints:
+      - 'A transfer looks to the model exactly like any other tool it can call.'
+      - 'Without a schema for it the model has no way to ask for the transfer.'
+      - 'Emit one function schema per handoff target, named after that target.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestToolSchemas.test_handoff_schema_takes_no_arguments:
+    condition: 'a transfer tool, which needs no parameters and needs a useful description'
+    hints:
+      - 'There is nothing to pass: the transfer is the whole action.'
+      - 'The target''s own instructions are the only description the model gets of what it is handing to.'
+      - 'Emit empty properties and build the description from the target''s name and instructions.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestToolSchemas.test_real_tools_come_before_handoffs:
+    condition: 'an agent with both a tool of its own and a handoff target'
+    hints:
+      - 'The order is what the model reads, so it should be stable across runs.'
+      - 'Interleaving them makes the list depend on how the agent was declared.'
+      - 'Emit every real tool first and then every handoff.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestToolSchemas.test_an_agent_only_advertises_its_own_handoffs:
+    condition: 'a downstream agent that must not be able to transfer back to the one that called it'
+    hints:
+      - 'Handoffs point one way, from the agent that declares them.'
+      - 'Collecting every agent in the graph lets any agent transfer anywhere, including to itself.'
+      - 'Build the handoff schemas from this agent''s own targets only.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestDispatch.test_runs_the_tool_and_stringifies_the_result:
+    condition: 'a well formed call whose arguments have to reach the function as keywords'
+    hints:
+      - 'The arguments arrive as a JSON string, not a mapping.'
+      - 'The result travels back to the model as text.'
+      - 'Parse the arguments, unpack them into the call, and convert the return value to a string.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestDispatch.test_unknown_tool_raises:
+    condition: 'a call naming a tool that belongs to a different agent'
+    hints:
+      - 'Each agent has its own tools, and a name from another agent is not reachable here.'
+      - 'Searching every agent''s tools would let the current agent run somebody else''s.'
+      - 'Look only in this agent''s tools and raise KeyError when the name is absent.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffs.test_a_transfer_reassigns_the_agent:
+    condition: 'a transfer call followed by the new agent answering'
+    hints:
+      - 'The whole multi agent story is reassigning which agent is driving inside a loop that was already there.'
+      - 'Starting a nested run for the target loses the conversation and doubles the bookkeeping.'
+      - 'Point the current agent variable at the target and carry on round the same loop.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffs.test_history_survives_the_transfer:
+    condition: 'a second request that must still carry what the user originally said'
+    hints:
+      - 'The new agent inherits the conversation, it does not start a new one.'
+      - 'The transfer call still needs an answer, or the request is malformed.'
+      - 'Keep appending to the one message list and answer the transfer call like any other.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffs.test_the_transfer_result_is_keyed_to_the_call:
+    condition: 'a transfer whose answer must carry the id of the call that requested it'
+    hints:
+      - 'A provider rejects a request whose assistant turn has an unanswered call.'
+      - 'A transfer is a tool call, so it is answered the same way as any other.'
+      - 'Append a tool message carrying the call id and a short confirmation.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffs.test_the_new_agent_brings_its_own_prompt:
+    condition: 'a request after a transfer whose system message must be the new agent''s'
+    hints:
+      - 'Keeping the system message in the history would leave the previous agent''s orders in place after a transfer.'
+      - 'The prompt changes whenever the driving agent does.'
+      - 'Build the system message from the current agent on every request rather than storing it.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffs.test_the_new_agent_brings_its_own_tools:
+    condition: 'a request after a transfer whose tools must be the new agent''s'
+    hints:
+      - 'The tools list belongs to the current agent, not to the run.'
+      - 'Computing it once before the loop leaves the new agent holding the old one''s tools.'
+      - 'Recompute the schemas from the current agent on every request.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffs.test_two_hops_are_recorded_in_order:
+    condition: 'a run that transfers twice, ending at the third agent'
+    hints:
+      - 'The chain of transfers is what somebody reads to see how a request travelled.'
+      - 'Recording only the final agent loses the route entirely.'
+      - 'Append a pair of the source and target names on every transfer.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestHandoffs.test_an_unreachable_target_raises:
+    condition: 'a transfer call naming an agent this agent cannot reach'
+    hints:
+      - 'A name with the transfer prefix that matches no target is a bug worth shouting about, not an unknown tool.'
+      - 'Falling through to the ordinary dispatch reports a missing tool and hides what actually happened.'
+      - 'Detect the prefix and raise UnknownHandoff listing the reachable targets.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestOrdinaryTools.test_a_tool_result_goes_back_with_its_call_id:
+    condition: 'an ordinary tool call whose result must be paired to it'
+    hints:
+      - 'Handoffs and ordinary tools follow the same protocol on the way back.'
+      - 'A result without the matching id makes the next request malformed.'
+      - 'Append a tool message carrying the call id and the dispatched result.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestOrdinaryTools.test_every_call_in_a_batch_is_answered:
+    condition: 'one assistant turn requesting the same tool twice'
+    hints:
+      - 'An unanswered call makes the request invalid, whatever the other calls did.'
+      - 'Handling only the first call leaves the rest dangling.'
+      - 'Loop over every call on the turn and append a result for each.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestRunShape.test_an_answer_with_no_tools_ends_the_run:
+    condition: 'a first reply that answers directly without any tool call'
+    hints:
+      - 'The exit condition is the finish reason, not whether any tools were configured.'
+      - 'A run that ends here made no transfers and used one turn.'
+      - 'Return the result as soon as the turn is anything other than a request for tools.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestRunShape.test_the_history_holds_no_system_message:
+    condition: 'a returned history that must not carry any agent''s instructions'
+    hints:
+      - 'The system prompt changes with the agent, so it is built per request rather than stored.'
+      - 'Appending it to the history leaves stale instructions in place after a transfer.'
+      - 'Prepend the system message to the request only, and keep the stored history free of it.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestRunShape.test_running_out_of_turns_raises:
+    condition: 'an agent that keeps calling tools against a budget of three'
+    hints:
+      - 'A loop between two agents transferring to each other costs a model call per hop.'
+      - 'The budget counts model calls, not transfers or tool calls.'
+      - 'Loop exactly the budgeted number of times and raise MaxTurnsExceeded after it.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls
+
+  TestRunShape.test_a_budget_below_one_is_rejected:
+    condition: 'a run configured with a turn budget of zero'
+    hints:
+      - 'A loop that runs no times falls straight to the failure, which reads as an agent that gave up.'
+      - 'This is the caller misconfiguring the run rather than the agents looping.'
+      - 'Check the budget before the first call and raise ValueError.'
+    concept: ai-handoffs-and-typed-output.handoffs-are-tool-calls

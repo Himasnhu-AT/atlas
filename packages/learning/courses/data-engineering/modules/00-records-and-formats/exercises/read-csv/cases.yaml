@@ -1,0 +1,209 @@
+version: 1
+cases:
+  TestSplitFields.test_splits_a_plain_line:
+    condition: 'a line with no quote character anywhere in it'
+    hints:
+      - 'Most lines in a real extract are boring, and the boring ones still have to come out right.'
+      - 'With the quote flag never set, every delimiter you meet ends a field.'
+      - 'Append the characters you collect to a buffer, and on a delimiter push the buffer as a field and start a fresh one.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_a_quoted_comma_stays_in_its_field:
+    condition: 'a total written as "1,499.00", whose comma sits inside the quotes'
+    hints:
+      - 'The comma between the 1 and the 499 is part of the number, not a field boundary. Splitting on it turns the largest order in the file into 1 and drops the status.'
+      - 'A quote at the start of a field means the delimiter stops being a delimiter until the matching quote arrives.'
+      - 'Keep a flag for "inside a quoted field" and only treat the delimiter as a break while that flag is off.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_quotes_are_removed:
+    condition: 'a field wrapped in quotes that were never part of the value'
+    hints:
+      - 'The quotes are the file format talking, not the data. They must not survive into the parsed value.'
+      - 'The character that opens the field and the one that closes it are both consumed rather than collected.'
+      - 'When a quote flips the flag, advance past it without adding anything to the buffer.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_doubled_quotes_inside_a_quoted_field_become_one:
+    condition: 'two quote characters in a row while inside a quoted field'
+    hints:
+      - 'A doubled quote is how the format writes a literal quote, so it must not be read as the field ending and another one starting.'
+      - 'When you meet a quote inside a quoted field, what comes after it decides which of the two things it was.'
+      - 'Look one character ahead. Another quote means collect a single quote and skip both; anything else means the field has ended.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_quotes_in_an_unquoted_field_are_literal:
+    condition: 'a field that begins with a letter and carries quote characters later on'
+    hints:
+      - 'Not every quote is structure. Once a field has started unquoted, its quotes are text the customer typed.'
+      - 'What matters is where the quote sits, not that it is a quote. The csv module only lets one open a field at the very start of it.'
+      - 'Open a quoted field only when nothing has been collected for the current field yet. Otherwise the quote goes into the buffer like any other character.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_an_empty_line_is_one_empty_field:
+    condition: 'a blank line with no content and no delimiter'
+    hints:
+      - 'A line with nothing on it still has one field, and that field is empty. Returning an empty list says the line had no fields at all.'
+      - 'The last field is not ended by a delimiter, it is ended by the line running out.'
+      - 'Push whatever is in the buffer once the loop finishes, even when the buffer is empty and the loop never ran.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_empty_fields_are_preserved:
+    condition: 'two delimiters back to back with nothing between them'
+    hints:
+      - 'A quantity nobody filled in is still a column. Dropping the empty field shifts every field after it one place left.'
+      - 'A delimiter ends the current field regardless of how much was collected for it.'
+      - 'Do not test the buffer for content before pushing it. An empty string is a legitimate field value.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_a_trailing_delimiter_makes_a_trailing_empty_field:
+    condition: 'a line that ends on the delimiter, with nothing after it'
+    hints:
+      - 'The comma at the end announces one more field, and that field is empty.'
+      - 'Ending the loop and ending a field are separate events, and here they land on the same character.'
+      - 'The final push after the loop still runs, so the buffer emptied by the last delimiter becomes a trailing empty field.'
+    concept: de-records.reading-a-messy-file
+
+  TestSplitFields.test_honours_a_different_delimiter:
+    condition: 'a pipe separated line rather than a comma separated one'
+    hints:
+      - 'Extracts arrive tab and pipe separated as often as comma separated, usually because somebody hit the comma problem first.'
+      - 'The comma has no special standing in the algorithm. It is whatever character the caller named.'
+      - 'Compare each character against the delimiter argument rather than a literal comma.'
+    concept: de-records.reading-a-messy-file
+
+  TestParseRows.test_parses_the_sample_extract:
+    condition: 'the ten record orders extract, header line included'
+    hints:
+      - 'The header names the fields and is not itself a record, so ten records after it means ten dicts.'
+      - 'Split the first line to get the field names, then split each following line and pair them up.'
+      - 'Take the header once before the loop and build a dict per remaining line by walking header positions.'
+    concept: de-records.reading-a-messy-file
+
+  TestParseRows.test_keeps_the_quoted_total_intact:
+    condition: 'a total on order 1003 whose value contains the delimiter'
+    hints:
+      - 'The row parser inherits whatever the field splitter got wrong, and this is where that shows up as a whole column sliding sideways.'
+      - 'Nothing extra is needed here if the line is split by the quote-aware splitter rather than by str.split.'
+      - 'Call split_fields for every line, header included, rather than splitting on the delimiter directly.'
+    concept: de-records.reading-a-messy-file
+
+  TestParseRows.test_a_short_row_is_padded_not_dropped:
+    condition: 'order 1007, which arrived with five fields against a six column header'
+    hints:
+      - 'A truncated export is evidence. Dropping the row loses the transaction and the fact that anything went wrong.'
+      - 'zip stops at the shorter of the two sequences and reports nothing, which is how a row loses its last column in silence.'
+      - 'Walk the header positions and give the field None when the row has no value at that position.'
+    concept: de-records.reading-a-messy-file
+
+  TestParseRows.test_an_empty_field_is_an_empty_string:
+    condition: 'order 1004, whose quantity is present in the line and blank'
+    hints:
+      - 'Blank and absent are two different upstream events, and the quarantine in module 1 treats them differently.'
+      - 'A field the line supplied as empty text is not the same as a field the line never reached.'
+      - 'Only positions past the end of the split values become None. A value that exists stays as it came, empty string and all.'
+    concept: de-records.reading-a-messy-file
+
+  TestParseRows.test_a_header_only_file_has_no_rows:
+    condition: 'a file whose only line is the header'
+    hints:
+      - 'An extract with a header and no records is an ordinary quiet day, not an error.'
+      - 'The trailing newline after the header is punctuation, not an eleventh record.'
+      - 'Drop empty trailing lines before deciding what counts as a record, then return an empty list when nothing follows the header.'
+    concept: de-records.reading-a-messy-file
+
+  TestParseRows.test_empty_text_gives_no_rows:
+    condition: 'an extract that arrived as an empty string'
+    hints:
+      - 'A zero byte file happens when an upstream job fails early, and it must not raise here.'
+      - 'There is no header to read, so there is nothing to key the rows by.'
+      - 'Return an empty list before touching line zero, rather than indexing into a list that has nothing in it.'
+    concept: de-records.reading-a-messy-file
+
+  TestParseRows.test_extra_fields_are_dropped_to_the_header:
+    condition: 'a record carrying more fields than the header names'
+    hints:
+      - 'The extra value has no column name, so there is no honest key to file it under.'
+      - 'check_shape is what makes the extra visible. This function only has to stay the shape the header promised.'
+      - 'Iterate over the header positions rather than over the values, so anything past the last column is never read.'
+    concept: de-records.reading-a-messy-file
+
+  TestCheckShape.test_finds_the_short_row_in_the_sample:
+    condition: 'one short line in an extract whose other nine lines match'
+    hints:
+      - 'The point is to name the one bad line out of ten thousand, not to stop the load.'
+      - 'Count the fields the header declares once, then compare every record against that count.'
+      - 'Collect a dict carrying the expected count and the found count for each line that disagrees, and return the collection.'
+    concept: de-records.reading-a-messy-file
+
+  TestCheckShape.test_line_numbers_count_the_header_as_line_one:
+    condition: 'a report somebody will use to open the file at the offending line'
+    hints:
+      - 'The number is only useful if it matches what an editor shows. An off-by-one sends them to the wrong row.'
+      - 'The header occupies line 1, so the first record is line 2, not line 1 and not line 0.'
+      - 'Number the records starting at 2 as you walk everything after the header.'
+    concept: de-records.reading-a-messy-file
+
+  TestCheckShape.test_a_clean_file_reports_nothing:
+    condition: 'a file where every line has the field count the header promised'
+    hints:
+      - 'A clean file has to produce an empty report rather than no report.'
+      - 'Nothing is appended when the counts agree, so the list you started with is what comes back.'
+      - 'Return the accumulated list unconditionally instead of returning early or returning None on the happy path.'
+    concept: de-records.reading-a-messy-file
+
+  TestCheckShape.test_reports_a_long_row_too:
+    condition: 'a line with one field too many rather than one too few'
+    hints:
+      - 'An extra field usually means an unquoted delimiter inside a value, which is the failure that started this exercise.'
+      - 'The check is disagreement in either direction, not a shortfall.'
+      - 'Compare the two counts for inequality rather than testing whether the found count is smaller.'
+    concept: de-records.reading-a-messy-file
+
+  TestCheckShape.test_does_not_raise_on_an_empty_file:
+    condition: 'an empty file, which has no header to measure anything against'
+    hints:
+      - 'A check that crashes on the zero byte case takes the pipeline down over the least interesting input there is.'
+      - 'Reading the header assumes a first line exists.'
+      - 'Handle the no-lines case up front and return an empty report before looking for a header.'
+    concept: de-records.reading-a-messy-file
+
+  TestColumnValues.test_pulls_a_column:
+    condition: 'a column that every record in the extract carries'
+    hints:
+      - 'Values come back in file order, one per row, with nothing rearranged.'
+      - 'Read the named key out of each dict and collect what you find.'
+      - 'Build the result by looping the rows in order rather than by set or dict comprehension, which would lose duplicates and order.'
+    concept: de-records.reading-a-messy-file
+
+  TestColumnValues.test_skips_blanks_and_missing:
+    condition: 'a quantity blank on one row and a status absent from another'
+    hints:
+      - 'This answers what values appear, not how many rows there are. Those are different questions and conflating them is how a count comes out wrong.'
+      - 'Two separate gaps have to be skipped: a key holding None and a key holding text that is empty once trimmed.'
+      - 'Skip the row when the fetched value is None, and skip it again when the trimmed value has no characters left.'
+    concept: de-records.reading-a-messy-file
+
+  TestColumnValues.test_strips_whitespace:
+    condition: 'a customer written with a leading and a trailing space in the source line'
+    hints:
+      - 'The spaces around the address in the file are not part of the address, and an exact match downstream will fail on them.'
+      - 'The value has to be trimmed in the output, not merely trimmed for the blank test.'
+      - 'Collect the trimmed value rather than the raw one, so what you tested is what you return.'
+    concept: de-records.reading-a-messy-file
+
+  TestColumnValues.test_returns_stripped_values:
+    condition: 'a value padded with a space at each end and nothing else wrong with it'
+    hints:
+      - 'Trimming inside an if while appending the original is easy to write and gives the padded string back.'
+      - 'Strip once, then work from the stripped copy for both the emptiness test and the result.'
+      - 'Assign the trimmed value to a name, test that name, and append that name.'
+    concept: de-records.reading-a-messy-file
+
+  TestColumnValues.test_an_unknown_column_gives_nothing:
+    condition: 'a column name that appears in no row of the extract'
+    hints:
+      - 'A misspelled column name is a common caller mistake, and a KeyError here would fire on every row at once.'
+      - 'Reading a key that is not there has to yield the same thing as reading a key that is there and empty.'
+      - 'Fetch the key with a default of None rather than by subscript, so a missing column is skipped like any other gap.'
+    concept: de-records.reading-a-messy-file

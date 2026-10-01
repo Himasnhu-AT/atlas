@@ -1,0 +1,65 @@
+version: 1
+cases:
+  TestSharedPtrBasics.test_single_owner_lifecycle:
+    condition: 'a lone owner that releases the resource, leaving nothing behind it'
+    hints:
+      - 'A pointer that owns something starts at a count of one, not at zero.'
+      - 'After the release this pointer refers to no control block, so reading through it would be a use after free.'
+      - 'Start the count at 1, drop it on release, and raise RuntimeError from get once there is nothing left to read.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting
+
+  TestSharedPtrBasics.test_multiple_owners_sharing:
+    condition: 'three owners of one resource, released one at a time'
+    hints:
+      - 'The count lives in the control block that the owners share, not separately inside each pointer.'
+      - 'Every owner reads the same count, so all of them see it fall when any one of them releases.'
+      - 'Have clone raise the shared count and return a pointer onto the same control block, and have reset lower it and detach only this pointer.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting
+
+  TestSharedPtrBasics.test_clears_value_on_zero_use_count:
+    condition: 'the last owner releasing, which has to destroy the value the block is holding'
+    hints:
+      - 'Dropping the count to zero is not the whole job. The resource itself has to go, which is what a destructor would do in C++.'
+      - 'The control block outlives the value, because weak observers may still be looking at the block.'
+      - 'When the strong count reaches 0, clear the value held on the control block.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting
+
+  TestSharedPtrBasics.test_null_pointer_operations:
+    condition: 'a pointer that owns nothing, then read from, cloned, observed and released'
+    hints:
+      - 'A default constructed pointer owns nothing. There is no control block behind it and no count to raise.'
+      - 'Releasing an empty pointer is not a failure. There is simply nothing to release.'
+      - 'Raise RuntimeError from get, clone and to_weak when no live control block is attached, and let reset return quietly.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting
+
+  TestWeakPtrBasics.test_weak_observer_does_not_affect_use_count:
+    condition: 'an observer taken out while one owner still holds the resource'
+    hints:
+      - 'A weak reference watches without owning. Raising the strong count would keep the resource alive, which is exactly the cycle it exists to break.'
+      - 'The observer can read the strong count while being tallied apart from it.'
+      - 'Raise the weak count rather than the strong one, and give the observer the same control block.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting
+
+  TestWeakPtrBasics.test_lock_acquires_shared_ownership:
+    condition: 'an observer promoted to an owner while the resource is still alive'
+    hints:
+      - 'Locking is how a weak reference becomes safe to read: it takes ownership for as long as the lock is held.'
+      - 'The promotion raises the strong count, and releasing the locked pointer lowers it again.'
+      - 'Increment the strong count and return a new owner onto the same control block.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting
+
+  TestWeakPtrBasics.test_weak_ptr_expires_when_shared_pointers_reset:
+    condition: 'an observer left behind after the last owner has released'
+    hints:
+      - 'The observer still refers to the control block. What has gone is the resource, and the strong count is how it can tell.'
+      - 'Locking here has to answer with nothing rather than handing back a pointer to a value that was destroyed.'
+      - 'Treat a strong count of 0 as expired, and return None from lock in that case.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting
+
+  TestWeakPtrBasics.test_default_unattached_weak_ptr:
+    condition: 'an observer built with no control block behind it at all'
+    hints:
+      - 'Watching a resource that has gone and watching nothing at all are different situations that answer the same way.'
+      - 'An absent control block has no count to read, so it has to be handled ahead of the count.'
+      - 'Report expired and a count of 0 when there is no control block, and return None from lock.'
+    concept: intro-cpp-objects.smart-pointers-and-reference-counting

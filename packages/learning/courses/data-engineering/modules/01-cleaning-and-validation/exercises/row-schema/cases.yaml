@@ -1,0 +1,145 @@
+version: 1
+cases:
+  TestValidateRow.test_a_good_row_is_valid:
+    condition: 'a row where all four fields are present and every coercion succeeds'
+    hints:
+      - 'A clean row still has to produce the full report shape, with an empty error list rather than no error list.'
+      - 'The coerced values go into the result, not the raw strings, so order_id comes back as a number.'
+      - 'Store the value each rule''s coercion returned, and set the valid flag from whether anything was collected in errors.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateRow.test_carries_the_source_row_number:
+    condition: 'a row that came from line 47 of the file rather than from the start of a batch'
+    hints:
+      - 'Renumbering makes every error point at the wrong line, and the whole point of the report is that somebody can go and look.'
+      - 'The number is passed in because only the caller knows where the row came from.'
+      - 'Put the row_number argument into the result untouched instead of deriving a position from a counter.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateRow.test_a_missing_required_field_is_missing_not_invalid:
+    condition: 'a required status of None, on the short row from the extract'
+    hints:
+      - 'Nothing arrived, so there is nothing to coerce, and running the coercion on None would report the wrong kind of failure.'
+      - 'Absence is settled before the coercion, not by it.'
+      - 'Detect the absent value first and record the problem as missing without calling the rule''s coercion at all.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateRow.test_an_empty_required_field_is_also_missing:
+    condition: 'a required customer field present in the row and holding an empty string'
+    hints:
+      - 'An exported blank and a field that never arrived are the same gap from the schema''s point of view.'
+      - 'A string of only whitespace is blank too, so the check has to trim before deciding.'
+      - 'Treat text that is empty once trimmed as absent, alongside None.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateRow.test_an_unreadable_value_is_invalid_not_missing:
+    condition: 'a quantity of "unknown", which arrived but cannot be read as a number'
+    hints:
+      - 'The source sending nonsense is a different failure from the source not sending anything, and they have different owners.'
+      - 'This value is present, so it reaches the coercion, and the coercion is what fails.'
+      - 'Record the problem as invalid when the coercion returns its flag clear, and only there.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateRow.test_an_error_keeps_the_offending_value:
+    condition: 'an error somebody will have to act on without the file in front of them'
+    hints:
+      - 'An error saying quantity failed is a message. An error saying quantity was "unknown" is a bug report.'
+      - 'The raw value is the only part of the row the reader cannot reconstruct from the rule.'
+      - 'Carry the raw value into the error entry alongside the field name and the problem.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateRow.test_an_optional_field_may_be_absent:
+    condition: 'a blank quantity on a rule that does not require it'
+    hints:
+      - 'Not every gap is a failure. An optional field left empty is a valid row.'
+      - 'The value still has to appear in the result, holding None.'
+      - 'Record None for the field and skip the error only when the rule''s required flag is off.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateRow.test_every_field_appears_in_values:
+    condition: 'an order_id of "nope" whose coercion failed, on a row that still needs a full value map'
+    hints:
+      - 'The shape is the same for every row, so a caller never has to check whether a key exists.'
+      - 'A failed field is not an omitted field. It is a field whose value is None.'
+      - 'Write an entry for every rule, setting it to None on both the absent path and the failed path.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateExtract.test_splits_valid_from_broken:
+    condition: 'the ten row sample, where most rows pass and a few do not'
+    hints:
+      - 'Every row lands in exactly one of the two lists, so the two lengths add back up to the extract.'
+      - 'The per-row result already says which side it belongs on.'
+      - 'Append each result to one list or the other based on its valid flag, never to both and never to neither.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateExtract.test_finds_the_known_problems_in_the_sample:
+    condition: 'order 1006 with quantity "unknown", 1008 with no customer, and 1007 whose status never arrived'
+    hints:
+      - 'The useful question is not how many rows broke but which field broke them, because that is what you send upstream.'
+      - 'The tally is keyed by field name and counts the rows that field spoiled.'
+      - 'For each broken row, add one to the tally of every field named in its errors.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateExtract.test_counts_rows_not_errors:
+    condition: 'a single row failing three fields at once, where each field has cost one row'
+    hints:
+      - 'Adding the error count to every field turns one bad row into a report that looks like nine.'
+      - 'The number you want per field is how many rows that field cost, not how many errors were raised.'
+      - 'Take the distinct field names out of the row''s errors and add one per name, so a row never contributes more than one to a field.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateExtract.test_numbers_rows_from_the_second_line:
+    condition: 'the first record of a CSV, which sits on line 2 because line 1 is the header'
+    hints:
+      - 'The number has to match what an editor shows, and the header occupies the first line.'
+      - 'The default start is 2 and the offset from there is the row''s position in the batch.'
+      - 'Add the enumeration index to the starting number when calling the per-row check.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateExtract.test_honours_a_different_starting_number:
+    condition: 'a chunk read from line 500 onward rather than from the top of the file'
+    hints:
+      - 'Files get processed in chunks, and a chunk that renumbers from 2 sends every error to the wrong place.'
+      - 'The starting number is an argument, so nothing in the function may assume 2.'
+      - 'Use first_row_number as the base of the arithmetic rather than a literal.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestValidateExtract.test_an_empty_extract_reports_nothing:
+    condition: 'an extract that arrived with no rows in it'
+    hints:
+      - 'An empty batch still has to produce a report with all three keys, because is_usable reads them next.'
+      - 'The loop runs zero times and the three accumulators stay as they started.'
+      - 'Return the same dict shape with two empty lists and an empty tally rather than returning early.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestIsUsable.test_a_clean_extract_is_usable:
+    condition: 'a hundred rows with nothing broken among them'
+    hints:
+      - 'A perfect extract has to pass, which sounds obvious until a division puts a zero in the denominator.'
+      - 'The broken ratio is zero, which is at or below any threshold.'
+      - 'Compare the ratio against the threshold with a check that lets equality through.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestIsUsable.test_a_little_breakage_is_tolerated:
+    condition: 'one broken row in a hundred against a threshold of exactly one percent'
+    hints:
+      - 'Real extracts are never clean, and a gate that demands perfection gets turned off within a week.'
+      - 'This case sits exactly on the threshold, so a strict comparison rejects it and a tolerant one does not.'
+      - 'Treat the boundary as passing: the ratio must be at most the threshold, not strictly under it.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestIsUsable.test_too_much_breakage_is_not:
+    condition: 'ten broken rows in a hundred against a one percent threshold'
+    hints:
+      - 'Ten percent broken means something changed upstream, and loading it anyway spreads the damage.'
+      - 'The denominator is every row you looked at, not only the broken ones.'
+      - 'Divide the broken count by the sum of both lists and compare that against the threshold.'
+    concept: de-cleaning.a-schema-that-reports
+
+  TestIsUsable.test_an_empty_extract_is_not_usable:
+    condition: 'a report with no valid rows and no broken ones'
+    hints:
+      - 'An empty file is usually a failed export, and treating it as nothing to do is how a pipeline reports success having loaded nothing.'
+      - 'There is also no ratio to compute, since the denominator would be zero.'
+      - 'Check for a total of zero before dividing and return False for that case.'
+    concept: de-cleaning.a-schema-that-reports

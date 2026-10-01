@@ -7,6 +7,193 @@ estimatedMinutes: 25
 exercise:
   id: execution-handler
   timeboxMinutes: 30
+challenges:
+  goal: Price a fill the way a broker would, and pick the participation rate and limit that make the all-in cost survivable.
+
+  readingOptional: true
+  steps:
+    - id: what-the-fill-really-cost
+      kind: numeric
+      prompt: >-
+        You send a market buy for 500 shares and it fills in full. Measured against the mid,
+        how wide was the all-in cost in basis points?
+      unit: bps
+      context:
+        as: pairs
+        items:
+          - { k: Bid and ask, v: 49.98 and 50.02 }
+          - { k: Order, v: 'buy 500 shares, filled in full' }
+          - { k: Slippage, v: 2 bps applied to the ask }
+          - { k: Commission, v: '0.5 bps of fill notional, minimum ticket 1.00' }
+          - { k: Denominator, v: the notional the order would have been at the mid }
+      answer: 6.5
+      tolerance: 0.05
+      scaleHint: >-
+        That is out by more than a factor of ten. An answer near 65 is usually the cost
+        written as a percentage of a percentage, and an answer near 0.65 is the fraction
+        rather than the basis points.
+      hints:
+        - Three components stack, and the largest of them is charged before any broker sends an invoice.
+        - Crossing to the ask costs half the spread, which is 4 bps of a 50 dollar mid.
+        - The minimum ticket does not bind here, so the commission is the full half basis point.
+      reveal: >-
+        Four of the six and a half basis points are the spread, and the spread is the part a
+        backtest that trades at the mid never charges. Round trip that and a strategy has to
+        earn 13 bps per trade before it earns anything at all, which is most of the edge in
+        most daily signals.
+
+    - id: the-simulator-that-was-too-kind
+      kind: spot
+      prompt: >-
+        Two lines make this execution handler kinder than any real broker. Click both.
+      lang: python
+      source: |
+        def fill(order, bar):
+            price = bar.ask if order.side == "buy" else bar.bid
+            fill_price = price * (1.0 + SLIPPAGE_BPS / 10_000.0)
+            qty = order.quantity
+            commission = max(MIN_TICKET, qty * fill_price * COMMISSION_RATE)
+            return Fill(qty, fill_price, commission)
+      targets: [2, 3]
+      requireAll: true
+      decoys:
+        '1': >-
+          Buying at the ask and selling at the bid is right. Crossing the spread is a real
+          cost and this line is the one place that charges it.
+        '4': >-
+          The commission is right, floor included. A minimum ticket is what makes a 40 share
+          rebalance expensive per share, and this line models it.
+        '5': >-
+          Reporting the quantity, the price and the fee as one object is the point of a
+          FillEvent. What it reports is wrong; reporting it is not.
+      hints:
+        - Work one buy and one sell through this by hand and compare the two fill prices against the mid.
+        - Slippage is always adverse. On a sell, adding to the price is a rebate rather than a cost.
+        - Nothing in this function has read the bar's volume, and it is filling whatever it was asked for.
+      reveal: >-
+        Both bugs flatter the same way, and both survive a review because the code reads
+        plausibly. A signed slippage term and a participation cap are two lines, and adding
+        them is the difference between a Sharpe of 3 and a Sharpe of 0.4 on the same signal.
+
+    - id: how-each-cost-scales
+      kind: assign
+      prompt: >-
+        You are about to cut every order in half and send twice as many. Sort each cost by
+        how it responds.
+      buckets:
+        - id: fixed
+          label: Does not move with order size
+        - id: proportional
+          label: Grows in proportion to size
+        - id: superlinear
+          label: Grows faster than size
+      items:
+        - id: min-ticket
+          label: The broker's minimum ticket fee
+          bucket: fixed
+          because: >-
+            A floor per trade. Halve the order and the per-share cost of this component
+            doubles, which is why a book of small rebalances pays more per share than a book
+            of large ones.
+        - id: message-fee
+          label: The exchange's per-order message fee
+          bucket: fixed
+          because: >-
+            Charged per order rather than per share, so slicing one order into twenty
+            multiplies it by twenty while the shares traded stay the same.
+        - id: bps-commission
+          label: Commission quoted in basis points of notional
+          bucket: proportional
+          because: >-
+            This is what proportional means. It is also the component people model first and
+            the one that matters least.
+        - id: half-spread
+          label: Crossing from the mid to the far side of the quote
+          bucket: proportional
+          because: >-
+            Every share pays the same half spread, provided the order stays inside the size
+            shown at the top of book. Past that it stops being proportional, which is the
+            next bucket.
+        - id: depth-walk
+          label: Filling through several price levels of the book
+          bucket: superlinear
+          because: >-
+            Once the top of book is exhausted each further share fills at a worse level, so
+            doubling the size more than doubles the concession.
+        - id: impact
+          label: The price drift caused by taking 40 percent of a bar rather than 10
+          bucket: superlinear
+          because: >-
+            Other participants read size and step away. Four times the participation moves
+            the price against you by considerably more than four times as much.
+      hints:
+        - Ask what happens to each component when the order is cut in half and sent twice.
+        - Two of these are the same number whatever size you send, and one of those is charged per order rather than per trade.
+        - The two that grow fastest are both about running out of resting liquidity.
+      reveal: >-
+        The two buckets on the ends are what make order size a real decision rather than a
+        detail. Fixed costs punish slicing and superlinear costs punish not slicing, so there
+        is a size in the middle that is cheapest, and it moves with the day's volume rather
+        than being a constant you can put in a config file.
+
+    - id: find-the-cheapest-way-in
+      kind: tune
+      prompt: >-
+        You have 200,000 shares to buy today. Post them so at least 80 percent of the order
+        completes and the all-in cost stays under 18 bps.
+      inputs:
+        - id: offset
+          label: Ticks past the mid the limit is posted
+          min: 0
+          max: 8
+          step: 1
+          initial: 0
+        - id: participation
+          label: Share of each bar's volume taken
+          unit: '%'
+          min: 5
+          max: 50
+          step: 5
+          initial: 50
+      outputs:
+        - id: fill-rate
+          label: Order completed by the close
+          unit: '%'
+          terms:
+            - { coef: 20 }
+            - { coef: 10, of: [offset] }
+          target: { min: 80 }
+          note: >-
+            Too much of the order is still resting unfilled at the close. A limit sitting at
+            the mid gets picked off on the days you were wrong and skipped on the days you
+            were right.
+        - id: impact
+          label: Market impact
+          unit: bps
+          terms:
+            - { coef: 0.012, of: [participation, participation] }
+        - id: all-in
+          label: All-in cost
+          unit: bps
+          terms:
+            - { coef: 0.5, of: [offset] }
+            - { coef: 1, of: [impact] }
+            - { coef: 15 }
+            - { coef: -0.25, of: [participation] }
+          target: { max: 18 }
+          note: >-
+            Still too expensive. Impact grows with the square of participation and the cost
+            of being slow grows as the order sits unfinished, so both ends of the slider are
+            worse than somewhere in between.
+      hints:
+        - Both sliders start at the extreme that looks fastest, and the cost of speed is quadratic while the saving is linear.
+        - Impact falls off sharply as participation comes down, so try the low end of that slider before touching anything else.
+        - Six ticks past the mid is enough to fill 80 percent, and the last two ticks buy fill you no longer need.
+      reveal: >-
+        Neither slider has a best setting on its own, and that is the shape of every
+        execution problem. Going slowly is cheap in impact and expensive in the risk that
+        the price moves away while you wait, so the schedule that minimises cost is the one
+        that trades the two off rather than the one that minimises either.
 ---
 
 Transaction costs are the single largest difference between theoretical backtest results and live trading performance. Many backtests reporting Sharpe ratios above 3.0 collapse into negative returns once realistic fees and market impact are modeled.

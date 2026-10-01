@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import type { RunOutcome } from '@atlas/core'
+import { type CaseNote, TestResults } from '@atlas/ui'
+
 import { type Levelled, LevelUpMoment, useLevelUp } from './level-up-moment'
 
 interface Verdict {
@@ -10,6 +13,8 @@ interface Verdict {
   testsTotal: number
   durationMs: number
   stdoutTail: string
+  /** Per test detail, from the shared runner. */
+  outcome: RunOutcome
 }
 
 /**
@@ -30,11 +35,14 @@ export function BrowserExercise({
   exerciseId,
   scaffold,
   files,
+  cases,
 }: {
   exerciseId: string
   scaffold: string
   /** Everything the exercise ships: the course library, `test.py`, the rest. */
   files: Record<string, string>
+  /** What each test is checking, when this exercise has been mapped. */
+  cases?: Record<string, CaseNote>
 }) {
   const [code, setCode] = useState(scaffold)
   const [state, setState] = useState<'idle' | 'booting' | 'running'>('idle')
@@ -42,6 +50,15 @@ export function BrowserExercise({
   const [error, setError] = useState<string | null>(null)
   const [booted, setBooted] = useState(false)
   const level = useLevelUp()
+
+  /**
+   * Runs of this exercise, which is what hints escalate on.
+   *
+   * Counted here and then corrected upward by the server, which knows every
+   * attempt this reader has made on any device. A signed out reader keeps the
+   * session count, which is honest: they have no history to draw on.
+   */
+  const [attemptNumber, setAttemptNumber] = useState(0)
 
   const worker = useRef<Worker | null>(null)
   const pending = useRef(0)
@@ -73,6 +90,7 @@ export function BrowserExercise({
 
       const result: Verdict = event.data
       setVerdict(result)
+      setAttemptNumber((n) => n + 1)
 
       // Recorded server-side like any other attempt. The route derives the user
       // from the session and looks the exercise up in the manifest, so nothing
@@ -93,8 +111,13 @@ export function BrowserExercise({
           }),
         })
         if (response.ok) {
-          const body = (await response.json().catch(() => ({}))) as Levelled
+          const body = (await response.json().catch(() => ({}))) as Levelled & {
+            attemptNumber?: number
+          }
           if (body.levelledTo) level.setLevelledTo(body.levelledTo)
+          // The server counts every device. Never go backwards: a reader who
+          // has been struggling should not lose a hint by signing in.
+          if (body.attemptNumber) setAttemptNumber((n) => Math.max(n, body.attemptNumber!))
         }
       } catch {
         // Offline. They still got their verdict, which is the part that matters.
@@ -159,14 +182,6 @@ export function BrowserExercise({
           </span>
         )}
 
-        {verdict && (
-          <span
-            role="status"
-            className={`font-mono text-caption tabular-nums ${verdict.passed ? 'text-pass' : 'text-fail'}`}
-          >
-            {verdict.testsPassed}/{verdict.testsTotal} passed
-          </span>
-        )}
       </div>
 
       {error && (
@@ -175,10 +190,14 @@ export function BrowserExercise({
         </p>
       )}
 
-      {verdict && !verdict.passed && (
-        <pre className="mt-4 max-h-80 overflow-auto rounded-sheet border border-rule bg-paper-raised p-4 text-[13px] leading-relaxed">
-          <code>{verdict.stdoutTail}</code>
-        </pre>
+      {verdict && (
+        <TestResults
+          className="mt-5"
+          outcome={verdict.outcome}
+          cases={cases}
+          output={verdict.passed ? undefined : verdict.stdoutTail}
+          attemptNumber={attemptNumber}
+        />
       )}
 
       <LevelUpMoment levelledTo={level.levelledTo} onDone={level.clear} />

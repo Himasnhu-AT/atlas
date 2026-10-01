@@ -27,6 +27,7 @@ apps/desktop/src-tauri/gen/schemas/
 .env
 .env.*
 !.env.example
+service-account*.json
 
 # --- editor / os ---
 .DS_Store
@@ -65,3 +66,9 @@ apps/web/public/pyodide/
 
 # private files
 .agents
+
+# Copied from packages/learning/runner by apps/web/scripts/copy-runner.mjs.
+apps/web/public/atlas_report.py
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

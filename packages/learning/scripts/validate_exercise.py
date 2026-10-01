@@ -333,6 +333,70 @@ def check_structure(test_tree, scaffold_tree, reference_tree) -> list:
     return problems
 
 
+def discover_tests(exercise_dir, lib_dir, reference, test, timeout):
+    """
+    Every test id in this exercise, as `ClassName.test_method`.
+
+    Asks unittest's loader through the shared report runner, rather than
+    walking the AST here. The loader is what will actually run, so inheritance,
+    mixins and `load_tests` are handled by the thing that handles them at
+    runtime, and the build's idea of a test id cannot drift from the runner's.
+    An id that drifts is worse than a missing one: the case map validates and
+    then matches nothing.
+
+    Returns `(ids, problems)`. A failure to enumerate is not fatal on its own,
+    because the checks above will already have said why.
+    """
+    runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "runner")
+    scratch = tempfile.mkdtemp(prefix="learn-discover-")
+    try:
+        shutil.copytree(
+            exercise_dir,
+            scratch,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+        copy_lib(lib_dir, scratch)
+        # The reference, not the scaffold. Listing tests only needs the module
+        # to import, and some test modules touch the solution at import time:
+        # `eval-harness` builds its fixtures at module scope, so loading it
+        # against a scaffold raises NotImplementedError before a single id is
+        # known. The reference is complete by construction and the build has
+        # already proved it passes.
+        shutil.copy(os.path.join(scratch, reference), os.path.join(scratch, SOLUTION_FILENAME))
+
+        program = (
+            "import sys, json\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "import atlas_report\n"
+            "json.dump(atlas_report.load_ids(sys.argv[2], sys.argv[3]), sys.stdout)\n"
+        )
+        module = test[:-3] if test.endswith(".py") else test
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-c", program, os.path.abspath(runner), scratch, module],
+                cwd=scratch,
+                env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return [], [f"{test}: listing the tests did not finish within {timeout}s"]
+
+        if completed.returncode != 0:
+            return [], [
+                f"{test}: could not list the tests, so a case map cannot be checked "
+                f"against it. {completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else ''}"
+            ]
+        try:
+            return json.loads(completed.stdout), []
+        except json.JSONDecodeError:
+            return [], [f"{test}: the test lister returned nothing usable"]
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 def check_scaffold_fails(exercise_dir, lib_dir, scaffold, test, timeout) -> list:
     """
     The scaffold must not pass its own test.
@@ -410,6 +474,12 @@ def main() -> int:
     for name in sorted(os.listdir(args.dir)):
         if not name.endswith(".py"):
             continue
+        if (
+            name.startswith("solutions-")
+            or name.startswith("solution-")
+            or name.startswith("solutions_")
+        ):
+            continue
         path = os.path.join(args.dir, name)
         if not os.path.isfile(path):
             continue
@@ -447,7 +517,15 @@ def main() -> int:
 
     # The caller skips its own reference run when a file did not parse, because
     # the message above already names the file and the line.
-    json.dump({"problems": problems, "parsed": sorted(trees)}, sys.stdout)
+    # The full test id list, so the caller can hold a case map to account.
+    tests: list = []
+    if scaffold_tree is not None and test_tree is not None:
+        tests, discovery_problems = discover_tests(
+            args.dir, args.lib, args.reference, args.test, args.timeout
+        )
+        problems.extend(discovery_problems)
+
+    json.dump({"problems": problems, "parsed": sorted(trees), "tests": tests}, sys.stdout)
     sys.stdout.write("\n")
     return 0
 

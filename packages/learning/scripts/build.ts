@@ -42,11 +42,17 @@ import { unified } from 'unified'
 import matter from 'gray-matter'
 import { parse as parseYaml } from 'yaml'
 
+import type { Challenge, CompiledChallengeSet } from '@atlas/core'
+
 import { browserSupportFor } from '../src/browser'
+import { lintChallengeSet } from '../src/challenges/lint'
 import { CONTENT_TOKENS } from '../src/links'
+import { validateWidgetProps } from '../src/widgets/schema'
 import {
   type CourseEntry,
   CourseMeta,
+  type ExerciseCase,
+  ExerciseCases,
   type LessonEntry,
   LessonFrontmatter,
   type Manifest,
@@ -98,6 +104,13 @@ async function readCourseLib(courseDir: string, libDir: string): Promise<CourseL
 const VALIDATOR_PATH = path.join(ROOT, 'scripts', 'validate_exercise.py')
 
 /**
+ * An exercise's case map. Never copied into the learner's workspace and never
+ * hashed into `exerciseHash`: editing a hint must not tell somebody mid
+ * exercise that the exercise moved underneath them.
+ */
+const CASES_FILENAME = 'cases.yaml'
+
+/**
  * How long one exercise gets. A reference solution against mockllm finishes in
  * about a second, so anything near this is a loop that never terminates, and
  * saying so beats a build that appears to hang.
@@ -137,6 +150,42 @@ function slugify(text: string): string {
     .replace(/[^\w\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
+}
+
+/**
+ * Transforms fenced code blocks shaped like ```widget:<type> ... ``` into
+ * statically compiled interactive widget placeholders <div data-widget="...">.
+ * Validates props against the widget's Zod schema at compile time.
+ */
+function remarkWidgets(where: string) {
+  return () => (tree: any) => {
+    const walk = (node: any) => {
+      if (node.type === 'code' && node.lang && node.lang.startsWith('widget:')) {
+        const widgetType = node.lang.slice('widget:'.length).trim()
+        let parsed: unknown = {}
+        if (node.value && node.value.trim()) {
+          try {
+            parsed = parseYaml(node.value)
+          } catch (error) {
+            fail(where, `Invalid YAML in widget "${widgetType}": ${(error as Error).message}`)
+            return
+          }
+        }
+        const validation = validateWidgetProps(widgetType, parsed)
+        if (!validation.success) {
+          for (const err of validation.errors) {
+            fail(where, `Widget "${widgetType}" prop error: ${err}`)
+          }
+          return
+        }
+        node.type = 'html'
+        const propsJson = JSON.stringify(validation.data).replace(/"/g, '&quot;')
+        node.value = `<div data-widget="${widgetType}" data-widget-props="${propsJson}" class="atlas-widget-mount"></div>`
+      }
+      for (const child of node.children ?? []) walk(child)
+    }
+    walk(tree)
+  }
 }
 
 async function readDirs(parent: string): Promise<string[]> {
@@ -205,7 +254,7 @@ async function verifyReference(
   }
 }
 
-type ValidatorResult = { problems: string[]; parsed: string[] }
+type ValidatorResult = { problems: string[]; parsed: string[]; tests?: string[] }
 
 /**
  * The static and structural half of the exercise gate, plus the scaffold run.
@@ -272,7 +321,134 @@ async function validateExercise(
   for (const problem of result.problems) {
     fail(where, problem.includes('\n') ? problem.replace(/\n/g, `\n${'      '}`) : problem)
   }
+  lastDiscoveredTests = result.tests ?? []
   return result.parsed
+}
+
+/**
+ * Test ids from the most recent `validateExercise` call.
+ *
+ * A side channel rather than a second return value, because `validateExercise`
+ * already returns `string[] | null` with a meaning attached to the null and
+ * widening it would touch every caller for one consumer.
+ */
+let lastDiscoveredTests: string[] = []
+
+/** How many exercises have a case map, and how many exist. Printed at the end. */
+const caseMapCoverage = { mapped: 0, total: 0 }
+
+/**
+ * Stage 1 coverage, and how much of it is still the superseded single-widget
+ * spec. Printed at the end so the conversion has a number rather than a vibe.
+ */
+const stageOneCoverage = { authored: 0, lowered: 0, total: 0 }
+
+/**
+ * Read and check an exercise's case map.
+ *
+ * Three states, driven by the file rather than by a flag. No `cases.yaml` is
+ * not an error while the catalogue is being converted, and the summary line
+ * says how far along that is. A `cases.yaml` that exists must be complete:
+ * a partial map is worse than none, because it looks finished and its holes
+ * are exactly where somebody got stuck.
+ */
+async function readExerciseCases(
+  exerciseDir: string,
+  tests: string[],
+  where: string,
+  referenceSource: string,
+): Promise<Record<string, ExerciseCase> | undefined> {
+  caseMapCoverage.total += 1
+  const casesPath = path.join(exerciseDir, CASES_FILENAME)
+  if (!existsSync(casesPath)) return undefined
+  caseMapCoverage.mapped += 1
+
+  let parsed: unknown
+  try {
+    parsed = parseYaml(await readFile(casesPath, 'utf8'))
+  } catch (error) {
+    fail(where, `${CASES_FILENAME} is not valid YAML: ${(error as Error).message}`)
+    return undefined
+  }
+
+  const result = ExerciseCases.safeParse(parsed)
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      fail(where, `${CASES_FILENAME} [${issue.path.join('.') || 'root'}] ${issue.message}`)
+    }
+    return undefined
+  }
+
+  const cases = result.data.cases
+  const known = new Set(tests)
+  const mapped = new Set(Object.keys(cases))
+
+  const missing = tests.filter((id) => !mapped.has(id))
+  if (missing.length > 0) {
+    fail(
+      where,
+      `${CASES_FILENAME} covers ${mapped.size} of ${tests.length} tests. Every test is a ` +
+        `condition the learner is told about by name when they miss it, so a partial map ` +
+        `has holes exactly where somebody got stuck.\n` +
+        `missing:\n${missing.map((id) => `  ${id}`).join('\n')}`,
+    )
+  }
+
+  const unknown = [...mapped].filter((id) => !known.has(id))
+  if (unknown.length > 0) {
+    fail(
+      where,
+      `${CASES_FILENAME} names tests that do not exist:\n` +
+        unknown.map((id) => `  ${id}${nearest(id, tests)}`).join('\n'),
+    )
+  }
+
+  // A condition that restates the method name adds nothing: the learner can
+  // already read the name. This is the check that stops a generated map from
+  // passing review.
+  const normalise = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '')
+  for (const [id, entry] of Object.entries(cases)) {
+    const method = id.slice(id.indexOf('.') + 1).replace(/^test_/, '').replace(/_/g, ' ')
+    if (normalise(entry.condition) === normalise(method)) {
+      fail(
+        where,
+        `${CASES_FILENAME} [${id}] the condition just restates the method name. Say what ` +
+          `the input looks like, not what the test is called.`,
+      )
+    }
+  }
+
+  // A hint may not be a line of the answer. Whitespace-normalised, and only
+  // lines long enough to be a real giveaway.
+  const referenceLines = new Set(
+    referenceSource
+      .split('\n')
+      .map((line) => line.trim().replace(/\s+/g, ' '))
+      .filter((line) => line.length >= 30),
+  )
+  for (const [id, entry] of Object.entries(cases)) {
+    for (const hint of entry.hints) {
+      const flat = hint.trim().replace(/\s+/g, ' ')
+      for (const line of referenceLines) {
+        if (flat.includes(line)) {
+          fail(where, `${CASES_FILENAME} [${id}] a hint contains a line of the reference solution`)
+          break
+        }
+      }
+    }
+  }
+
+  return cases
+}
+
+/** `, did you mean X?` when something close exists. */
+function nearest(id: string, candidates: string[]): string {
+  const target = id.toLowerCase()
+  const close = candidates.find((candidate) => {
+    const other = candidate.toLowerCase()
+    return other.startsWith(target.slice(0, Math.floor(target.length * 0.7)))
+  })
+  return close ? ` (did you mean ${close}?)` : ''
 }
 
 /**
@@ -398,11 +574,20 @@ async function buildModule(
   if (files.length === 0) fail(at, 'no .mdx lessons')
 
   const lessons: LessonEntry[] = []
+  // The compiled lesson body, as written to `dist/lessons/<id>.json`. This
+  // shape is `CompiledLesson` in `src/schema.ts` minus the ids the writer
+  // attaches on the way out; keep the two in step.
   const compiled: {
     id: string
     html: string
     exerciseFiles?: Record<string, string>
     exerciseHash?: string
+    exerciseCases?: Record<string, ExerciseCase>
+    stage1?: CompiledChallengeSet
+    interactive?: {
+      type: string
+      props: Record<string, any>
+    }
   }[] = []
 
   for (const file of files) {
@@ -436,8 +621,9 @@ async function buildModule(
       const file = await unified()
         .use(remarkParse)
         .use(remarkGfm)
+        .use(remarkWidgets(where))
         .use(collectHeadings(headings))
-        .use(remarkRehype)
+        .use(remarkRehype, { allowDangerousHtml: true })
         .use(rehypeSlug)
         .use(rehypeAutolinkHeadings, { behavior: 'wrap' })
         // A single theme, because the product has a single theme. Passing a
@@ -445,7 +631,7 @@ async function buildModule(
         // a prefers-color-scheme block on every token, which would be dead
         // weight in all twenty lessons.
         .use(rehypeShiki, { theme: 'github-light' })
-        .use(rehypeStringify)
+        .use(rehypeStringify, { allowDangerousHtml: true })
         .process(content)
       html = substituteTokens(String(file), where)
     } catch (error) {
@@ -454,6 +640,7 @@ async function buildModule(
     }
 
     let exerciseFiles: Record<string, string> | undefined
+    let exerciseCases: Record<string, ExerciseCase> | undefined
     if (front.exercise) {
       const spec = front.exercise
       const exerciseDir = path.join(moduleDir, 'exercises', spec.id)
@@ -478,7 +665,17 @@ async function buildModule(
 
           exerciseFiles = { ...lib }
           for (const name of await readdir(exerciseDir)) {
-            if (name === '__pycache__') continue
+            if (
+              name === '__pycache__' ||
+              name.startsWith('.') ||
+              name.startsWith('solutions-') ||
+              name.startsWith('solution-') ||
+              name.startsWith('solutions_') ||
+              name === CASES_FILENAME ||
+              name.endsWith('.out')
+            ) {
+              continue
+            }
             exerciseFiles[name] = await readFile(path.join(exerciseDir, name), 'utf8')
           }
 
@@ -486,7 +683,70 @@ async function buildModule(
           // actually imports. A lesson page reads this before deciding whether
           // to load a WebAssembly runtime at all.
           spec.browser = browserSupportFor(exerciseFiles)
+
+          exerciseCases = await readExerciseCases(
+            exerciseDir,
+            lastDiscoveredTests,
+            exerciseAt,
+            exerciseFiles[spec.reference] ?? '',
+          )
         }
+      }
+    }
+
+    stageOneCoverage.total += 1
+    let stage1: CompiledChallengeSet | undefined
+
+    if (front.interactive) {
+      const validation = validateWidgetProps(front.interactive.type, front.interactive.props)
+      if (!validation.success) {
+        for (const err of validation.errors) {
+          fail(where, `Interactive spec error: ${err}`)
+        }
+      } else {
+        front.interactive.props = validation.data
+      }
+    }
+
+    if (front.challenges) {
+      stageOneCoverage.authored += 1
+      const problems = lintChallengeSet(front.challenges)
+      for (const problem of problems) fail(where, problem)
+
+      // A `custom` step names a bespoke component, and its props answer to
+      // that component's own schema. Everything else is checked by the kit.
+      for (const step of front.challenges.steps) {
+        if (step.kind !== 'custom') continue
+        const validation = validateWidgetProps(step.component, step.props)
+        if (!validation.success) {
+          for (const err of validation.errors) fail(where, `challenge "${step.id}": ${err}`)
+        } else {
+          step.props = validation.data
+        }
+      }
+
+      if (problems.length === 0) stage1 = front.challenges
+    } else if (front.interactive) {
+      // Lowered rather than special-cased downstream: one runtime concept, a
+      // lesson has a stage 1 and a stage 1 is a list of challenges. The apps
+      // never learn that the old spec existed.
+      stageOneCoverage.lowered += 1
+      stage1 = {
+        goal: `Work through ${front.title.toLowerCase()}.`,
+        // A lowered widget is a sandbox with its own controls on screen, so
+        // there is nothing in the prose it depends on.
+        readingOptional: true,
+        steps: [
+          {
+            kind: 'custom',
+            id: 'sandbox',
+            component: front.interactive.type,
+            props: front.interactive.props,
+            prompt: 'Explore this until the behaviour is predictable.',
+            hints: ['Everything you need is on the screen.'],
+            reveal: 'Move on when you can say what each control changes.',
+          } satisfies Challenge,
+        ],
       }
     }
 
@@ -499,7 +759,15 @@ async function buildModule(
       headings,
       wordCount: content.split(/\s+/).filter(Boolean).length,
     })
-    compiled.push({ id: front.id, html, exerciseFiles, exerciseHash: hashFiles(exerciseFiles) })
+    compiled.push({
+      id: front.id,
+      html,
+      exerciseFiles,
+      exerciseHash: hashFiles(exerciseFiles),
+      stage1,
+      interactive: front.interactive,
+      exerciseCases,
+    })
   }
 
   lessons.sort((a, b) => a.order - b.order)
@@ -709,12 +977,41 @@ async function buildCourse(
 async function main() {
   const check = process.argv.includes('--check')
 
+  /**
+   * Check one course instead of all four.
+   *
+   * `--course <dir>` narrows the run, and it is only meaningful with `--check`.
+   * When several people are authoring at once, the shared gate goes red on
+   * whichever half-written file somebody else happens to be holding, and a
+   * gate that is red for reasons you cannot fix is a gate nobody reads. This
+   * runs the identical validation over one directory.
+   *
+   * It never writes `dist/`, because a partial manifest is worse than none.
+   */
+  const courseFlag = process.argv.indexOf('--course')
+  const onlyCourse = courseFlag === -1 ? undefined : process.argv[courseFlag + 1]
+  if (onlyCourse && !check) {
+    console.error('--course only makes sense with --check: a partial build would write a partial manifest.')
+    process.exit(1)
+  }
+
   if (!check) await rm(DIST_DIR, { recursive: true, force: true })
 
-  const dirs = await readDirs(COURSES_DIR)
+  let dirs = await readDirs(COURSES_DIR)
   if (dirs.length === 0) {
     console.error('No courses found in courses/. Nothing to build.')
     process.exit(1)
+  }
+
+  if (onlyCourse) {
+    const wanted = dirs.filter((dir) => path.basename(dir) === onlyCourse)
+    if (wanted.length === 0) {
+      console.error(
+        `No course directory named "${onlyCourse}". Found: ${dirs.map((d) => path.basename(d)).join(', ')}`,
+      )
+      process.exit(1)
+    }
+    dirs = wanted
   }
 
   const bodies = new Map<string, string>()
@@ -732,19 +1029,27 @@ async function main() {
 
   const allModules = courses.flatMap((c) => c.modules)
 
+  // Checks that span courses cannot mean anything when only one was read.
+  const wholeCatalogue = !onlyCourse
+
   // Module and exercise ids are the natural keys the platform stores progress
   // and awards against, so they have to be unique across the whole catalogue and
   // not merely within a course. Neither was checked before there was more than
   // one course, and exercise ids were unique by luck rather than by rule.
-  assertUnique(allModules.map((m) => m.id), 'courses', 'duplicate module id across courses')
-  assertUnique(
-    allModules.flatMap((m) => m.lessons.flatMap((l) => (l.exercise ? [l.exercise.id] : []))),
-    'courses',
-    'duplicate exercise id across courses',
-  )
+  // Skipped under `--course`: uniqueness across the catalogue and cross-lesson
+  // links cannot be judged from one course, and reporting a link as broken
+  // because its target was never read would train people to ignore the output.
+  if (wholeCatalogue) {
+    assertUnique(allModules.map((m) => m.id), 'courses', 'duplicate module id across courses')
+    assertUnique(
+      allModules.flatMap((m) => m.lessons.flatMap((l) => (l.exercise ? [l.exercise.id] : []))),
+      'courses',
+      'duplicate exercise id across courses',
+    )
 
-  checkCrossLinks(allModules, bodies)
-  checkCourseBoundaries(courses)
+    checkCrossLinks(allModules, bodies)
+    checkCourseBoundaries(courses)
+  }
 
   if (problems.length > 0) {
     console.error(`\nContent build failed with ${problems.length} problem(s):\n`)
@@ -809,6 +1114,18 @@ async function main() {
   console.log(
     `${check ? 'Checked' : 'Built'} ${courses.length} course(s), ${allModules.length} modules, ` +
       `${lessonCount} lessons, ${exerciseCount} exercises. Content version ${contentVersion}.`,
+  )
+  // Not a failure. An exercise with no case map falls back to humanised test
+  // names, which is weaker but not broken; this line is how far the conversion
+  // has got. An exercise that HAS a map is held to covering all of it.
+  console.log(
+    `Case maps: ${caseMapCoverage.mapped} of ${caseMapCoverage.total} exercises name their conditions.`,
+  )
+  console.log(
+    `Stage 1: ${stageOneCoverage.authored} of ${stageOneCoverage.total} lessons open on challenges` +
+      (stageOneCoverage.lowered > 0
+        ? `, ${stageOneCoverage.lowered} still on the deprecated interactive spec.`
+        : '.'),
   )
 }
 

@@ -7,6 +7,175 @@ estimatedMinutes: 25
 exercise:
   id: ou-estimation
   timeboxMinutes: 30
+challenges:
+  goal: Calibrate an Ornstein-Uhlenbeck fit and read its half-life as the decision about whether the spread is tradable at all.
+
+  readingOptional: true
+  steps:
+    - id: how-long-is-half-the-way-back
+      kind: numeric
+      prompt: >-
+        An AR(1) fit on daily closes returns a slope of 0.90. How many trading days does a
+        displacement take to decay halfway back to the mean?
+      unit: days
+      context:
+        as: pairs
+        items:
+          - { k: Regression slope b, v: '0.90' }
+          - { k: Time step, v: 1 trading day }
+          - { k: Reversion rate, v: 'theta is minus the natural log of b, divided by the time step' }
+          - { k: Half-life, v: 'the natural log of 2, divided by theta' }
+      answer: 6.5788
+      tolerance: 0.05
+      scaleHint: >-
+        That is out by more than a factor of ten, which usually means the log of b was used
+        directly. The reversion rate is around a tenth per day, not a tenth of a day.
+      hints:
+        - Two steps, and the first one turns a per-step slope into a per-unit-time rate.
+        - The natural log of 0.90 is about minus 0.1054, so theta is about 0.1054 per day.
+        - Divide 0.6931 by that rate.
+      reveal: >-
+        A slope of 0.90 sounds like fast decay and is a week of holding. The half-life is
+        the only number in the fit that is denominated in the same units as your patience,
+        which is why it is the one that decides whether the pair is worth a slot.
+
+    - id: from-regression-to-process
+      kind: blanks
+      prompt: >-
+        The regression has returned an intercept a and a slope b. Recover the three
+        continuous parameters the process is described by.
+      lang: python
+      template: |
+        def estimate_ou(series: list[float], dt: float) -> tuple[float, float, float]:
+            a, b = ols(series[:-1], series[1:])
+            if not 0.0 < b < 1.0:
+                raise ValueError("series does not mean revert")
+
+            theta = {{1}}
+            mu = {{2}}
+            half_life = {{3}}
+            return theta, mu, half_life
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - '-math.log(b) / dt'
+            - 'math.log(b) / dt'
+            - '(1.0 - b) / dt'
+          accept: ['-math.log(b) / dt']
+          note: >-
+            b is below 1, so its log is negative and theta has to be flipped to come out
+            positive. One minus b is the first-order approximation and drifts once b is far
+            from 1.
+        - n: 2
+          as: select
+          options:
+            - 'a / (1.0 - b)'
+            - 'a / b'
+            - 'a * (1.0 - b)'
+          accept: ['a / (1.0 - b)']
+          note: >-
+            The equilibrium is the level the recursion leaves unchanged. Solve x equals a
+            plus b times x and you get a over one minus b.
+        - n: 3
+          as: select
+          options:
+            - 'math.log(2.0) / theta'
+            - 'math.log(2.0) * theta'
+            - '2.0 / theta'
+          accept: ['math.log(2.0) / theta']
+          note: >-
+            Decay is exponential, so halving takes log 2 over the rate. Multiplying by theta
+            makes a fast process look slow, which is the wrong direction.
+      hints:
+        - Only one of the three lines has a sign problem, and it is the one that takes a log of a number below 1.
+        - The equilibrium is the fixed point of the recursion, so set the next value equal to the current one and solve.
+        - Exponential decay halves in log 2 over the rate, never in a multiple of it.
+      reveal: >-
+        The guard above these three lines is doing as much work as they are. b outside zero
+        and one leaves every expression here defined but meaningless, and a caller that gets
+        a number back has no way to tell.
+
+    - id: the-half-life-that-came-back-negative
+      kind: spot
+      prompt: >-
+        Run on a random walk this raises nothing and returns a half-life of minus 173 days.
+        Click the line that should have refused.
+      lang: python
+      source: |
+        def half_life(series, dt):
+            prev, curr = series[:-1], series[1:]
+            a, b = ols(prev, curr)
+            theta = -math.log(b) / dt
+            return math.log(2.0) / theta
+      targets: [3]
+      requireAll: true
+      decoys:
+        '1': >-
+          Splitting the series into a lagged copy and a current one is how an AR(1) fit is
+          set up, and the offsets here are right.
+        '2': >-
+          The regression is honest. It reports whatever slope the data has, including
+          slopes this function is not entitled to use.
+        '4': >-
+          The formula is correct for a positive theta. It is being handed a negative one,
+          and division does not know that is impossible.
+      hints:
+        - Work out what b comes back as on a series that does not revert, then follow it forward.
+        - A random walk fits at b just above 1, and the log of a number just above 1 is positive.
+        - One line turns that positive log into a negative rate and hands it on without looking.
+      reveal: >-
+        b at or above 1 is not a numerical accident, it is the fit telling you the series
+        has no equilibrium to return to. The check belongs at the point where b becomes
+        theta, because that is the last place the sign still means something.
+
+    - id: which-spread-earns-a-slot
+      kind: choice
+      prompt: >-
+        Four spreads calibrate cleanly on two years of daily closes. The book has to be flat
+        by Friday. Which one is worth a slot?
+      context:
+        as: table
+        caption: AR(1) fit on daily closes, dt of one trading day
+        columns: [pair, slope b, half-life in days]
+        rows:
+          - ['GLD / GDX', 0.87, 4.98]
+          - ['KO / PEP', 0.999, 692.8]
+          - ['XLE / USO', 1.004, -173.5]
+          - ['EWA / EWC', -0.35, 'undefined']
+      options:
+        - id: gld-gdx
+          label: GLD versus GDX, slope 0.87
+          correct: true
+          note: >-
+            Five days is inside the holding period, so a two-sigma displacement opened on
+            Monday has a real chance of being back near zero before the book has to flatten.
+        - id: ko-pep
+          label: KO versus PEP, slope 0.999
+          note: >-
+            The fit is valid and the spread does revert. It reverts over roughly three
+            trading years, which is a statement about someone else's capital rather than
+            yours.
+        - id: xle-uso
+          label: XLE versus USO, slope 1.004
+          note: >-
+            b above 1 puts theta below zero, so displacements grow rather than decay. The
+            negative half-life is the fit saying exactly that rather than a bug to be
+            clipped to a positive number.
+        - id: ewa-ewc
+          label: EWA versus EWC, slope minus 0.35
+          note: >-
+            A negative slope has no continuous process behind it. The series alternates
+            sign each step instead of drifting back, which usually means the data was
+            differenced already or is being sampled far coarser than the dynamics.
+      hints:
+        - Two of these four are not mean-reverting fits at all, whatever the regression printed.
+        - Of the two that are, the question is not whether the spread reverts but when.
+        - Compare each half-life against the number of days the position is allowed to live.
+      reveal: >-
+        The half-life is a filter before it is a parameter. Two of these fail because theta
+        is not positive, one fails because the holding period the fit implies is three
+        hundred times the one the desk allows, and only the fourth is a strategy.
 ---
 
 A trending strategy profits when price moves persist. A mean-reverting strategy profits when deviations from an equilibrium price decay back toward a long-term average.

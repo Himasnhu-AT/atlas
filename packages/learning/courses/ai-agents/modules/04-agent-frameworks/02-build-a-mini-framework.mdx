@@ -7,6 +7,208 @@ estimatedMinutes: 50
 exercise:
   id: mini-framework
   timeboxMinutes: 40
+challenges:
+  goal: Make the function the only place a tool is defined, and keep a run's state out of the object that starts it.
+
+  steps:
+    - id: can-it-be-derived
+      kind: assign
+      prompt: >-
+        Your registry builds a schema from the signature and the docstring at import time.
+        Sort these by whether it can.
+      buckets:
+        - id: derives
+          label: Describes cleanly
+          note: Every parameter has a type the table knows and a line in the Args block.
+        - id: raises
+          label: Raises ToolSpecError
+          note: Something is missing or has no unambiguous JSON Schema form, and the failure belongs at startup.
+      items:
+        - id: plain-str
+          label: "def get_weather(city: str, unit: str = 'celsius') -> str, with an Args block"
+          bucket: derives
+          because: Two known types and a default, which is all the information required and optional needs.
+        - id: list-generic
+          label: "def summarise(paths: list[str]) -> str, with an Args block"
+          bucket: derives
+          because: A GenericAlias, so get_origin unwraps it to list and the table maps that to array. The item type comes from the argument.
+        - id: ints-and-bools
+          label: "def page(n: int, verbose: bool = False) -> str, with an Args block"
+          bucket: derives
+          because: Both types are in the table, and verbose stays out of required because it has a default.
+        - id: no-annotation
+          label: "def lookup(city) -> str, with an Args block"
+          bucket: raises
+          because: There is nothing to put in the type field, and guessing string means the model sends a string to a function that wanted a date.
+        - id: union
+          label: "def lookup(city: str | None = None) -> str, with an Args block"
+          bucket: raises
+          because: A union has no single primitive to name. Represent it deliberately, as a nullable field or an explicit sentinel, rather than letting the table guess.
+        - id: kwargs
+          label: "def call(**kwargs) -> str, with an Args block"
+          bucket: raises
+          because: No named fields, so there is nothing for the model to aim at. It would have to invent both the keys and the values.
+        - id: varargs
+          label: "def join(*args) -> str, with an Args block"
+          bucket: raises
+          because: Same problem in positional form. JSON Schema properties are named and this has none.
+        - id: no-docstring
+          label: "def get_weather(city: str) -> str, with no docstring at all"
+          bucket: raises
+          because: The description is the whole of what the model knows about when to call this. An empty one is a tool the model will reach for at random.
+      hints:
+        - Four of these are fine and four are not, and one of the four is not about types at all.
+        - Ask what you would write in the type field for each parameter, and whether there is exactly one honest answer.
+        - A tool with no description still has a valid schema. It is still worth refusing.
+      reveal: >-
+        Refusing at registration time means the traceback names the function while your
+        application is starting, not three turns into a customer's run. Everything the table
+        cannot express is still expressible, just not automatically, and writing that schema
+        by hand is a decision rather than an accident.
+
+    - id: derive-it
+      kind: text-contract
+      prompt: >-
+        Your describe function produced this from the tool below it. Correct it to what the
+        signature and docstring actually say.
+      context:
+        as: code
+        lang: python
+        source: |
+          @registry.add
+          def get_weather(city: str, unit: str = "celsius") -> str:
+              """
+              Current weather for a city.
+
+              Args:
+                  city: City name, for example 'Paris'.
+                  unit: celsius or fahrenheit. Defaults to celsius.
+              """
+              return f"18 degrees {unit} in {city}"
+      lang: json
+      initial: |
+        {
+          "type": "function",
+          "function": {
+            "name": "weather",
+            "description": "",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": { "type": "string" },
+                "unit": { "type": "string" }
+              },
+              "required": ["city", "unit"]
+            }
+          }
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The name comes from the function's own name, so that dispatch can find it again by the string the model sends back.
+          check: { op: equals, path: function.name, value: get_weather }
+        - message: The description is empty. It comes from the summary line of the docstring.
+          check: { op: equals, path: function.description, value: Current weather for a city. }
+        - message: city has a type and no description. The Args block already says what to put there.
+          check: { op: contains, path: function.parameters.properties.city.description, text: Paris }
+        - message: unit has no description either, and its line in the Args block is the only place the two allowed values are written down.
+          check: { op: contains, path: function.parameters.properties.unit.description, text: fahrenheit }
+        - message: unit has a default in the signature, so it must not be required. Requiring it forces the model to produce a value on every call.
+          check: { op: equals, path: function.parameters.required, value: [city] }
+      hints:
+        - Four things are wrong and all four are already written in the code above.
+        - Two of them are strings that were never copied across, and one is a name.
+        - Look at which parameter has a default and then look at the required list.
+      reveal: >-
+        Every field here was already in the function. Writing the schema by hand next to it
+        means two documents that agree until somebody renames a parameter, and the mismatch
+        surfaces as a TypeError inside dispatch on a live run. Derive it and the drift cannot
+        happen.
+      solution: |
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "Current weather for a city.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": { "type": "string", "description": "City name, for example 'Paris'." },
+                "unit": { "type": "string", "description": "celsius or fahrenheit. Defaults to celsius." }
+              },
+              "required": ["city"]
+            }
+          }
+        }
+
+    - id: fail-where
+      kind: choice
+      prompt: >-
+        describe meets a parameter annotated dict[str, Any], which the type table has no
+        entry for. What should the registry do?
+      options:
+        - id: fall-back
+          label: Fall back to type object with no properties.
+          note: The model is told to send an object and nothing about what goes in it, so it invents a structure. The call arrives well formed and wrong, which is the expensive kind of wrong.
+        - id: skip-it
+          label: Leave that parameter out of the schema.
+          note: The schema now describes a narrower function than the one dispatch will call, so the model omits an argument the function requires and you get a TypeError instead.
+        - id: raise-now
+          label: Raise ToolSpecError naming the function and the parameter.
+          correct: true
+          note: The failure lands at import, with the two names you need, before any run exists. Whoever wrote the tool then decides what shape they meant, which is a decision the table was never going to make correctly.
+        - id: stringify
+          label: Call it a string and have the tool parse JSON out of it.
+          note: Every tool body grows a parse and a validation, and the model still has no idea what shape to write. You have moved the problem and added a place for it to fail.
+      hints:
+        - Three of these produce a schema. Ask what the model does with each one.
+        - Two of them cause a failure later, at a point where the traceback no longer names the tool.
+        - The question is not whether this can be described. It is who decides how, and when they find out they have to.
+      reveal: >-
+        Automatic derivation earns its place by being strict. A registry that guesses is a
+        registry whose schemas quietly stop matching their functions, which is the exact
+        problem it was introduced to remove.
+
+    - id: whose-state-is-it
+      kind: spot
+      prompt: >-
+        This Agent answers correctly the first time and gets slower and stranger after that.
+        Click the lines that cause it.
+      lang: python
+      source: |
+        class Agent:
+            def __init__(self, client, registry, system, max_steps=6):
+                self.client = client
+                self.registry = registry
+                self.system = system
+                self.max_steps = max_steps
+                self.messages = [{"role": "system", "content": system}]
+                self.records = []
+
+            def run(self, question: str) -> AgentResult:
+                self.messages.append({"role": "user", "content": question})
+                for _ in range(self.max_steps):
+                    response = self.client.chat.completions.create(
+                        model="mock", messages=self.messages, tools=self.registry.schemas
+                    )
+      targets: [6, 7]
+      requireAll: true
+      decoys:
+        '2': The client is configuration. It is the same for every run and belongs on the instance.
+        '3': So does the registry. Two agents sharing one registry is the point of separating them.
+        '4': The system prompt is configuration too, which is what makes a terse agent and a chatty agent worth having.
+        '5': A budget is configuration. It does not change during a run.
+        '10': Appending the question is right. What is wrong is the list it is being appended to.
+        '13': Sending the whole list on every call is how the protocol works.
+      hints:
+        - Two things on the instance change during a run and the rest do not.
+        - Ask what the second call to run starts from.
+        - Two threads calling run on the same agent are appending to the same list.
+      reveal: >-
+        Configuration on the instance, execution state inside the call. Keep the transcript
+        on self and the second question arrives carrying the first conversation, the token
+        bill grows every time, and two concurrent runs interleave into one list. Build both
+        lists inside run and return them in the result instead.
 ---
 
 A minimal framework comprises three components: a schema generator that converts Python functions into

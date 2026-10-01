@@ -7,6 +7,164 @@ estimatedMinutes: 40
 exercise:
   id: run-ledger
   timeboxMinutes: 25
+challenges:
+  goal: Thread one id through a run, sort its failures into buckets with different fixes, and price the hour by completed task.
+  readingOptional: true
+
+  steps:
+    - id: sort-the-failures
+      kind: assign
+      prompt: >-
+        A day of failed steps, one line each. Sort them by which team fixes them, because
+        that is what a bucket is for.
+      buckets:
+        - id: provider
+          label: Provider error
+        - id: tool
+          label: Tool error
+        - id: malformed
+          label: Malformed tool call
+        - id: rejected
+          label: Output rejected
+      items:
+        - id: rate-limit
+          label: The model API returned 429 with a retry-after header
+          bucket: provider
+          because: Nothing about the run was wrong. Back off, retry, and if it keeps happening either raise the limit or fail over.
+        - id: connection-reset
+          label: The connection to the model endpoint was reset mid-stream
+          bucket: provider
+          because: Same bucket, same fix. It is upstream of everything your code decided, so it tells you nothing about the agent.
+        - id: orders-500
+          label: get_order called the orders service and got a 500 back
+          bucket: tool
+          because: The tool did what it was asked and the thing behind it fell over. The fix is in the service or in how the tool handles it, not in the prompt.
+        - id: missing-order
+          label: get_order raised KeyError because the order id does not exist
+          bucket: tool
+          because: A real condition the tool has no path for. It should be returning a not-found result the agent can act on rather than raising.
+        - id: string-limit
+          label: The model called search with limit set to the string ten
+          bucket: malformed
+          because: The schema says integer and the arguments do not match it. This is fixed by the parameter description, and it clusters by deploy rather than by hour.
+        - id: unknown-tool
+          label: The model called check_refund_window, which is not a registered tool
+          bucket: malformed
+          because: An invented tool name. The same fix as the wrong type, because the registry and the descriptions are what the model is working from.
+        - id: schema-fail
+          label: The final answer did not validate against the output schema
+          bucket: rejected
+          because: Every step ran. The run produced something and the boundary would not let it out, so the work is spent and the user has nothing.
+        - id: guardrail-stop
+          label: The output guardrail refused a reply containing a full account number
+          bucket: rejected
+          because: Also spent work stopped at the edge, and also the right outcome. It belongs with the other rejections because the remedy is the prompt or the schema.
+      hints:
+        - Two of these happened before your code ran, and two happened after it finished.
+        - The difference between a tool error and a malformed tool call is who wrote the thing that was wrong.
+        - Ask which of these would spike after a deploy and which would spike during an outage.
+      reveal: >-
+        There is a fifth bucket these eight do not fill: the run that reached its step cap.
+        Nothing errored there, which is why a single error rate hides it, and the fix is
+        neither retry nor schema but whatever made the agent take seven steps for a job
+        that used to take three.
+
+    - id: what-goes-in-the-record
+      kind: blanks
+      prompt: >-
+        Fill in the three fields that decide whether this record can be joined, filtered
+        and counted later.
+      lang: python
+      template: |
+        def record_tool_step(run, index, tool_name, error):
+            return StepRecord(
+                run_id={{1}},
+                index=index,
+                kind={{2}},
+                name=tool_name,
+                outcome={{3}},
+                payload=redact({"tool": tool_name, "error": str(error)}),
+            )
+      blanks:
+        - n: 1
+          as: select
+          options: ['run.id', 'uuid4()', 'f"{tool_name}-{index}"', 'str(error)']
+          accept: ['run.id']
+          note: The id is minted once at the entry point and carried through every call. A fresh id per step joins to nothing, which is the same as not having one.
+        - n: 2
+          as: select
+          options: ['"tool"', '"error"', '"tool_error"', '"failed"']
+          accept: ['"tool"']
+          note: kind names the component. It is the same whether the call worked or not, which is what lets you count tool calls and tool failures separately.
+        - n: 3
+          as: select
+          options: ['"error"', '"tool"', '"tool_error"', '"model"']
+          accept: ['"error"']
+          note: outcome names what happened. Two fields, and neither of them ever encodes the other.
+      hints:
+        - One field says which kind of thing this was, and one says how it went. Two of the offered values try to say both at once.
+        - Ask what query you would run to get every tool step in a run, then what you would run to get every failure.
+        - The id has to be the same on the model step that came before this one.
+      reveal: >-
+        Collapsing kind and outcome into tool_error saves a column and costs you every
+        aggregate you wanted: tool call volume, tool error rate, and the ratio between
+        them all need the two facts apart. Orthogonal fields are cheap to write and
+        impossible to add later without reprocessing the archive.
+
+    - id: the-redaction-that-is-not
+      kind: spot
+      prompt: >-
+        This runs on every payload before it reaches storage. Click the two lines that stop
+        it from being a redaction.
+      lang: python
+      source: |
+        SENSITIVE = {"password", "api_key", "card_number"}
+
+        def redact(payload):
+            for key in payload:
+                if key in SENSITIVE:
+                    payload[key] = "[redacted]"
+            return payload
+      targets: [3, 5]
+      decoys:
+        "0": A deny list of key names is the right shape for this. Keeping it current is maintenance rather than a defect.
+        "4": Testing a key against the policy is correct. The problem is which keys it is being handed.
+        "6": Returning the payload is what the caller expects. Which object it is returning was decided a line earlier.
+      hints:
+        - Tool arguments are nested. A card number two levels down is never compared against anything here.
+        - Look at what the assignment writes into, and what the caller still holds a reference to.
+        - The function is called redact, and one of these lines makes it a mutation.
+      reveal: >-
+        Redaction has to recurse and it has to copy. Without the recursion the secret is
+        still in the record; without the copy the live payload the agent is about to use
+        now says redacted, and the bug shows up as a tool call that fails for no reason
+        anyone can see in the log.
+
+    - id: price-the-hour
+      kind: numeric
+      prompt: >-
+        One hour of traffic. Prompt tokens cost 3 dollars per million and completion tokens
+        15 dollars per million. What did the hour cost per completed task?
+      context:
+        as: table
+        caption: Runs in the hour
+        columns: [outcome, runs, calls per run, prompt tokens per call, completion tokens per call]
+        rows:
+          - [completed, 80, 5, 1000, 200]
+          - [failed, 20, 10, 1000, 200]
+      answer: 0.045
+      tolerance: 0.001
+      unit: dollars
+      scaleHint: Out by a factor of ten or more is a units problem. The prices are per million tokens and the table is per call.
+      hints:
+        - The failed runs spent tokens. They are in the numerator whether or not you like it.
+        - They are not in the denominator, because nothing was completed.
+        - Six hundred calls, then two prices, then divide by the number of tasks that actually finished.
+      reveal: >-
+        Dividing by all one hundred runs gives 0.036 and leaving the failures out gives
+        0.030, and both of those numbers fall when you add a retry that rescues more runs.
+        Cost per completed task is the one that goes up when the retry does not pay for
+        itself, which is the only reason to compute it.
 ---
 
 Emitting structured telemetry logs during agent execution is the foundation of production observability. However, telemetry only provides value if the storage and query layer is structured to answer operational questions.

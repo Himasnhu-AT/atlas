@@ -1,3 +1,4 @@
+import type { CompiledChallengeSet } from '@atlas/core'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -48,6 +49,18 @@ export interface CompiledLesson {
   courseId: string
   html: string
   exerciseFiles?: Record<string, string>
+  /** What each test is checking, keyed on `ClassName.test_method`. */
+  exerciseCases?: Record<string, { condition: string; hints: string[]; concept?: string }>
+  /** Stage 1, normalised by the content build. */
+  stage1?: CompiledChallengeSet
+  /**
+   * The superseded single-widget spec. Still emitted, and no longer read here:
+   * the build lowers it into `stage1` so there is one path at render time.
+   */
+  interactive?: {
+    type: string
+    props: Record<string, any>
+  }
 }
 
 const LESSON_DIR = path.join(process.cwd(), '..', '..', 'packages', 'learning', 'dist', 'lessons')
@@ -55,8 +68,10 @@ const LESSON_DIR = path.join(process.cwd(), '..', '..', 'packages', 'learning', 
 const cache = new Map<string, CompiledLesson>()
 
 export async function loadLesson(lessonId: string): Promise<CompiledLesson | null> {
-  const cached = cache.get(lessonId)
-  if (cached) return cached
+  if (process.env.NODE_ENV === 'production') {
+    const cached = cache.get(lessonId)
+    if (cached) return cached
+  }
 
   // The id comes from a URL segment. Reject anything that is not a plain
   // lesson id before it reaches the filesystem.

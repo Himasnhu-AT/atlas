@@ -15,7 +15,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { isDesktop } from '@atlas/core'
+import { isDesktop, type RunOutcome } from '@atlas/core'
 
 /* -------------------------------------------------------------------- types */
 
@@ -57,6 +57,13 @@ export interface TestReport {
    * A missing interpreter is not a red test, and the UI says so differently.
    */
   runnerError: string | null
+  /**
+   * The structured half: which tests, and what each one said.
+   *
+   * `testsPassed` and `testsTotal` above are copied out of this by the Rust
+   * side, so the status bar and the results panel cannot disagree.
+   */
+  outcome: RunOutcome
 }
 
 /** One environment check from `preflight`. */
@@ -279,8 +286,9 @@ export function runExercise(
  *
  * Separate from `runExercise` because the two answer different questions. That
  * one gives the learner a shell they can poke at; this one gives the app a
- * pass or fail it can record as an attempt. The UI echoes `output` into the
- * terminal so the learner still sees exactly what ran.
+ * pass or fail it can record as an attempt, plus the per-test detail the
+ * results panel names conditions from. `output` is the raw runner text, which
+ * the panel keeps behind a disclosure rather than echoing to the terminal.
  *
  * Never rejects for a failing test. A red suite is a successful call with
  * `passed: false`; only a broken environment sets `runnerError`.

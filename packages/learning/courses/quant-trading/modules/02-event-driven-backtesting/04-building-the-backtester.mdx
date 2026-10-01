@@ -7,6 +7,176 @@ estimatedMinutes: 30
 exercise:
   id: event-backtester
   timeboxMinutes: 40
+challenges:
+  goal: Turn a target weight into an order against live equity, and keep the run loop from handing the strategy anything it should not see.
+
+  steps:
+    - id: from-weight-to-order
+      kind: numeric
+      prompt: >-
+        The strategy has just emitted a target weight. How many shares does the resulting
+        order carry?
+      unit: shares
+      context:
+        as: pairs
+        items:
+          - { k: Total equity, v: '250,000' }
+          - { k: Target weight, v: '0.60' }
+          - { k: Mid price, v: '125.00' }
+          - { k: Position already held, v: 450 shares long }
+      answer: 750
+      tolerance: 0.5
+      scaleHint: >-
+        That looks like a notional in dollars rather than a share count. Dividing by the mid
+        is what turns one into the other.
+      hints:
+        - A weight is a fraction of equity, so the first step produces dollars rather than shares.
+        - Sixty percent of 250,000 is 150,000, and at 125 a share that is 1,200 shares.
+        - The order is not the target. It is the distance from where the book already is.
+      reveal: >-
+        The subtraction is the whole reason the portfolio manager exists. A strategy that
+        emitted orders directly would send 1,200 shares every bar it still liked the trade,
+        and the book would be long 12,000 shares after ten bars of the same opinion.
+
+    - id: the-rebalance-block
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions that turn a target weight into an order, or into
+        nothing at all.
+      lang: python
+      template: |
+        def rebalance(self, symbol, target_weight, mid):
+            equity = self.ledger.equity(self.last_prices)
+            target_shares = {{1}}
+            delta = {{2}}
+
+            if abs(delta) * mid < {{3}}:
+                return None
+
+            side = "buy" if delta > 0 else "sell"
+            return OrderEvent(symbol, side, abs(delta))
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'equity * target_weight / mid'
+            - 'equity / mid'
+            - 'target_weight / mid'
+          accept: ['equity * target_weight / mid']
+          note: >-
+            The weight scales equity into a dollar allocation and the mid converts that into
+            shares. Leaving the weight out sizes every signal at the whole book.
+        - n: 2
+          as: select
+          options:
+            - 'target_shares - self.ledger.quantity(symbol)'
+            - 'target_shares'
+            - 'self.ledger.quantity(symbol) - target_shares'
+          accept: ['target_shares - self.ledger.quantity(symbol)']
+          note: >-
+            The trade is the distance between where the book is and where it should be. The
+            reversed subtraction is worse than wrong, because it trades away from the target
+            at exactly the right size.
+        - n: 3
+          as: select
+          options:
+            - 'self.min_trade_notional'
+            - 'self.min_trade_shares'
+            - '0.0'
+          accept: ['self.min_trade_notional']
+          note: >-
+            The left side of this comparison is a dollar amount, so the right side has to be
+            one too. Comparing a notional against a share count makes the filter depend on
+            the price of the instrument, which is not what anybody meant.
+      hints:
+        - Two of the three lines are unit conversions. Check what each side of every expression is denominated in.
+        - The order is a difference, and the sign of that difference is what picks the side two lines below.
+        - The threshold is compared against something already multiplied by the mid.
+      reveal: >-
+        Every line here is a unit conversion, and the bugs in this block are almost always
+        unit bugs rather than logic bugs. Weight to dollars, dollars to shares, shares back
+        to dollars for the threshold. Sizing against equity rather than against a fixed
+        notional is what makes the strategy compound, and it is also what makes a drawdown
+        cut position sizes automatically.
+
+    - id: what-a-zero-threshold-costs
+      kind: choice
+      prompt: >-
+        You set the minimum rebalance notional to zero. The strategy emits the same target
+        weight of 0.60 every bar for a month. What does the equity curve show?
+      options:
+        - id: nothing
+          label: Nothing changes, because the delta rounds to zero on most bars
+          note: >-
+            Equity moves every bar from the mark on every other position and from commission
+            already paid, so the target share count moves even on a bar where the weight and
+            the price did not.
+        - id: exact
+          label: Exact tracking of the target at no extra cost
+          note: >-
+            The tracking is exact. It is not free, and the cost does not show up in the
+            weight or the price, which is why this is the answer people pick.
+        - id: churn
+          label: A few shares traded on nearly every bar, with ticket fees eating the return
+          correct: true
+          note: >-
+            Small deltas are the worst possible orders. They are too small to matter to the
+            position and large enough to trip the minimum ticket, so a book that never
+            changed its mind pays hundreds of tickets a year.
+        - id: only-on-change
+          label: Trades only on the bars where the signal changed
+          note: >-
+            That is what a threshold buys you, and there is no threshold here. Without one
+            the engine has no way to tell a change of mind from a rounding difference.
+      hints:
+        - The weight held still for a month. Ask whether the share count implied by that weight also held still.
+        - Equity is in the numerator of the target share count, and equity moves on every bar for reasons that have nothing to do with this position.
+        - The resulting orders are small, and there is a cost from an earlier lesson that does not care how small an order is.
+      reveal: >-
+        The threshold is the only thing standing between a stable signal and continuous
+        churn, and it is set in notional rather than in shares or in percent because the cost
+        it is defending against is a dollar amount. A common starting point is a few times
+        the minimum ticket, which makes the filter a statement about the fee schedule rather
+        than about the strategy.
+
+    - id: the-loop-that-leaks
+      kind: spot
+      prompt: >-
+        Two lines in this run loop break the guarantee the engine exists to provide. Click
+        both.
+      lang: python
+      source: |
+        def run(self, ticks):
+            for tick in ticks:
+                self.last_prices[tick.symbol] = tick.mid
+                self.curve.append(self.ledger.equity(self.last_prices))
+                weight = self.strategy(tick, ticks, self.ledger)
+                order = self.rebalance(tick.symbol, weight, tick.mid)
+                if order:
+                    self.ledger.apply(self.execution.fill(order, tick))
+      targets: [3, 4]
+      requireAll: true
+      decoys:
+        '2': >-
+          Caching the latest prices before anything else runs is right. Every component
+          below this line needs a current mark, and this is the only place it comes from.
+        '5': >-
+          Sizing against the mid of the bar being processed is the specification. That mid
+          is known at the moment the decision is made, so nothing here is borrowed from the
+          future.
+        '7': >-
+          Applying the fill immediately is right. A ledger that lags its own fills reports
+          an equity that no broker would confirm.
+      hints:
+        - One of these lines records a number, and one hands something to the strategy. Ask what each of them knows that it should not.
+        - The strategy is meant to receive the current tick and the ledger. Count the arguments it is actually given.
+        - The equity written to the curve on this bar does not include the trade made on this bar.
+      reveal: >-
+        The second argument is the leak everyone writes at least once, because handing the
+        strategy the whole series is so convenient and nothing complains. The snapshot is
+        subtler and just as damaging, since costs land one bar late and the last bar's trade
+        never appears at all, which flatters exactly the drawdown you were trying to
+        measure. Both are fixed by ordering the loop the way the live system is ordered.
 ---
 
 A complete backtesting system combines market data ingestion, strategy logic, target sizing, execution modeling, and portfolio accounting into an event pipeline.

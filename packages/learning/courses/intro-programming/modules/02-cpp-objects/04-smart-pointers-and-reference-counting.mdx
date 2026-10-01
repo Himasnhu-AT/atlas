@@ -7,6 +7,208 @@ estimatedMinutes: 25
 exercise:
   id: smart-pointers
   timeboxMinutes: 30
+challenges:
+  goal: Pick the pointer type each ownership shape wants, and see why two counters free two different allocations.
+
+  steps:
+    - id: count-the-owners
+      kind: numeric
+      prompt: >-
+        What does sp.use_count() report at the marked line?
+      context:
+        as: code
+        lang: cpp
+        source: |
+          auto sp = std::make_shared<Node>(100);
+          std::weak_ptr<Node> wp = sp;
+          auto sp2 = sp;
+
+          {
+              auto locked = wp.lock();
+              // <-- here
+          }
+      answer: 3
+      tolerance: 0
+      hints:
+        - Count the shared_ptr objects that are alive at that point and nothing else.
+        - A weak_ptr never contributes to use_count. That is the definition of weak rather than a detail of it.
+        - lock does not hand back a borrowed view. It hands back a real shared_ptr, and while it is in scope it is an owner like any other.
+      reveal: >-
+        Three owners of one object, and one of them lives for four lines. The temporary that
+        lock returns is the reason weak_ptr is safe to use at all: the object cannot be
+        destroyed while you are looking at it, because looking at it made you an owner.
+
+    - id: which-pointer-does-this-want
+      kind: assign
+      prompt: >-
+        Each of these is a real ownership shape. Sort each one by the pointer type that says
+        what is true about it.
+      buckets:
+        - id: unique
+          label: unique_ptr
+          note: One owner at a time, and handing it on is a move that leaves the old one empty.
+        - id: shared
+          label: shared_ptr
+          note: Several owners, none of which can know which will be the last to let go.
+        - id: weak
+          label: weak_ptr
+          note: Watches without owning, and has to ask whether the object is still there before it looks.
+      items:
+        - id: factory-return
+          label: A factory function builds a Node and returns it to whoever asked for it
+          bucket: unique
+          because: There is exactly one owner at every instant and the handover is a move. Nothing here needs a count, so nothing should pay for one.
+        - id: pimpl
+          label: A class holds the single implementation object hidden behind its own interface
+          bucket: unique
+          because: The implementation exists for exactly as long as the object that hides it, and nobody else can name it.
+        - id: parsed-config
+          label: Several worker threads read the same parsed config and finish at different times
+          bucket: shared
+          because: No thread knows whether it is the last one done, which is precisely what a reference count answers.
+        - id: dag-node
+          label: A node in a graph reachable from several parents, freed when the last parent drops it
+          bucket: shared
+          because: The condition for freeing it is a fact about all its parents at once, and only a count knows that.
+        - id: subscriber-list
+          label: A list of subscribers that must not keep a subscriber alive after it unregisters
+          bucket: weak
+          because: An owning list would silently extend every subscriber's life, which turns forgetting to unregister from a bug into a leak nobody notices.
+        - id: parent-back-pointer
+          label: A tree node's pointer back to its parent, where the parent owns its children
+          bucket: weak
+          because: The ownership already runs downward. A counted pointer running back up closes a cycle that reference counting cannot break.
+      hints:
+        - Ask for each one how many things would have to agree before the object could be freed. Zero, one, or several.
+        - Two of these already have an owner somewhere else and only need to look at the object.
+        - If nothing has to be counted, counting is a cost with no answer to buy.
+      reveal: >-
+        The type is documentation the compiler enforces. A raw T* in a signature tells a reader
+        nothing about who frees it, and every one of these six shapes is a different answer to
+        that question. Reaching for shared_ptr when unique_ptr fits buys an atomic increment on
+        every copy and hides which code actually owns the object.
+
+    - id: two-counts-two-allocations
+      kind: machine
+      prompt: >-
+        One Node, two shared_ptrs and one weak_ptr. Release everything and watch which counter
+        frees which allocation.
+      initial: alive
+      vars: { use: 2, weak: 1 }
+      states:
+        alive:
+          label: Object alive
+          note: use_count is above zero, so the Node exists and so does the control block that counts it.
+        expired:
+          label: Object gone, control block alive
+          note: The Node has been destroyed. The block stays because weak_ptrs still point at it and have to be told they have expired.
+        freed:
+          label: Everything released
+          terminal: true
+      transitions:
+        - from: alive
+          on: copy a shared_ptr
+          to: alive
+          effects: [{ var: use, op: inc, value: 1 }]
+          note: Copying a shared_ptr increments use_count and touches nothing else. On a threaded program that increment is atomic, which is what it costs.
+        - from: alive
+          on: make a weak_ptr
+          to: alive
+          effects: [{ var: weak, op: inc, value: 1 }]
+          note: A weak_ptr raises weak_count and leaves use_count alone, which is the whole reason it cannot keep the object alive.
+        - from: alive
+          on: lock a weak_ptr
+          to: alive
+          when: [{ var: weak, cmp: gte, value: 1 }]
+          effects: [{ var: use, op: inc, value: 1 }]
+          note: lock hands back a real shared_ptr, so use_count goes up for as long as the result is held.
+        - from: alive
+          on: destroy a shared_ptr
+          to: alive
+          when: [{ var: use, cmp: gt, value: 1 }]
+          effects: [{ var: use, op: dec, value: 1 }]
+          note: One owner fewer, and the object survives because others remain.
+        - from: alive
+          on: destroy the last shared_ptr
+          to: expired
+          when: [{ var: use, cmp: eq, value: 1 }]
+          effects: [{ var: use, op: dec, value: 1 }]
+          note: use_count reaches zero, so the Node's destructor runs right here. The control block does not go with it.
+        - from: expired
+          on: lock a weak_ptr
+          to: expired
+          when: [{ var: weak, cmp: gte, value: 1 }]
+          note: lock returns nullptr now. This branch is what makes weak_ptr safe, and every use has to take it.
+        - from: expired
+          on: destroy a weak_ptr
+          to: expired
+          when: [{ var: weak, cmp: gt, value: 1 }]
+          effects: [{ var: weak, op: dec, value: 1 }]
+          note: Observers going away one at a time. None of this can affect the object, which is already gone.
+        - from: expired
+          on: destroy the last weak_ptr
+          to: freed
+          when: [{ var: weak, cmp: eq, value: 1 }]
+          effects: [{ var: weak, op: dec, value: 1 }]
+          note: weak_count reaches zero and the control block is released at last, some time after the object it was counting.
+      mode: drive
+      win:
+        state: freed
+        maxSteps: 10
+        requires:
+          - { var: use, cmp: eq, value: 0 }
+          - { var: weak, cmp: eq, value: 0 }
+      hints:
+        - Two counters, and only one of them decides whether the Node exists.
+        - Getting use_count to zero destroys the object and does not finish the job, because something is still allocated afterwards.
+        - Take the owners away first, then the observer. Anything that makes a new shared_ptr, lock included, walks the count back up.
+      reveal: >-
+        The two counters free two different things at two different times. use_count reaching
+        zero destroys the object; weak_count reaching zero releases the block that was counting
+        it. That gap is why an expired weak_ptr can still be asked whether it expired: the thing
+        holding the answer outlives the thing it was answering about.
+
+    - id: the-cycle-nothing-collects
+      kind: spot
+      prompt: >-
+        Neither destructor ever prints. A owns B in this design, so click the declaration that
+        should not have been an owner.
+      lang: cpp
+      source: |
+        struct NodeB;
+
+        struct NodeA {
+            std::shared_ptr<NodeB> b_ptr;
+            ~NodeA() { std::cout << "NodeA destroyed\n"; }
+        };
+
+        struct NodeB {
+            std::shared_ptr<NodeA> a_ptr;
+            ~NodeB() { std::cout << "NodeB destroyed\n"; }
+        };
+
+        void leak_cycle() {
+            auto a = std::make_shared<NodeA>();
+            auto b = std::make_shared<NodeB>();
+            a->b_ptr = b;
+            b->a_ptr = a;
+        }
+      targets: [8]
+      decoys:
+        '3': A owning B is the direction this design intends, and a shared_ptr is how that intent gets written down.
+        '13': Creating A with make_shared is right, and it costs one allocation for the object and its control block rather than two.
+        '15': Handing B to A is the ownership link the design asked for. Raising B's use_count here is meant to happen.
+        '16': This assignment closes the cycle, and a back reference is a reasonable thing to want. What is wrong is the type of the field it writes into.
+      hints:
+        - Write down each object's use_count on the last line of the function, then subtract the one the local variable was holding.
+        - Both fields own, so each object is held alive by the other, and the two locals going out of scope leaves both counts at one.
+        - One of the two links is the design's ownership and the other is a back reference. Only one of them has any business being counted.
+      reveal: >-
+        Reference counting cannot collect a cycle, because every reference in it is justified by
+        another reference in it. The fix is not a cleverer count. It is deciding which direction
+        owns and declaring the other direction weak_ptr. Tracing collectors dodge this by asking
+        what is reachable from the roots instead, which is why Python ships a cycle detector on
+        top of its counts.
 ---
 
 Raw pointers in C and C++ convey no ownership semantics. When a function receives a `T*`, it cannot know whether it is responsible for deallocating the memory, whether other pointers alias the same address, or whether the pointee has already been freed. Modern C++ resolves this ambiguity through smart pointers that encode ownership semantics directly in the type system.

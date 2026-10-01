@@ -7,6 +7,223 @@ estimatedMinutes: 25
 exercise:
   id: mark-and-sweep-gc
   timeboxMinutes: 30
+challenges:
+  goal: Decide which objects a collector may reclaim, and follow the colouring that lets it decide without stopping the program.
+
+  readingOptional: true
+  steps:
+    - id: who-survives
+      kind: assign
+      prompt: >-
+        This is the whole heap and the whole root set. Sort every object by what would have to
+        run before its memory comes back.
+      context:
+        as: code
+        lang: text
+        source: |
+          root set: A
+
+          A -> B
+          B -> C
+          X -> Y
+          Y -> X
+          E -> E
+          F -> A
+          D    (no outgoing references)
+
+          Nothing in the heap points at X, Y, D, E or F.
+      buckets:
+        - id: live
+          label: Stays. It is reachable.
+          note: A path of references runs from the root set to it, which is the whole definition of live.
+        - id: counted
+          label: Reference counting alone reclaims it
+          note: Its count reaches zero on its own, so it goes back the instant the last reference disappears.
+        - id: traced
+          label: Only a tracing collector reclaims it
+          note: Unreachable and yet its count never falls to zero, because the references keeping it alive come from inside the garbage.
+      items:
+        - id: obj-a
+          label: A
+          bucket: live
+          because: The root set names it directly, so it is live no matter what else in the heap points at it.
+        - id: obj-b
+          label: B
+          bucket: live
+          because: Reachable through A. Liveness is about the path from a root, not about how many references exist.
+        - id: obj-c
+          label: C
+          bucket: live
+          because: Two hops from a root is still reachable. There is no depth at which the collector stops caring.
+        - id: obj-d
+          label: D
+          bucket: counted
+          because: Nothing points at it, so its count is already zero and the counting runtime frees it without any search.
+        - id: obj-f
+          label: F
+          bucket: counted
+          because: Nothing points at F, so it is freed on the spot. Freeing it also drops its reference to A, which A survives because a root still holds it.
+        - id: obj-x
+          label: X
+          bucket: traced
+          because: Y holds a reference to X, so X's count is 1. That Y is itself garbage is a fact no counter can see.
+        - id: obj-y
+          label: Y
+          bucket: traced
+          because: The mirror of X. Two objects can keep each other's counts above zero indefinitely with nothing outside pointing at either.
+        - id: obj-e
+          label: E
+          bucket: traced
+          because: A cycle of one. Its own reference keeps its count at 1, which is the smallest possible version of the same leak.
+      hints:
+        - Start from the root set and follow the arrows. Anything you land on is settled before you consider counts at all.
+        - Of the five you did not reach, ask which ones have a reference pointing at them and where that reference comes from.
+        - A reference from inside the garbage still counts, and that is exactly the case a counter cannot distinguish.
+      reveal: >-
+        Reference counting asks how many references point here and tracing asks whether a path
+        leads here from outside. Those agree on everything except a cycle, where the count is
+        propped up by the very objects that are dying with it. That gap is not a bug in an
+        implementation, it is what the algorithm measures.
+
+    - id: why-cpython-ships-both
+      kind: choice
+      prompt: >-
+        CPython increments and decrements a counter on every assignment and also runs a periodic
+        cycle collector. Why keep both?
+      options:
+        - id: complements
+          label: Counting reclaims the ordinary case the moment it dies, and the tracer runs only to find the cycles counting structurally cannot see.
+          correct: true
+          note: The two cover disjoint failure modes. Counting handles the overwhelming majority immediately and for free, and the tracer pays a pause only for the residue counting cannot reach.
+        - id: faster
+          label: Counting is a faster implementation of the same algorithm, and the tracer is the fallback for when it falls behind.
+          note: They do not compute the same thing. Counting is local, immediate and blind to cycles. Tracing is global, periodic and sees them. Neither is a tuned version of the other.
+        - id: compaction
+          label: The tracer exists to compact the heap and remove the fragmentation counting leaves behind.
+          note: CPython never moves an object. C extensions hold raw PyObject addresses that nothing could rewrite, so the collector may free but not relocate.
+        - id: determinism
+          label: Counting is there so destructors run at a predictable moment, and correctness comes entirely from the tracer.
+          note: Prompt destruction is a real benefit of counting, but it is not why it is load bearing. Take counting out and almost nothing would be released between collections.
+      hints:
+        - Look back at how the eight objects in the previous step split. Neither mechanism handled all of them.
+        - One of the two costs nothing on the common path and misses a specific shape. The other catches that shape and costs a pause.
+        - Ask what would still be freed correctly if you deleted each mechanism in turn.
+      reveal: >-
+        This is the usual answer when two memory strategies coexist: one is cheap and incomplete
+        and the other is expensive and complete, and you run the expensive one only over what the
+        cheap one could not settle. It is why CPython's gc module exposes a threshold rather than
+        an on switch.
+
+    - id: where-the-walk-stops
+      kind: spot
+      prompt: >-
+        This collector frees objects that are still reachable. Click the line where the mark
+        phase stops going deeper.
+      lang: python
+      source: |
+        def collect(roots, allocated):
+            worklist = [r for r in roots if r in allocated]
+            for r in worklist:
+                r.is_marked = True
+
+            while worklist:
+                node = worklist.pop()
+                for child in node.references:
+                    if child in allocated:
+                        child.is_marked = True
+
+            freed = []
+            for node_id, node in list(allocated.items()):
+                if not node.is_marked:
+                    freed.append(node_id)
+                    del allocated[node_id]
+                else:
+                    node.is_marked = False
+            return freed
+      targets: [9]
+      decoys:
+        '1': Filtering the roots against the registry is correct. A root naming an object the heap no longer has is not something to traverse.
+        '6': pop makes this a depth first walk. Taking from the front would make it breadth first, and mark and sweep gives the same answer either way.
+        '12': Iterating over a copy of the registry is deliberate, because the loop below deletes from the original while it runs.
+        '17': Clearing the flag on a survivor is the reset for the next cycle, and doing it here avoids a second pass over the whole heap.
+      hints:
+        - Every object one hop from a root is marked. Nothing two hops away is.
+        - The loop runs while the worklist is non empty, and after the roots go in, ask what ever puts anything else there.
+        - Marking an object records that it is live. It does not record that its own references still need following.
+      reveal: >-
+        Marking and enqueuing are two separate obligations and this code discharges only the
+        first. A grey object is one that has been reached but whose references have not been
+        followed, and the worklist is the only place greyness is written down. Drop the append
+        and the walk terminates at depth one, reporting a correct looking freed list that
+        contains live objects.
+
+    - id: colour-it-through-a-cycle
+      kind: machine
+      prompt: >-
+        Follow one object through a full collection and into the next one. Get it back to black
+        having survived a completed cycle and having been rescued once by the write barrier.
+      initial: white
+      vars:
+        cycles: 0
+        barriers: 0
+      states:
+        white:
+          label: White, not yet reached this cycle
+          note: White is the default and it is also the verdict. An object still white when the sweep runs is garbage by definition.
+        grey:
+          label: Grey, reached but not yet followed
+          note: Grey is an obligation the collector owes itself. It is on the worklist and its outgoing references are still unexamined.
+        black:
+          label: Black, reached and fully followed
+          note: Black means live and settled. The invariant the collector maintains is that no black object points at a white one.
+        freed:
+          label: Swept
+          terminal: true
+          error: true
+          note: The sweep took it because it was white at the moment the sweep ran, whatever the program still thought it held.
+      transitions:
+        - from: white
+          on: a root reference reaches it
+          to: grey
+          note: Shading white to grey is the only way an object enters the live set. Nothing else in the algorithm writes a mark.
+        - from: grey
+          on: follow its outgoing references
+          to: black
+          note: The children go grey as this one goes black, which is what keeps the no black points at white invariant true.
+        - from: black
+          on: the sweep phase runs
+          to: black
+          note: The sweep only removes white objects. A black one is left alone and keeps its allocation.
+        - from: white
+          on: the sweep phase runs
+          to: freed
+          note: The sweep does not consult the program. White is the whole of the evidence it uses.
+        - from: black
+          on: the cycle ends and flags reset
+          to: white
+          effects: [{ var: cycles, op: inc, value: 1 }]
+          note: Every collection starts from an all white heap, so surviving one cycle buys nothing in the next one.
+        - from: white
+          on: a black object is made to point at it
+          effects: [{ var: barriers, op: inc, value: 1 }]
+          to: grey
+          note: The write barrier fires on the assignment itself, shading the target grey so the mutator cannot hide a live object behind an already finished parent.
+      mode: drive
+      win:
+        state: black
+        maxSteps: 12
+        requires:
+          - { var: cycles, cmp: gte, value: 1 }
+          - { var: barriers, cmp: gte, value: 1 }
+      hints:
+        - Surviving is not enough. The budget asks for a completed cycle and then a second life that started from white.
+        - There is a way out of white other than being found from a root, and it is the one the running program causes rather than the collector.
+        - Reach black, let the cycle end, and then have the program store a reference into an object the collector has already finished with.
+      reveal: >-
+        Without the barrier this run has a hole in it: the collector finishes an object, the
+        program then stores a reference from it into something still white, and the sweep takes
+        an object that is reachable. The barrier is the price of not stopping the world, and it
+        is paid on every pointer write for the whole of the marking phase.
 ---
 
 Automatic memory management ensures programs reclaim heap-allocated memory when objects are no longer accessible by running code. Dynamic runtimes employ two primary paradigms for memory reclamation: reference counting and tracing garbage collection.

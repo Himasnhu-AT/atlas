@@ -7,6 +7,188 @@ estimatedMinutes: 25
 exercise:
   id: hash-map-open-addressing
   timeboxMinutes: 30
+challenges:
+  goal: Probe a flat table for a key, and see why a deleted slot has to look different from an empty one.
+
+  steps:
+    - id: which-slot-does-it-land-in
+      kind: numeric
+      prompt: >-
+        The table has a capacity of 8 and reduces a hash with a mask rather than a division.
+        Which slot does this key hash to?
+      context:
+        as: code
+        lang: text
+        source: |
+          capacity = 8
+          h(key)   = 0x9E3779B9
+
+          index = h(key) & (capacity - 1)
+      answer: 1
+      tolerance: 0
+      scaleHint: >-
+        Anything above 7 is not a slot in a table of 8. Whatever was computed has not been
+        reduced into the table's range yet.
+      hints:
+        - A power of two capacity turns the modulo into a mask, so most of the hash never reaches the answer.
+        - The mask is 7, which keeps the lowest three bits of the hash and discards everything above them.
+        - Only the last hex digit matters, and only three of its four bits.
+      reveal: >-
+        The mask is why hash quality is a claim about the bottom of the word. A function that
+        mixes beautifully in the high bits and leaves the low ones nearly untouched spreads
+        perfectly across the whole integer range and still piles every key into the same handful
+        of slots. Avalanche is a requirement on every bit for exactly this reason.
+
+    - id: flat-or-chained
+      kind: choice
+      prompt: >-
+        Separate chaining and open addressing both resolve collisions correctly. On current
+        hardware, what actually separates them?
+      options:
+        - id: complexity
+          label: Open addressing has the better asymptotic complexity.
+          note: They match on paper. Both are average constant time and both degrade to linear in the worst case, which is why the argument between them is entirely about constants.
+        - id: cache
+          label: Open addressing probes adjacent slots that arrived in the same cache line, while chaining follows a heap pointer for every probe step.
+          correct: true
+          note: A probe step in a flat table is usually free, because the next few slots came in on the same 64 byte fetch. A probe step in a chain is a dependent load into scattered memory, and a dependent load is the one thing a CPU cannot start early.
+        - id: memory
+          label: Chaining uses less memory, because it allocates only what it needs.
+          note: It allocates a node and a next pointer per entry and pays the allocator's header on each one. A flat table sitting at a load factor of 0.7 usually comes out smaller for the same number of entries.
+        - id: deletion
+          label: Chaining is much simpler to delete from, and that decides it.
+          note: Deletion really is simpler with a chain, because unlinking a node needs no tombstone. It is rarely the operation a table gets chosen for, and it is a reason to prefer chaining rather than the reason flat tables win.
+      hints:
+        - Both are average constant time, so whatever separates them is not in the complexity.
+        - Count the memory fetches one probe step costs in each, and ask whether the processor can begin the next before the previous one has landed.
+        - One of the two layouts puts the next thing you are going to look at inside the bytes you have already paid to fetch.
+      reveal: >-
+        The difference is a constant, and the constant is a cache miss, which is a factor of
+        fifty on a probe step. That is why nearly every high performance table written since
+        caches got deep is flat. What chaining still buys is reference stability: its nodes
+        never move on a resize, so a pointer taken into the table stays valid.
+
+    - id: probe-past-the-grave
+      kind: machine
+      prompt: >-
+        Slot 1 held a key that was deleted. Look up third_alpha, which hashes to slot 0, and
+        decide at each slot whether the probe sequence has ended.
+      context:
+        as: code
+        lang: text
+        source: |
+          slot 0: ("alpha", 1)
+          slot 1: TOMBSTONE
+          slot 2: ("third_alpha", 3)
+          slot 3: empty, never written
+
+          looking up "third_alpha", h("third_alpha") & 3 == 0
+      initial: s0
+      vars: { probes: 0 }
+      states:
+        s0:
+          label: At slot 0, which holds alpha
+          note: Occupied by a different key, which is what a collision looks like from the inside.
+        s1:
+          label: At slot 1, which holds a tombstone
+          note: Something was deleted here. Whether the chain continues past it is the entire question.
+        s2:
+          label: At slot 2, which holds third_alpha
+        s3:
+          label: At slot 3, which was never written
+          note: Nothing was ever inserted here, so nothing could have been probed past it.
+        found:
+          label: third_alpha found
+          terminal: true
+        missing:
+          label: Reported as not present
+          error: true
+      transitions:
+        - from: s0
+          on: keys differ, probe on
+          to: s1
+          effects: [{ var: probes, op: inc, value: 1 }]
+          note: An occupied slot holding somebody else's key is the ordinary case. The sequence carries on.
+        - from: s0
+          on: give up, not present
+          to: missing
+          note: Stopping at an occupied slot would mean no two keys could ever collide, which is the situation the table is built to survive.
+        - from: s1
+          on: a tombstone is not empty, probe on
+          to: s2
+          effects: [{ var: probes, op: inc, value: 1 }]
+          note: The marker says something was here and has gone, which is a statement about this slot rather than about the ones after it.
+        - from: s1
+          on: give up, not present
+          to: missing
+          note: This is the failure the tombstone exists to prevent. Treat a deleted slot as empty and every key that probed past it becomes unreachable.
+        - from: s2
+          on: keys match, take the value
+          to: found
+        - from: s2
+          on: keys differ, probe on
+          to: s3
+          effects: [{ var: probes, op: inc, value: 1 }]
+          note: The key is right here. Walking past it costs a probe and finds an empty slot, which ends the search with the wrong answer.
+        - from: s3
+          on: the slot is empty, give up
+          to: missing
+          note: Stopping at a genuinely empty slot is correct, and it is the only place stopping is correct. An insertion would have taken this slot before going any further.
+        - from: missing
+          on: start the lookup again
+          to: s0
+          effects: [{ var: probes, op: set, value: 0 }]
+      mode: drive
+      win:
+        state: found
+        maxSteps: 8
+        requires:
+          - { var: probes, cmp: lte, value: 2 }
+      hints:
+        - Only one kind of slot ends a probe sequence, and there are three kinds here.
+        - A tombstone and an empty slot look equally unhelpful and mean opposite things about what lies further along.
+        - Two probes get you to the key, and the deleted slot is not one of the places to stop.
+      reveal: >-
+        A lookup ends at an empty slot because an insertion would have claimed that slot rather
+        than walking past it, so nothing can be behind one. A tombstone carries no such
+        promise. It is a third state, not an absence, and it exists purely so a deletion cannot
+        cut a probe chain in half.
+
+    - id: the-delete-that-cuts-the-chain
+      kind: spot
+      prompt: >-
+        Deleting works and the key really does disappear. A lookup for a completely different
+        key starts failing afterwards. Click the line that causes it.
+      lang: python
+      source: |
+        def delete(self, key):
+            idx = self._hash(key) & (self.capacity - 1)
+            for i in range(self.capacity):
+                pos = (idx + i) % self.capacity
+                slot = self.slots[pos]
+                if slot is EMPTY:
+                    return False
+                if slot is not TOMBSTONE and slot.key == key:
+                    self.slots[pos] = EMPTY
+                    self.size -= 1
+                    return True
+            return False
+      targets: [8]
+      decoys:
+        '1': Masking with capacity minus one is the modulo, and it is the right one for a power of two capacity.
+        '5': Stopping the search at a genuinely empty slot is correct. An insertion would have taken that slot rather than probing past it.
+        '7': Skipping tombstones while comparing is right, because a tombstone holds no key to compare against.
+        '9': Keeping the count of live entries accurate is right, and it is a separate decision from what gets written into the slot.
+      hints:
+        - The deletion itself is fine. Look at what a later lookup for some other key sees when it reaches this slot.
+        - Anything that collided into this bucket and landed further along is now sitting behind a slot that claims the sequence stopped.
+        - The slot has to say something was here and is gone, which is a different claim from nothing was ever here.
+      reveal: >-
+        An empty slot is a promise that the probe sequence ended, and every lookup takes that
+        promise at face value. Writing one over a deleted entry strands every key that probed
+        past it, and the symptom appears on an unrelated key at an unrelated time. It is also
+        why the rehash threshold counts tombstones alongside live entries: they cost probe steps
+        and hold nothing, so a table full of them is slow while looking empty.
 ---
 
 Associative containers map discrete keys to corresponding values. In C++, ordered associative containers (`std::map`, `std::set`) use self-balancing red-black trees, providing $O(\log n)$ lookup, insertion, and deletion. Unordered associative containers (`std::unordered_map`, `std::unordered_set`) use hash tables, achieving average-case $O(1)$ operations by projecting keys into integer bucket indices.

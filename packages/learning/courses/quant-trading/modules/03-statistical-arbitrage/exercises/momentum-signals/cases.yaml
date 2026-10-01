@@ -1,0 +1,25 @@
+version: 1
+cases:
+  TestMomentumSignals.test_insufficient_history:
+    condition: 'two prices handed to a lookback that asks for five'
+    hints:
+      - 'A lookback of five needs six prices, because the returns are the gaps between them.'
+      - 'A signal computed on a window that was never filled is worse than no signal, because nothing downstream can tell the difference.'
+      - 'Compare the length against lookback plus one and return 0.0 before a single return is computed.'
+    concept: quant-stat-arb.momentum-and-trend
+
+  TestMomentumSignals.test_positive_momentum_with_vol_scaling:
+    condition: 'ten sessions climbing a steady one percent a day'
+    hints:
+      - 'The signal has two parts. Direction comes from the return over the lookback; size comes from how much volatility the position is allowed to carry.'
+      - 'The scale is target volatility over realised volatility, so a series this quiet asks for more leverage than the mandate allows, which is what the clamp is for.'
+      - 'Take the sample standard deviation of the daily returns, annualise it by the square root of the factor, divide the target volatility by it, and clamp the signed result into minus one to one.'
+    concept: quant-stat-arb.momentum-and-trend
+
+  TestMomentumSignals.test_negative_momentum:
+    condition: 'ten sessions sliding a steady one percent a day'
+    hints:
+      - 'The volatility scale is positive in both directions, so the sign has to come from somewhere else.'
+      - 'Volatility does not care which way the price went. A one percent daily fall is as volatile as a one percent daily rise, so the same scale applies with the sign of the lookback return.'
+      - 'Multiply the scale by minus one when the return across the lookback is negative, and keep the clamp symmetric so the floor is minus one.'
+    concept: quant-stat-arb.momentum-and-trend

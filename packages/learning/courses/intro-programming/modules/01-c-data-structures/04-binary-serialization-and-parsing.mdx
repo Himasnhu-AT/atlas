@@ -7,6 +7,158 @@ estimatedMinutes: 25
 exercise:
   id: binary-packet-parser
   timeboxMinutes: 30
+challenges:
+  goal: Lay a frame down on the wire byte by byte, and refuse one whose own header is lying about it.
+
+  steps:
+    - id: how-long-is-the-frame
+      kind: numeric
+      prompt: >-
+        A sender frames a 5-byte payload with this protocol. How many bytes go out on the
+        wire in total?
+      context:
+        as: table
+        caption: One frame, in order
+        columns: [field, width, notes]
+        rows:
+          - [magic, 2 bytes, 'always 0xAA55']
+          - [type, 1 byte, '']
+          - [flags, 1 byte, '']
+          - [sequence id, 4 bytes, big-endian]
+          - [payload length, 2 bytes, big-endian]
+          - [payload, N bytes, 'N is what payload length says']
+          - [checksum, 2 bytes, over everything before it]
+      answer: 17
+      unit: bytes
+      tolerance: 0
+      scaleHint: >-
+        An answer over a hundred is counting bits. The widths in the table are bytes and so is
+        the answer.
+      hints:
+        - Add the fixed fields first. They do not depend on the payload at all.
+        - The header is ten bytes and the checksum is another two, so an empty payload is still twelve bytes on the wire.
+        - Only one row in the table varies, and here it is five.
+      reveal: >-
+        Twelve bytes of frame around five bytes of message. That ratio is why protocols that
+        carry small messages batch them, and why the payload length field is only two bytes
+        wide: a design that expects a frame to be worth its own header.
+
+    - id: which-byte-goes-first
+      kind: blanks
+      prompt: >-
+        The sequence id is 0xDEADBEEF and it goes out in network byte order. Fill in the four
+        bytes the receiver reads, in the order it reads them.
+      lang: text
+      template: |
+        seq_id = 0xDEADBEEF, written big-endian at offsets 4 through 7
+
+        data[4] = {{1}}
+        data[5] = {{2}}
+        data[6] = {{3}}
+        data[7] = {{4}}
+      blanks:
+        - n: 1
+          as: select
+          options: ["0xDE", "0xAD", "0xBE", "0xEF"]
+          accept: ["0xDE"]
+          note: Big-endian puts the most significant byte at the lowest address, so the wire reads the same way the number is written.
+        - n: 2
+          as: select
+          options: ["0xDE", "0xAD", "0xBE", "0xEF"]
+          accept: ["0xAD"]
+          note: Second most significant byte, second lowest address. The order never breaks up once it starts.
+        - n: 3
+          as: select
+          options: ["0xDE", "0xAD", "0xBE", "0xEF"]
+          accept: ["0xBE"]
+          note: Third from the top of the number, third from the start of the field.
+        - n: 4
+          as: select
+          options: ["0xDE", "0xAD", "0xBE", "0xEF"]
+          accept: ["0xEF"]
+          note: The least significant byte lands at the highest address, which is where the field ends.
+      hints:
+        - The four bytes are the four you can see in the literal. What is in question is which one comes out of the socket first.
+        - Big-endian and little-endian disagree about which end of the number is stored at the lowest address, and one of them agrees with how the number is written down.
+        - Network byte order is big-endian, so data[4] through data[7] spell the constant left to right.
+      reveal: >-
+        An x86 machine holds this integer in memory as EF BE AD DE, and the frame carries it as
+        DE AD BE EF. htonl and int.from_bytes with big exist because those two are different on
+        most machines people actually use, and identical on the machines the protocol was
+        designed on, which is how the bug gets shipped.
+
+    - id: the-order-of-refusals
+      kind: order
+      prompt: >-
+        A frame arrives from the network and none of it is trusted yet. Put the checks in the
+        order a parser has to run them.
+      items:
+        - id: min-size
+          label: Refuse anything shorter than 12 bytes
+        - id: magic
+          label: Check the first two bytes are 0xAA55
+        - id: read-len
+          label: Read payload length out of the header
+        - id: len-agrees
+          label: Refuse unless the buffer is exactly 10 plus payload length plus 2
+        - id: checksum
+          label: Recompute the checksum over everything but the last two bytes and compare
+        - id: dispatch
+          label: Hand the payload to the application
+      solution: [min-size, magic, read-len, len-agrees, checksum, dispatch]
+      because:
+        min-size: Every check after this one reads a byte at a fixed offset, and a buffer too short to hold the header makes all of them out of bounds reads.
+        magic: If the first two bytes are not the ones this protocol starts with, the rest of the buffer is not this protocol and nothing in it means what the layout says.
+        read-len: The length has to come out of the header before anything can be said about it, and reading it is not the same as believing it.
+        len-agrees: This is the check that turns the declared length into a known one. Until it passes, payload length is a number an attacker chose.
+        checksum: The checksum lives at the end of the frame, so where it is depends on the length being right.
+        dispatch: Nothing goes to the application before every byte of the frame has been accounted for.
+      hints:
+        - Two of these are about how many bytes actually arrived, and they do not happen next to each other.
+        - Reading a field and trusting it are separate steps, and one check sits between them.
+        - You cannot find the checksum until you know where the frame ends.
+      reveal: >-
+        The order is forced by what each step needs to already be true. Every check validates
+        the ground the next one stands on, which is why moving any of them earlier turns it into
+        an out of bounds read rather than a rejection.
+
+    - id: the-length-it-claims
+      kind: spot
+      prompt: >-
+        A frame arrives claiming a 50000-byte payload with only 100 bytes behind it. This
+        parser accepts it. Click the line that lets it through.
+      lang: python
+      source: |
+        def deserialize(data):
+            if len(data) < 12:
+                raise ValueError("frame is shorter than a header")
+            if data[0:2] != b"\xaa\x55":
+                raise ValueError("bad magic")
+
+            seq_id = int.from_bytes(data[4:8], "big")
+            plen = int.from_bytes(data[8:10], "big")
+            payload = data[10:10 + plen]
+
+            want = int.from_bytes(data[-2:], "big")
+            if sum(data[:-2]) % 65536 != want:
+                raise ValueError("checksum mismatch")
+
+            return seq_id, payload
+      targets: [8]
+      decoys:
+        '1': Twelve is the header plus the checksum with an empty payload, so this is the right floor. It says nothing about the length the frame declares for itself.
+        '3': Checking magic before reading any other field is exactly where it belongs. A frame that fails here is not this protocol at all.
+        '7': Reading the declared length out of the header is unavoidable. Reading it is not the mistake.
+        '11': The checksum is computed over the bytes that arrived, so it agrees with itself whatever the header claimed. A short frame passes this honestly.
+      hints:
+        - Two lengths are in play, how many bytes arrived and how many the header says the payload is, and only one of them has been checked.
+        - Slicing past the end of a bytes object does not raise in Python. It returns whatever is actually there, which can be nothing.
+        - Nothing between reading plen and using it asks whether the buffer is long enough to hold the payload it promises.
+      reveal: >-
+        A length field is input, not fact. Here the slice truncates in silence and the caller
+        gets a payload shorter than the one it was told about. The same missing comparison in C
+        reads 49900 bytes of whatever followed the buffer and sends them back, which is the
+        shape of Heartbleed. One line, two very different bad days.
 ---
 
 In distributed systems and networking, data structures cannot be transmitted across networks or written to disk as raw memory pointers. Data structures must be converted into standardized sequences of bytes through serialization, and reconstructed on receiving systems via deserialization.

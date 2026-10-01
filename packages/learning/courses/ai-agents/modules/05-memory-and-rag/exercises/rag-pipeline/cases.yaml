@@ -1,0 +1,257 @@
+version: 1
+cases:
+  TestIngest.test_splits_every_document:
+    condition: 'three documents whose paragraphs have to become seven chunks in the store'
+    hints:
+      - 'A whole document is too large to retrieve usefully, so every one of them is split.'
+      - 'Skipping a document, or adding it whole, leaves part of the corpus unfindable.'
+      - 'Split each document and add all the resulting chunks to the store.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestIngest.test_returns_the_chunks_it_created:
+    condition: 'an ingest whose caller wants to see what went into the store'
+    hints:
+      - 'The caller cannot inspect what was added if the only side effect is inside the store.'
+      - 'Returning a count leaves them unable to check a citation or a piece of metadata.'
+      - 'Return the list of chunk objects you built.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestIngest.test_chunks_are_in_document_order:
+    condition: 'a corpus whose chunks must appear in document order and, within each, in position order'
+    hints:
+      - 'Order is what makes an ingest reproducible and a citation list readable.'
+      - 'Gathering chunks per document and merging them later reorders them.'
+      - 'Walk the documents in order and append each document''s chunks as you go.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestIngest.test_indexes_restart_for_each_document:
+    condition: 'a second document whose first chunk must be numbered zero again'
+    hints:
+      - 'The index is a position within its document, and the source together with it is the identifier.'
+      - 'A counter running across the whole corpus makes an index that changes when an unrelated document is re-ingested.'
+      - 'Number the chunks from zero inside each document''s split.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestIngest.test_carries_the_metadata_a_citation_needs:
+    condition: 'a chunk that has to know its source file and its document title'
+    hints:
+      - 'A retrieved chunk has lost its document, so it has to carry the identity with it.'
+      - 'The section key is written even when it is empty, so nothing has to guard a missing key.'
+      - 'Build the metadata mapping with all three keys as each chunk is created.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestIngest.test_embeds_the_whole_corpus_in_one_request:
+    condition: 'three documents that must cost one embedding request rather than three'
+    hints:
+      - 'Ingest is the step that touches the entire corpus, so batching is where the savings are.'
+      - 'Adding inside the document loop is one request per document, and it looks identical in every test that does not count requests.'
+      - 'Collect every chunk first and add them to the store in one call.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestIngest.test_an_empty_corpus_costs_nothing:
+    condition: 'an ingest with no documents at all'
+    hints:
+      - 'An empty batch is still a round trip, and some providers reject it outright.'
+      - 'The store still has to be usable afterwards rather than left in a broken state.'
+      - 'Return early from the add when there is nothing to embed.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestIngest.test_the_store_can_find_a_specific_chunk:
+    condition: 'a price question whose answer sits in one particular chunk'
+    hints:
+      - 'What was embedded has to be what the search compares against, or the pairing is meaningless.'
+      - 'Embedding the bare text without its headings loses the context that makes a fragment findable.'
+      - 'Embed the chunk with its heading prefix and keep the vector alongside the chunk it came from.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestFormatContext.test_exact_layout:
+    condition: 'two hits that have to render as numbered blocks in a fixed layout'
+    hints:
+      - 'The layout is a contract with the system prompt, which tells the model what a bracketed number means.'
+      - 'The number and the citation share a line, and the text starts on the next one.'
+      - 'Build one block per hit and join the blocks with a blank line.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestFormatContext.test_numbers_from_one:
+    condition: 'a numbering the model has to copy into its answer'
+    hints:
+      - 'The model writes these numbers back, and people read them.'
+      - 'Numbering from zero gives you a first source labelled zero, which nobody writes in prose.'
+      - 'Start the enumeration at one.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestFormatContext.test_blocks_are_separated_by_a_blank_line:
+    condition: 'two chunks that must not run together into one passage'
+    hints:
+      - 'Without the blank line the two chunks read as one passage.'
+      - 'The model then attributes the second chunk''s facts to the first chunk''s number.'
+      - 'Join the blocks with two newlines rather than one.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestFormatContext.test_carries_the_citation_next_to_the_number:
+    condition: 'a block whose number has to be paired with the source it stands for'
+    hints:
+      - 'The number is what the model cites and the citation is what a person follows.'
+      - 'A number with no source behind it cannot be checked afterwards.'
+      - 'Put the citation on the same line as the bracketed number.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestFormatContext.test_chunk_text_goes_in_unmodified:
+    condition: 'a chunk whose text contains a newline of its own'
+    hints:
+      - 'Chunks carry real formatting, and flattening it changes what the model reads.'
+      - 'Collapsing the newlines here would silently rewrite the source.'
+      - 'Insert the chunk text as it stands.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestFormatContext.test_no_hits:
+    condition: 'a context block built from nothing retrieved'
+    hints:
+      - 'An empty string here leaves the prompt saying Context and then nothing, which reads as a formatting bug.'
+      - 'Saying plainly that nothing was retrieved is what lets the model decline honestly.'
+      - 'Return the fixed placeholder when the hit list is empty.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestBuildMessages.test_three_messages_in_order:
+    condition: 'a prompt made of instructions, context and question as separate turns'
+    hints:
+      - 'Concatenating everything into one message loses the boundary between the rule and the material.'
+      - 'The context and the question are both user turns, but they are not the same turn.'
+      - 'Emit the system message, then the context, then the question.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestBuildMessages.test_the_system_message_carries_the_grounding_rule:
+    condition: 'a system prompt that must tell the model exactly what to say when it cannot answer'
+    hints:
+      - 'Telling the model to say it does not know leaves it inventing its own wording every time.'
+      - 'The caller compares the reply against a fixed sentence, so the model has to be given that sentence.'
+      - 'Put the exact refusal string into the system prompt rather than paraphrasing it.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestBuildMessages.test_the_context_message:
+    condition: 'a retrieved passage that has to be labelled as context'
+    hints:
+      - 'Unlabelled text pasted into a user turn reads as something the user said.'
+      - 'A short header before it is what marks it as reference material.'
+      - 'Prefix the formatted blocks with the context label and a blank line.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestBuildMessages.test_the_question_comes_last_and_alone:
+    condition: 'a question that must not be buried above the retrieved material'
+    hints:
+      - 'Placed above a wall of retrieved text the question competes with everything you just pasted.'
+      - 'The last turn is what the model answers, so the question belongs there.'
+      - 'Append the question as its own final message with nothing else in it.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestBuildMessages.test_works_with_no_hits:
+    condition: 'a prompt built when nothing was retrieved'
+    hints:
+      - 'The shape of the prompt does not change just because the context is empty.'
+      - 'Dropping the context message leaves the model with no idea it was given nothing.'
+      - 'Build the same three messages and let the placeholder fill the context.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_returns_the_model_reply:
+    condition: 'a question the corpus answers, whose reply comes back as a record'
+    hints:
+      - 'The caller needs the text, the sources and whether anything was retrieved at all.'
+      - 'Returning a bare string leaves them unable to tell a grounded answer from a refusal.'
+      - 'Return a record carrying the reply text, the source citations and the grounded flag.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_sends_the_grounded_prompt:
+    condition: 'a request that has to carry the system rule and the retrieved text'
+    hints:
+      - 'The retrieval is pointless if what was retrieved does not reach the request.'
+      - 'Sending the question alone gives the model nothing to ground its answer in.'
+      - 'Build the messages from the surviving hits and send that list.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_makes_exactly_one_model_call:
+    condition: 'an answered question that must cost one call and no more'
+    hints:
+      - 'Retrieval is arithmetic and needs no model, so only the generation step calls one.'
+      - 'A second call to check or reword the answer doubles the cost of every question.'
+      - 'Make the single call after the hits have been filtered.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_sources_come_from_the_hits:
+    condition: 'a request for two sources, which have to be the two chunks that were sent'
+    hints:
+      - 'The sources are a record of what your code put into the prompt.'
+      - 'Reading them back out of the store, or off the whole corpus, reports things that were never sent.'
+      - 'Build the source list from the citations of the hits you used.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_sources_line_up_with_the_numbering:
+    condition: 'a source list whose positions must match the bracketed numbers in the context'
+    hints:
+      - 'The model cites a number and the caller resolves it through this list.'
+      - 'Sorting or deduplicating the sources afterwards breaks that correspondence silently.'
+      - 'Build the list from the same hits in the same order the context was numbered in.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_sources_do_not_depend_on_what_the_model_wrote:
+    condition: 'a reply carrying no citation markers at all'
+    hints:
+      - 'A number the model wrote is a claim, not a record.'
+      - 'Parsing the reply for citations means a model that forgot to cite produces an answer with no sources.'
+      - 'Derive the sources from the hits regardless of what the reply contains.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_drops_hits_below_the_threshold:
+    condition: 'three retrieved chunks of which the third scores below the floor'
+    hints:
+      - 'The retrieval always fills the requested count, so weak chunks arrive alongside good ones.'
+      - 'A weak chunk in the context is material the model will happily answer from.'
+      - 'Filter the hits by score before building the prompt.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_declines_when_nothing_is_relevant:
+    condition: 'a question about geology against a corpus about a software product'
+    hints:
+      - 'There is always a least bad chunk, and answering from it is how a wrong answer sounds confident.'
+      - 'The refusal is the fixed sentence, so the caller can recognise it without parsing prose.'
+      - 'Return the refusal with no sources and the grounded flag unset when nothing clears the floor.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_declining_costs_no_model_call:
+    condition: 'a question with nothing above the threshold, which must not reach the model'
+    hints:
+      - 'Calling the model buys a fluent paragraph assembled from whatever the least bad chunks said, and pays for it.'
+      - 'The instruction in the system prompt asks the model to decline, and the threshold is the half of that promise you can enforce.'
+      - 'Return the refusal before the call rather than after it.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_declines_on_an_empty_store:
+    condition: 'a question asked against a store nothing has been added to'
+    hints:
+      - 'An empty store is an ordinary state, usually a misconfigured ingest.'
+      - 'The search returns nothing, and that has to travel all the way out as a refusal.'
+      - 'The same empty hit list that handles an irrelevant question already covers this.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_a_lower_threshold_lets_a_weak_match_through:
+    condition: 'the same unanswerable question with the score floor set to zero'
+    hints:
+      - 'With the floor removed there is always a least bad chunk, and this is what a confident wrong answer looks like from the inside.'
+      - 'The caller''s value has to be honoured even when it produces that.'
+      - 'Compare against the supplied floor rather than clamping it to a minimum of your own.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_an_empty_reply_is_not_turned_into_a_refusal:
+    condition: 'a grounded call whose model reply came back empty'
+    hints:
+      - 'A grounded call that produced nothing is a different bug from a question you declined.'
+      - 'Substituting the refusal here makes the log unable to tell the two apart.'
+      - 'Return the empty text with the grounded flag still set.'
+    concept: ai-memory-and-rag.the-rag-pipeline
+
+  TestAnswer.test_rejects_a_nonsense_k:
+    condition: 'a request for zero retrieved chunks'
+    hints:
+      - 'Retrieving nothing means every question is declined, which looks like a broken corpus rather than a bad argument.'
+      - 'This is the caller misconfiguring the call rather than the corpus failing to answer.'
+      - 'Validate the count before searching and raise ValueError.'
+    concept: ai-memory-and-rag.the-rag-pipeline

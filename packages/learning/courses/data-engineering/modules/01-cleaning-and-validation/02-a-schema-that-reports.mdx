@@ -7,6 +7,163 @@ estimatedMinutes: 30
 exercise:
   id: row-schema
   timeboxMinutes: 30
+challenges:
+  goal: Validate a whole extract into a report, instead of stopping the run on its fourth row.
+
+  steps:
+    - id: the-line-somebody-opens
+      kind: numeric
+      prompt: >-
+        Order 1007 came through a field short, so it has no status. What line number
+        should its error carry, so somebody can open the file and see it?
+      context:
+        as: log
+        lines:
+          - 'order_id,customer,placed_at,quantity,total,status'
+          - '1001,ada@example.com,2026-03-01,2,49.90,shipped'
+          - '1002, Grace@Example.com ,01/03/2026,1,19.95,shipped'
+          - '1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending'
+          - '1004,ada@example.com,2026-03-02,,29.99,shipped'
+          - '1005,kofi@example.com,03/03/2026,2,$59.00,cancelled'
+          - '1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending'
+          - '1006,mei@example.com,2026-03-04,unknown,15.00,shipped'
+          - '1007,ada@example.com,2026-03-05,1,9.99'
+          - '1008,,2026-03-05,4,80.00,shipped'
+          - '1009,kofi@example.com,2026-03-06,1,12.50,refunded'
+      answer: 9
+      tolerance: 0
+      scaleHint: This is a line number in a file of eleven lines, not a count of anything.
+      hints:
+        - The number has to match what an editor shows when somebody jumps to the line.
+        - Order 1007 is the eighth record, and the records are not the only lines in the file.
+        - The header occupies line 1, so the first record is line 2 and the eighth is line 9.
+      reveal: >-
+        An off-by-one here sends somebody to a row that is fine, and they conclude the
+        report is wrong. Numbering from the position in an already filtered array is the
+        usual way this happens, because by then the header and the good rows are gone.
+
+    - id: missing-or-malformed
+      kind: assign
+      prompt: >-
+        Each of these fails a rule, or does not. Sort them by what the failure tells you
+        about where to go looking.
+      buckets:
+        - id: missing
+          label: Missing
+          note: The value never arrived.
+        - id: invalid
+          label: Invalid
+          note: Something arrived and it cannot be read.
+        - id: fine
+          label: Not a failure
+          note: The rule permits it.
+      items:
+        - id: empty-required
+          label: A required customer field the row carries as an empty string.
+          bucket: missing
+          because: The column was there and the source put nothing in it. There is no value to fail at reading, so this is not a malformed value.
+        - id: truncated-status
+          label: A status column the export never sent, because the line was a field short.
+          bucket: missing
+          because: The record does not have the field at all, which points at the export or the transport rather than at whoever typed the value.
+        - id: word-quantity
+          label: A quantity holding the word unknown.
+          bucket: invalid
+          because: Something did arrive and it cannot be read, so this is somebody upstream writing a word into a numeric column.
+        - id: fractional-count
+          label: A quantity of 2.7 where a whole count was asked for.
+          bucket: invalid
+          because: It reads as a number and it is the wrong kind of number. The value is there and it does not mean what the column claims.
+        - id: blank-optional
+          label: An optional quantity left blank.
+          bucket: fine
+          because: The rule says the field may be absent, so this is a valid row. Reporting it would bury the three real problems under seven imaginary ones.
+      hints:
+        - Two of these are about a value that is not there, and two are about a value that is.
+        - One of the five is not a failure at all, and knowing which is the difference between a report people read and one they mute.
+        - Missing and invalid usually have different owners, which is the reason for keeping them apart at all.
+      reveal: >-
+        Missing points at the export, invalid points at whoever wrote the value, and
+        collapsing both into one count sends every conversation to the wrong team. The
+        required flag on a rule is what decides which of the two an absent field is.
+
+    - id: what-the-validator-hands-back
+      kind: choice
+      prompt: Ten thousand rows in, three of them broken. What should the validator return?
+      options:
+        - id: raise-first
+          label: Nothing. Raise on the first row that fails.
+          note: Correct for a web request and wrong for a batch. Row four ends the run, and the other 9,996 rows stay unexamined until somebody fixes row four and waits again.
+        - id: valid-only
+          label: The rows that passed.
+          note: The load then succeeds and the count is quietly short. Nothing in the return says how short, or why, or which rows are missing from it.
+        - id: boolean
+          label: True or False for the whole extract.
+          note: You learn that today is bad. You do not learn which field, which rows, or whether this is one broken supplier or a schema change affecting everything.
+        - id: split-and-tally
+          label: The rows that passed, the rows that failed with their errors, and a count of rows lost per field.
+          correct: true
+          note: Three different questions, three different answers. What can I load, what do I send back upstream, and is this one bad row or a column that changed shape overnight.
+      hints:
+        - The batch is the unit of work here, not the row. Ask what a person needs to know about the batch.
+        - Two of these tell you something happened without telling you what, and one tells you nothing at all.
+        - The failed rows are as much output as the passing ones, and the per-field count is what tells you whether it is systematic.
+      reveal: >-
+        Splitting rather than discarding is what lets the caller decide. A nightly load
+        takes the good rows and quarantines the rest, a migration refuses to run at all,
+        and a backfill loads everything and tags it. Same report, three policies.
+
+    - id: build-the-report
+      kind: text-contract
+      prompt: >-
+        Somebody wired the report up wrong. Fix it so it describes the extract you just
+        looked at.
+      context:
+        as: table
+        caption: What the row validator found
+        columns: [line, order_id, field, problem]
+        rows:
+          - [8, 1006, 'quantity', 'invalid']
+          - [9, 1007, 'status', 'missing']
+          - [10, 1008, 'customer', 'missing']
+      lang: json
+      initial: |
+        {
+          "rows_seen": 10,
+          "valid": 9,
+          "broken": 1,
+          "field_problems": {"quantity": 3}
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: Ten records went in and ten have to be accounted for. Leave rows_seen alone.
+          check: { op: equals, path: rows_seen, value: 10 }
+        - message: Three rows failed, not one. Every row lands in exactly one of the two piles.
+          check: { op: equals, path: broken, value: 3 }
+        - message: The two piles have to add back up to the rows that went in.
+          check: { op: equals, path: valid, value: 7 }
+        - message: The tally counts rows a field cost, not errors raised. Quantity spoiled one row.
+          check: { op: equals, path: field_problems.quantity, value: 1 }
+        - message: A field that broke a row is missing from the tally. The customer column cost you order 1008.
+          check: { op: equals, path: field_problems.customer, value: 1 }
+        - message: The status column cost you order 1007 and is not in the tally either.
+          check: { op: equals, path: field_problems.status, value: 1 }
+      hints:
+        - Start from the table. Count the rows in it, then count the distinct fields named in it.
+        - The three broken rows broke on three different fields, one each. The tally has one field in it holding the count of all three.
+        - Seven passed, three failed, and each of quantity, status and customer accounts for exactly one of the three.
+      reveal: >-
+        The per-field tally is the line people actually read. One row against three fields
+        is a bad row. Three thousand rows against one field is a column that changed
+        shape last night, and those two need completely different phone calls.
+      solution: |
+        {
+          "rows_seen": 10,
+          "valid": 7,
+          "broken": 3,
+          "field_problems": {"quantity": 1, "status": 1, "customer": 1}
+        }
 ---
 
 With field coercions capable of reporting failure, the next step is applying them across full records and entire datasets to produce structured validation summaries.

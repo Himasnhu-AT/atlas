@@ -1,0 +1,201 @@
+version: 1
+cases:
+  TestReplay.test_records_every_turn_in_order:
+    condition: 'a persona of three scripted messages that must be sent in order'
+    hints:
+      - 'The persona is a fixed script, and the order is what makes the behaviour reproducible.'
+      - 'Recording only the replies loses what was asked, and the rules need both.'
+      - 'Send each turn in order and record the message paired with the reply.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestReplay.test_collects_the_actions_alongside_the_replies:
+    condition: 'a session that answers, pushes back, then hands over'
+    hints:
+      - 'Most rules ask about the sequence of actions rather than the text.'
+      - 'Digging the action out of each reply at every rule repeats the same work five times.'
+      - 'Collect the actions into their own list in the same order as the turns.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestReplay.test_keeps_the_handoff:
+    condition: 'a session that escalated, whose payload the rules need to inspect'
+    hints:
+      - 'One rule is entirely about whether the payload is worth receiving.'
+      - 'The handoff only appears on one turn, so it has to be lifted out as the replay runs.'
+      - 'Keep the handoff whenever a reply carries one.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestReplay.test_leaves_the_handoff_none_when_nothing_escalated:
+    condition: 'a persona that got its answer and never asked for a person'
+    hints:
+      - 'Most conversations never escalate, and that is the good outcome.'
+      - 'A placeholder payload would make the handoff rule fail every clean session.'
+      - 'Leave the handoff absent when no reply carried one.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_grounded_fails_an_answer_with_no_citation:
+    condition: 'an answered turn whose reply carries no bracket id'
+    hints:
+      - 'An answered turn with no bracket id is exactly what this rule is for.'
+      - 'Checking only the final reply misses an ungrounded answer earlier in the session.'
+      - 'Walk every answered turn and fail on the first one with no citation marker.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_grounded_passes_a_transcript_that_never_answered:
+    condition: 'a session that only ever declined, with nothing to ground'
+    hints:
+      - 'A rule that does not apply has not been broken.'
+      - 'Failing here punishes an agent for correctly refusing to guess.'
+      - 'Let the loop find nothing to check and return true.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_pushback_rule_passes_when_nothing_escalated:
+    condition: 'a session that answered and never handed over'
+    hints:
+      - 'This rule is about how a handover happened, so with no handover there is nothing to judge.'
+      - 'Requiring a pushback in every session would make the agent stall customers who never asked.'
+      - 'Return true when no escalation appears in the actions.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_pushback_rule_fails_an_immediate_handover:
+    condition: 'a handover on the very first request with no attempt in between'
+    hints:
+      - 'No pushback before the handover, so the rule broke.'
+      - 'Counting pushbacks across the whole session counts ones that happened afterwards.'
+      - 'Count the pushbacks that occurred before the first escalation and require exactly one.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_second_request_rule_passes_with_one_request:
+    condition: 'a session where the customer asked for a person once and was pushed back'
+    hints:
+      - 'One request is allowed one pushback, so there is nothing to fail.'
+      - 'Requiring an escalation here would defeat the pushback rule entirely.'
+      - 'Return true when fewer than two requests were made.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_second_request_rule_fails_a_session_that_never_hands_over:
+    condition: 'a customer who asked twice and was pushed back both times'
+    hints:
+      - 'Asked twice, still talking to the bot.'
+      - 'Nobody has to ask for a person three times.'
+      - 'Find the second request and require an escalation by that turn.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_handoff_rule_fails_an_empty_payload:
+    condition: 'a handoff with a summary but nothing recorded as attempted'
+    hints:
+      - 'Nothing was attempted, so the human starts from zero.'
+      - 'Checking only that a handoff exists passes the payload this rule exists to catch.'
+      - 'Require the summary to be non-blank, something to have been attempted, and the turn count to be positive.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_handoff_rule_passes_a_full_payload:
+    condition: 'a handoff carrying a summary, an attempt and a turn count'
+    hints:
+      - 'A rule that never passes is a rule nobody can satisfy.'
+      - 'All three fields are present here, so the payload is worth receiving.'
+      - 'Return true when every part of the payload has something in it.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_unrequested_rule_fails_a_handover_nobody_asked_for:
+    condition: 'a session that escalated after a question about a late parcel'
+    hints:
+      - 'The customer asked about a parcel, not about a person.'
+      - 'Handing over unprompted is how a bot becomes an expensive routing layer.'
+      - 'Require at least one request for a person up to and including the escalating turn.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestPredicates.test_the_rubric_lists_every_rule_by_name:
+    condition: 'a rubric of five rules, each appearing exactly once'
+    hints:
+      - 'The names are what a failure report shows, so they have to be distinct.'
+      - 'A mapping would lose the declared order the report reads in.'
+      - 'Keep the rubric as a list of name and predicate pairs.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestGrade.test_a_clean_transcript_scores_one:
+    condition: 'a session that satisfies every rule in the rubric'
+    hints:
+      - 'A clean run has an empty failure list and a full score.'
+      - 'The scorecard also carries the persona, so a report can name who it was about.'
+      - 'Run every rule, split the names into passed and failed, and carry the persona through.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestGrade.test_score_is_the_fraction_that_passed:
+    condition: 'a session failing one of five rules'
+    hints:
+      - 'The score is rules passed over rules run, not a count.'
+      - 'An unrounded division gives long decimals that make two runs hard to compare.'
+      - 'Divide by the rubric length and round to two places.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_the_correct_session_passes_every_persona:
+    condition: 'a correct agent run against all four personas'
+    hints:
+      - 'A harness that fails the correct implementation is measuring something else.'
+      - 'Every persona gets its own scorecard, and none of them should have failures.'
+      - 'Grade each persona separately and collect the results.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_the_eager_session_fails_only_the_pushback_rule:
+    condition: 'an agent that hands over on the first request'
+    hints:
+      - 'Escalating too early breaks one rule and must not break the others.'
+      - 'A rule that fires on any escalation would flag this agent five times.'
+      - 'Keep each rule narrow enough that it fails only for its own reason.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_the_stubborn_session_fails_only_the_escalation_rule:
+    condition: 'an agent that refuses to hand over however many times it is asked'
+    hints:
+      - 'Refusing to hand over breaks one rule and must not break the others.'
+      - 'The pushback rule and the unrequested rule both pass vacuously here, because nothing escalated.'
+      - 'Return true from the rules that depend on an escalation when none happened.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_the_polite_persona_never_fails_anybody:
+    condition: 'a customer who got their answer and never asked for a person'
+    hints:
+      - 'No escalation rule applies to a customer who never asked.'
+      - 'A rubric that punishes that is a rubric that teaches the agent to give up.'
+      - 'Make every escalation rule vacuously true when the session never escalated.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_pass_rate_is_the_mean_of_the_persona_scores:
+    condition: 'four personas whose individual scores have to average out'
+    hints:
+      - 'Each persona weighs the same, whatever its transcript length.'
+      - 'Pooling every rule result across personas weights the longer sessions more.'
+      - 'Average the per persona scores and round to two places.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_ok_flips_at_the_floor:
+    condition: 'the same rate assessed against a floor it clears and one it does not'
+    hints:
+      - 'The floor is a minimum, so a rate sitting exactly on it passes.'
+      - 'A strict comparison makes the floor mean something slightly higher than it says.'
+      - 'Compare with greater than or equal against the supplied floor.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_failures_name_the_persona_and_the_rule:
+    condition: 'a failure list read by somebody who has to fix the agent'
+    hints:
+      - 'A bare pass rate tells nobody what to fix.'
+      - 'The rule name alone leaves them guessing which customer hit it.'
+      - 'Record a pair of the persona name and the rule name for every failure.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_every_persona_gets_a_scorecard:
+    condition: 'a suite where no persona may be skipped'
+    hints:
+      - 'A persona missing from the report looks like a persona that passed.'
+      - 'Recording only the failing ones hides the ones that were never run.'
+      - 'Store a scorecard for every persona, whatever it scored.'
+    concept: ai-support-triage.grading-the-behaviour
+
+  TestSuite.test_an_empty_suite_is_not_a_pass:
+    condition: 'a suite run against no personas at all'
+    hints:
+      - 'No personas is not the same as no failures.'
+      - 'Averaging over nothing raises, and defaulting to a full score reports success forever.'
+      - 'Report a rate of zero when there are no personas, which then fails the floor.'
+    concept: ai-support-triage.grading-the-behaviour

@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestBlackScholes.test_standard_atm_option:
+    condition: 'a one year at the money option at a 5 percent rate and 20 vol, checked against parity'
+    hints:
+      - 'Only one of the two terms is discounted. The strike is paid at expiry so it comes back at present value; the spot is already a price today.'
+      - 'd2 is d1 less sigma times the square root of tau, and the drift inside d1 carries plus half sigma squared rather than minus it.'
+      - 'Price the put from N(-d2) and N(-d1) rather than by reusing the call with its arguments swapped. Get that right and the call minus the put falls out as spot minus the discounted strike without being asked for.'
+    concept: quant-options.black-scholes
+
+  TestBlackScholes.test_zero_time_to_maturity:
+    condition: 'an option quoted at a tau of zero, once in the money and once out of it'
+    hints:
+      - 'At expiry there is no volatility left to price, and d1 divides by sigma times the square root of tau, which is now zero.'
+      - 'What remains is intrinsic value with a floor at zero, because nobody exercises into a loss.'
+      - 'Catch a tau at or under a small tolerance before d1 is computed, and return spot minus strike for the call and strike minus spot for the put, each floored at zero.'
+    concept: quant-options.black-scholes

@@ -54,5 +54,20 @@ export type { ModuleCardProps } from './components/ModuleCard'
 export { LessonSidebar } from './components/LessonSidebar'
 export type { LessonSidebarProps } from './components/LessonSidebar'
 
+export { TestResults } from './components/TestResults'
+export type { TestResultsProps, CaseNote } from './components/TestResults'
+
+export { Reveal } from './components/Reveal'
+export type { RevealProps } from './components/Reveal'
+
 export { AppShell } from './components/AppShell'
 export type { AppShellProps } from './components/AppShell'
+
+/* ------------------------------------------------------------- challenges */
+export { ChallengeRunner } from './challenges/ChallengeRunner'
+export type { ChallengeRunnerProps, ChallengeAttempt } from './challenges/ChallengeRunner'
+export { KindRenderers } from './challenges/registry'
+export type { ChallengeRenderer, ChallengeRendererProps } from './challenges/protocol'
+
+/* ---------------------------------------------------------------- widgets */
+export * from './widgets'

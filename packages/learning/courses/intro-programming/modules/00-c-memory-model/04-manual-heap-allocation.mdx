@@ -7,6 +7,170 @@ estimatedMinutes: 25
 exercise:
   id: heap-allocator
   timeboxMinutes: 30
+challenges:
+  goal: Work out what a request really costs, spot the frees that go wrong, and coalesce a fragmented heap until a request fits.
+
+  readingOptional: true
+  steps:
+    - id: what-a-request-costs
+      kind: numeric
+      prompt: >-
+        A program calls malloc(20). How many bytes does the allocator take out of the pool to
+        serve it?
+      context:
+        as: pairs
+        items:
+          - { k: header size, v: 8 bytes in front of every block }
+          - { k: alignment, v: 8 bytes for the start of the next block }
+          - { k: requested payload, v: 20 bytes }
+      answer: 32
+      unit: bytes
+      tolerance: 0
+      scaleHint: >-
+        An answer near 200 or near 3 is a unit slip. Everything here is bytes, and the pool is
+        measured in bytes too.
+      hints:
+        - The caller asked for 20 and the allocator never hands back a block of exactly 20.
+        - "Two things get added to the request: padding up to the alignment boundary, and the bookkeeping in front of the payload."
+        - Round the payload up to a multiple of 8 first, then add the header to the rounded figure rather than to the original one.
+      reveal: >-
+        A 20 byte request costs 32, and a program making a million small allocations pays that
+        overhead a million times. This is why arena and pool allocators exist for objects of one
+        size: they drop the per-block header and the per-block rounding, which is most of the
+        cost when the objects are small.
+
+    - id: round-it-up
+      kind: blanks
+      prompt: >-
+        Fill in the rounding an allocator does before it can place a block. align is always a
+        power of two, which is what lets this be two instructions instead of a division.
+      lang: c
+      template: |
+        size_t align_up(size_t size, size_t align) {
+            return (size + {{1}}) & ~({{2}} - 1);
+        }
+      blanks:
+        - n: 1
+          as: select
+          options: ["align - 1", "align", "1", "align + 1"]
+          accept: ["align - 1"]
+          note: Adding a whole alignment would push a size that is already aligned up to the next boundary.
+        - n: 2
+          as: select
+          options: [align, size, "1", "align - 1"]
+          accept: [align]
+          note: The mask is built from the alignment, and the minus one is already written for you.
+      hints:
+        - Try the expression on a size that is already a multiple of the alignment. The right answer leaves it alone.
+        - One less than a power of two is a run of ones in the low bits, and its complement is a mask that clears exactly those bits.
+        - Add just enough to carry any remainder over the boundary, which is one less than the alignment, then knock the low bits off.
+      reveal: >-
+        Adding align minus one and masking is the whole of it, and it only works because align is
+        a power of two. The same shape appears in the struct layout rules in the next module and
+        in page rounding in a kernel: bump up by one less than the granularity, then clear the
+        low bits.
+
+    - id: the-second-free
+      kind: spot
+      prompt: >-
+        This runs correctly under a debugger and aborts in production. Click the line that
+        corrupts the allocator.
+      lang: c
+      source: |
+        char *duplicate(const char *src, size_t n) {
+            char *copy = malloc(n + 1);
+            if (copy == NULL) {
+                return NULL;
+            }
+            memcpy(copy, src, n);
+            copy[n] = '\0';
+            return copy;
+        }
+
+        void report(const char *name) {
+            char *tmp = duplicate(name, strlen(name));
+            if (tmp == NULL) return;
+            printf("%s\n", tmp);
+            free(tmp);
+            free(tmp);
+        }
+      targets: [15]
+      decoys:
+        '1': One more than the length is right. The terminator needs a byte of its own and strlen does not count it.
+        '6': Index n is the last byte of an n plus one byte allocation, so writing the terminator there is in bounds.
+        '13': Printing through the pointer is fine here. It has been checked against NULL and nothing has released it yet.
+        '14': This free is correct and necessary. The allocation has to be returned exactly once.
+      hints:
+        - Every allocation on this path is matched by a free, and that is not the same as every allocation being freed once.
+        - After the first free the block is back on the free list, and tmp still holds the address it used to have.
+        - Freeing the same address twice puts one block on the free list twice, so a later request hands the same memory to two owners.
+      reveal: >-
+        A double free is not a leak in reverse, it is heap corruption. The second call links a
+        block that is already free into the list again, and the damage surfaces later in an
+        unrelated allocation, which is why the crash never points at this function. Setting the
+        pointer to NULL after freeing makes the second call harmless, since free of NULL is
+        defined to do nothing.
+
+    - id: coalesce-to-fit
+      kind: machine
+      prompt: >-
+        The pool is 96 bytes in three 32 byte blocks. The low and high blocks are free and the
+        middle one is allocated. Serve a 48 byte request.
+      initial: fragmented
+      vars: { largest: 32, served: 0 }
+      states:
+        fragmented:
+          label: Free, used, free
+          note: 64 bytes are free in total and the largest single run of them is 32.
+        whole:
+          label: One free run of 96
+          note: The three blocks became one the moment the middle one was released.
+        served:
+          label: Request satisfied
+          note: 48 bytes handed out, 48 left free behind them.
+          terminal: true
+        corrupt:
+          label: Free list corrupted
+          note: A block that was already on the free list was put on it a second time.
+          terminal: true
+          error: true
+      transitions:
+        - from: fragmented
+          on: request 48 bytes
+          to: fragmented
+          when: [{ var: largest, cmp: lt, value: 48 }]
+          note: There are 64 free bytes and no run of 48 among them, so the search walks the whole list and returns NULL.
+        - from: fragmented
+          on: free the middle block
+          to: whole
+          effects: [{ var: largest, op: set, value: 96 }]
+          note: Both neighbours are free, so the released block merges with each of them and the three become one.
+        - from: fragmented
+          on: free the low block
+          to: corrupt
+          note: The low block is already free. Releasing it again links it into the list twice.
+        - from: whole
+          on: request 48 bytes
+          to: served
+          when: [{ var: largest, cmp: gte, value: 48 }]
+          effects:
+            - { var: largest, op: set, value: 48 }
+            - { var: served, op: inc, value: 48 }
+          note: The run is large enough, so it splits into 48 handed out and 48 left free behind them.
+      mode: drive
+      win:
+        state: served
+        maxSteps: 6
+        requires: [{ var: served, cmp: gte, value: 48 }]
+      hints:
+        - Try the request first if you like. Watching it fail with 64 bytes free is the point of the exercise.
+        - Total free bytes is not the quantity that decides. A request needs one contiguous run.
+        - Only one of the two frees on offer is legal, and it is the one that has a free neighbour on each side.
+      reveal: >-
+        This is external fragmentation, and it is why an allocator coalesces on free rather than
+        waiting. Bytes that are free but scattered cannot serve anything larger than their
+        largest piece, so a long-running process can hold megabytes of free memory and still fail
+        a modest request. Merging the moment a block is released is the cheapest defence there is.
 ---
 
 Programs frequently require memory buffers whose sizes cannot be predicted at compile time, or whose lifetimes must extend beyond the activation frame that created them.

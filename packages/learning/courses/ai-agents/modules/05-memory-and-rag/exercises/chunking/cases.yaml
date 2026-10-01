@@ -1,0 +1,313 @@
+version: 1
+cases:
+  TestChunkMetadata.test_title_and_section:
+    condition: 'a chunk carrying both a document title and a section heading'
+    hints:
+      - 'A chunk pulled out of a long document has lost the headings that told you what it was about.'
+      - 'The two headings read as a path from the outer heading inwards, then a blank line before the body.'
+      - 'Join the parts with an arrow separator and put the text after two newlines.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkMetadata.test_title_only:
+    condition: 'a chunk with a title and an empty section'
+    hints:
+      - 'One heading is a prefix of one part, not a path with an empty half.'
+      - 'Joining unconditionally leaves a trailing arrow with nothing after it.'
+      - 'Drop the empty parts before joining, then build the prefix from what is left.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkMetadata.test_section_only:
+    condition: 'a chunk with a section heading and no document title'
+    hints:
+      - 'Either heading can be missing, and the code should not care which.'
+      - 'A branch per combination gives you four cases to keep in step.'
+      - 'Filter the empty values out of the list and let the join handle whatever remains.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkMetadata.test_no_metadata_at_all:
+    condition: 'a chunk whose metadata mapping is empty'
+    hints:
+      - 'With no headings there is no prefix, and the text goes back as it is.'
+      - 'Reading a missing key raises before the prefix is built.'
+      - 'Return the text unchanged when no heading parts survive the filter.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkMetadata.test_none_counts_as_absent:
+    condition: 'metadata whose title and section keys are present and hold None'
+    hints:
+      - 'Document parsers write None for a missing heading as often as they write an empty string, and both mean the same thing.'
+      - 'A default on the lookup does not help when the key is present and holds None.'
+      - 'Substitute an empty string for whatever the lookup returns, then filter on truthiness.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkMetadata.test_citation_uses_the_source_and_index:
+    condition: 'a chunk that knows which file it came from and where in it'
+    hints:
+      - 'A citation has to point at something specific enough for a reader to find.'
+      - 'The file name alone is not enough when a file produces twenty chunks.'
+      - 'Combine the source with the chunk index in a fixed format.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkMetadata.test_citation_without_a_source:
+    condition: 'a chunk whose metadata names no source file'
+    hints:
+      - 'Text can arrive without a filename, from a paste or a database row.'
+      - 'A citation of nothing followed by a number is worse than saying plainly what you have.'
+      - 'Fall back to naming the index alone when there is no source.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkMetadata.test_citation_ignores_the_headings:
+    condition: 'a chunk carrying both a source file and a title'
+    hints:
+      - 'A citation names the document, not the heading.'
+      - 'Using the title would make two sections of one file produce two different sources.'
+      - 'Build the citation from the source and the index only.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_splits_into_windows:
+    condition: 'ten characters cut into windows of five'
+    hints:
+      - 'The simplest case: no overlap, and the text divides evenly.'
+      - 'Each window is a slice starting at a multiple of the step.'
+      - 'Walk the start positions in steps and take a slice of the window size at each.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_final_window_may_be_short:
+    condition: 'seven characters cut into windows of five, leaving two over'
+    hints:
+      - 'Text does not divide evenly, and padding or dropping the remainder loses content.'
+      - 'A slice past the end of a string simply stops, which is the behaviour you want.'
+      - 'Take the slice without checking whether a full window is available.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_overlap_repeats_the_tail:
+    condition: 'windows of five with an overlap of two, so each repeats the previous tail'
+    hints:
+      - 'The overlap exists so a sentence cut across a boundary appears whole in one of the two windows.'
+      - 'The step between starts is smaller than the window by exactly the overlap.'
+      - 'Advance the start by the window size minus the overlap rather than by the window size.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_overlap_does_not_emit_a_trailing_suffix:
+    condition: 'a large overlap where the last few starts would only repeat the end of the text'
+    hints:
+      - 'Once a window reaches the end, every later start produces a suffix of a window already returned.'
+      - 'Those extra windows are duplicates in the index and cost real money to embed.'
+      - 'Stop as soon as a window''s end reaches the end of the text.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_text_shorter_than_the_window:
+    condition: 'three characters against a window of ten'
+    hints:
+      - 'Short text is one window, not zero and not a padded one.'
+      - 'The loop still runs once because the first start is inside the text.'
+      - 'The general path already handles this, so no special case is wanted.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_empty_input:
+    condition: 'an empty string, and a string holding only whitespace'
+    hints:
+      - 'Whitespace alone is not content, and a window of it is a hit that can never match.'
+      - 'A loop over an empty string returns nothing, but a whitespace string still produces one window.'
+      - 'Strip the text first and return an empty list when nothing is left.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_no_empty_windows:
+    condition: 'a real document split with overlap, where no window may come out blank'
+    hints:
+      - 'An empty window is a hit that can never match and a wasted embedding.'
+      - 'They appear when the loop runs past the end of the text or when the step is miscalculated.'
+      - 'Stopping at the end of the text keeps every window non-empty on its own.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_cuts_through_a_sentence:
+    condition: 'a window size that lands inside the sentence carrying the price'
+    hints:
+      - 'This is the point of the comparison rather than a bug: a character counter does not know where the answer is.'
+      - 'A fixed split respects no boundary at all, which is why the recursive one exists.'
+      - 'Do not add boundary handling here. Keep the count as the only rule.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_rejects_a_zero_size:
+    condition: 'a window size of zero, which describes no window at all'
+    hints:
+      - 'A window of zero either loops forever or returns an infinite list of empty strings.'
+      - 'That is the caller misconfiguring the split rather than the text being odd.'
+      - 'Validate the size before doing any work and raise ValueError.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_rejects_negative_overlap:
+    condition: 'an overlap below zero, which would skip text rather than repeat it'
+    hints:
+      - 'A negative overlap makes the step larger than the window, leaving gaps between them.'
+      - 'The content in those gaps is never indexed and never found.'
+      - 'Reject a negative overlap up front with a ValueError.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitFixed.test_rejects_overlap_at_or_above_size:
+    condition: 'an overlap equal to the window size, which leaves no forward progress'
+    hints:
+      - 'The step is the size minus the overlap, so this makes it zero or negative.'
+      - 'A step of zero is a loop that never advances, which is a hang rather than a wrong answer.'
+      - 'Require the overlap to be strictly smaller than the size and raise ValueError otherwise.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_short_text_is_one_chunk:
+    condition: 'text that already fits inside the size limit'
+    hints:
+      - 'Nothing needs splitting when the whole thing fits.'
+      - 'Recursing anyway produces one chunk per paragraph for no reason.'
+      - 'Return the text as a single chunk before choosing a separator.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_empty_input:
+    condition: 'an empty string, and one holding only newlines and spaces'
+    hints:
+      - 'Whitespace is not content, and an empty chunk is a wasted embedding.'
+      - 'The check has to happen after stripping, since a whitespace string is not falsy.'
+      - 'Strip first and return an empty list when nothing survives.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_respects_the_size_limit:
+    condition: 'a document split at a limit every chunk has to stay under'
+    hints:
+      - 'The caller''s whole contract is that a chunk fits in a prompt.'
+      - 'Falling back to the natural boundary when a piece is too big returns an oversized chunk.'
+      - 'Check the candidate length before accepting it, and recurse on any piece that is too long on its own.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_prefers_paragraph_boundaries:
+    condition: 'a document where a blank line is the best boundary available'
+    hints:
+      - 'A sentence cut in half is a chunk that answers nothing.'
+      - 'The separators are ordered from the strongest boundary to the weakest.'
+      - 'Try the first separator before any finer one, and only fall through when a piece still does not fit.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_greedily_fills_chunks:
+    condition: 'three tiny paragraphs that would all fit inside one chunk'
+    hints:
+      - 'One chunk per paragraph wastes the budget and buries a fact in a fragment.'
+      - 'Splitting on the separator does not mean emitting one chunk per piece.'
+      - 'Accumulate pieces into a buffer while they still fit and only flush when adding the next would go over.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_greedy_fill_stops_at_the_limit:
+    condition: 'three pieces where the first two fit together and the third does not'
+    hints:
+      - 'The greedy fill has to stop somewhere, and that somewhere is the limit.'
+      - 'Testing the buffer after appending means it has already gone over.'
+      - 'Build the candidate, check its length, and only accept it when it still fits.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_falls_through_to_finer_separators:
+    condition: 'a paragraph with no blank lines that is still too long at the limit'
+    hints:
+      - 'The strongest separator does not always produce pieces that fit.'
+      - 'Re-splitting the oversized piece with the same separator list would never terminate.'
+      - 'Recurse on that piece with the remaining separators, so each level has strictly fewer options.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_hard_splits_an_unbreakable_run:
+    condition: 'a hundred characters with no separator anywhere in them'
+    hints:
+      - 'Some text genuinely has no boundary, and the recursion runs out of separators.'
+      - 'Returning it whole breaks the one promise the function makes.'
+      - 'When no separators remain, slice on the character count and return those pieces.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_honours_a_custom_separator_list:
+    condition: 'a caller supplying a pipe as the only separator'
+    hints:
+      - 'The default separators suit prose, and a caller splitting structured text knows better.'
+      - 'A mutable default is shared across calls, so a caller appending to it changes the function for everyone.'
+      - 'Default the argument to None and select the module level list inside the function.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_chunks_are_stripped_and_non_empty:
+    condition: 'pieces that carry leading newlines from the separator they were split on'
+    hints:
+      - 'Leading whitespace wastes tokens and makes two identical chunks look different.'
+      - 'An empty piece between two separators must not become a chunk at all.'
+      - 'Strip each chunk as it is flushed and skip it when nothing is left.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_preserves_order:
+    condition: 'a document whose first and last topics have to stay first and last'
+    hints:
+      - 'Chunks are cited by index, so a reordering silently makes every citation wrong.'
+      - 'Recursing on an oversized piece has to put its chunks where that piece was.'
+      - 'Flush the buffer before extending with the recursive result, so nothing jumps ahead of it.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_no_content_is_lost:
+    condition: 'a document whose rejoined chunks have to hold every character it started with'
+    hints:
+      - 'Splitting rearranges text, it does not drop it.'
+      - 'A piece that is skipped because it looked empty, or a buffer never flushed, loses content silently.'
+      - 'Flush the buffer once more after the loop ends, and only skip pieces that are genuinely whitespace.'
+    concept: ai-memory-and-rag.chunking
+
+  TestSplitRecursive.test_rejects_a_zero_max_size:
+    condition: 'a size limit of zero, which no chunk can satisfy'
+    hints:
+      - 'Nothing fits under a limit of zero, so the fill loop never accepts anything.'
+      - 'The hard split would produce an endless list of empty slices.'
+      - 'Validate the limit before doing any work and raise ValueError.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkDocument.test_returns_chunks:
+    condition: 'a document whose split pieces have to come back as records rather than strings'
+    hints:
+      - 'A string on its own cannot say where it came from or where it sits.'
+      - 'The metadata has to travel with the text, not alongside it in a parallel list.'
+      - 'Wrap each piece in the chunk type with its index and metadata.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkDocument.test_indexes_are_sequential_from_zero:
+    condition: 'a document whose chunks must be numbered in order without gaps'
+    hints:
+      - 'The index is the position in this document''s chunk list, and a citation depends on it.'
+      - 'A counter maintained by hand drifts the moment a piece is skipped.'
+      - 'Let the enumeration over the split pieces supply the index.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkDocument.test_attaches_metadata_to_every_chunk:
+    condition: 'a source, a title and a section that all have to reach every chunk'
+    hints:
+      - 'Metadata on the document is useless once a chunk has been retrieved on its own.'
+      - 'Attaching it to only the first chunk leaves the rest uncitable.'
+      - 'Build the metadata mapping for each chunk as it is created.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkDocument.test_metadata_keys_exist_even_when_empty:
+    condition: 'a document with no source, title or section supplied'
+    hints:
+      - 'A caller that has to guard every read of the metadata will eventually forget one.'
+      - 'Omitting a key when its value is empty makes the shape of the mapping depend on the input.'
+      - 'Always write all three keys, with empty strings where nothing was given.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkDocument.test_indexes_are_per_document:
+    condition: 'two documents whose first chunks share an index but must not share a citation'
+    hints:
+      - 'The index is local to its document, so it repeats across the corpus.'
+      - 'A global counter would make the index unique and make it drift when a document is re-indexed alone.'
+      - 'Number from zero within each document and let the source make the citation unique.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkDocument.test_context_prefix_works_end_to_end:
+    condition: 'a chunk from the middle of a document that has to carry the title with it'
+    hints:
+      - 'The prefix is what tells a retrieved fragment which document it belongs to.'
+      - 'It only works if the title reached the chunk metadata in the first place.'
+      - 'Pass the heading arguments through into every chunk''s metadata.'
+    concept: ai-memory-and-rag.chunking
+
+  TestChunkDocument.test_empty_document:
+    condition: 'a document with no text in it'
+    hints:
+      - 'An empty document produces no chunks rather than one empty chunk.'
+      - 'The split already returns nothing here, so nothing should be built around it.'
+      - 'Let the enumeration over an empty list produce an empty result.'
+    concept: ai-memory-and-rag.chunking

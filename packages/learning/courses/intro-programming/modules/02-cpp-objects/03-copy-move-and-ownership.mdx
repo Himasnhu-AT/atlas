@@ -7,6 +7,185 @@ estimatedMinutes: 25
 exercise:
   id: move-ownership-buffer
   timeboxMinutes: 30
+challenges:
+  goal: Hand a buffer over without copying it, and see why writing a destructor is what makes copying it dangerous.
+
+  steps:
+    - id: which-one-binds
+      kind: assign
+      prompt: >-
+        Overload resolution picks copy or move by asking what kind of expression it was handed.
+        Sort each of these.
+      context:
+        as: prose
+        text: >-
+          Throughout, SafeBuffer a(1024) is a local variable, p is a SafeBuffer pointer holding
+          &a, and create_large_buffer returns a SafeBuffer by value.
+      buckets:
+        - id: lvalue
+          label: Lvalue
+          note: It has a name or an address, so the copy is selected unless something casts it.
+        - id: rvalue
+          label: Rvalue
+          note: A temporary or an expiring object, so the move is selected whenever one exists.
+      items:
+        - id: named-var
+          label: "a"
+          bucket: lvalue
+          because: A named variable is the definition of an lvalue. Nothing is expiring, so taking its buffer would leave it holding nothing it agreed to give up.
+        - id: std-move
+          label: "std::move(a)"
+          bucket: rvalue
+          because: This moves no bytes at all. It is a cast to SafeBuffer&&, and the cast is the whole of what makes the move overload the better match.
+        - id: call-result
+          label: "create_large_buffer()"
+          bucket: rvalue
+          because: The returned object has no name and nobody else can reach it, so taking its buffer costs nothing.
+        - id: temporary
+          label: "SafeBuffer(1024)"
+          bucket: rvalue
+          because: A temporary constructed in the middle of an expression dies at the end of it, so it is exactly what move semantics were added for.
+        - id: deref
+          label: "*p"
+          bucket: lvalue
+          because: Dereferencing names a place in memory, and something else still owns it. A pointer being involved changes nothing about that.
+        - id: param
+          label: "other, named inside the body of SafeBuffer(SafeBuffer &&other)"
+          bucket: lvalue
+          because: The parameter has a name, so inside the function it is an lvalue whatever its declared type says. This is why forwarding it onward needs std::move again.
+        - id: member
+          label: "a.size_"
+          bucket: lvalue
+          because: A member of an lvalue is an lvalue. It sits at a known address for as long as the object does.
+      hints:
+        - Ask of each one whether you could take its address, and whether anybody would notice if its contents were taken away.
+        - std::move generates no instructions. It only changes which overload the compiler picks.
+        - One of these is declared as an rvalue reference and is still an lvalue, because having a name is what decides it.
+      reveal: >-
+        Rvalue-ness is a property of the expression, not of the type. A parameter declared
+        SafeBuffer&& is an lvalue inside the function precisely because it has a name, which is
+        why a move constructor that passes a member on has to write std::move around it. Forget
+        that and the move quietly becomes a copy that still compiles.
+
+    - id: what-the-compiler-gave-you
+      kind: choice
+      prompt: >-
+        This class declares a destructor and nothing else. Which of these operations did the
+        compiler generate for it?
+      context:
+        as: code
+        lang: cpp
+        source: |
+          class BadBuffer {
+          public:
+              size_t size;
+              char  *data;
+
+              explicit BadBuffer(size_t s) : size(s), data(new char[s]) {}
+              ~BadBuffer() { delete[] data; }
+          };
+      options:
+        - id: nothing
+          label: Neither copies nor moves, so BadBuffer b = a will not compile.
+          note: A user-declared destructor does not suppress the copy operations. They are still generated, which is why this class compiles and then crashes rather than failing to build.
+        - id: copies-only
+          label: A copy constructor and a copy assignment that copy the pointer, and no move operations at all.
+          correct: true
+          note: Declaring a destructor suppresses the implicit moves and leaves the implicit copies in place, so every transfer of a BadBuffer duplicates the pointer and every duplicate deletes it.
+        - id: both
+          label: Copies and moves, all four of them memberwise.
+          note: Once a destructor is user-declared the move operations are no longer generated. What survives is the copies, and a move request silently resolves to one of them.
+        - id: deep
+          label: A deep copy, because the compiler can see the destructor deletes data.
+          note: It never reads intent out of a destructor body. The generated copy is memberwise whatever the destructor does, which is exactly the mismatch that causes the double free.
+      hints:
+        - The class as written compiles, and a copy of it crashes. Whichever answer says it will not compile is out.
+        - Declaring one of the special members changes what the compiler is willing to generate for the others, and it does not change all of them the same way.
+        - Copies survive a user-declared destructor. Moves do not.
+      reveal: >-
+        This is the whole mechanism behind the rule of three. A destructor is a declaration that
+        this object owns something, and the copies the compiler generated before you wrote it
+        are still memberwise, so the ownership is now duplicated on every copy. Writing the
+        destructor is what commits you to writing the other four.
+
+    - id: steal-and-null
+      kind: blanks
+      prompt: >-
+        Complete the move operations. The source object has to survive being emptied, because
+        its destructor still runs.
+      lang: cpp
+      template: |
+        MoveBuffer(MoveBuffer &&other) noexcept
+            : size_(other.size_), data_({{1}}) {
+            other.size_ = 0;
+            other.data_ = {{2}};
+        }
+
+        MoveBuffer &operator=(MoveBuffer &&other) noexcept {
+            if (this != &other) {
+                {{3}};
+                size_ = other.size_;
+                data_ = other.data_;
+                other.size_ = 0;
+                other.data_ = nullptr;
+            }
+            return *this;
+        }
+      blanks:
+        - n: 1
+          as: select
+          options: ["other.data_", "new char[other.size_]", "nullptr", "std::move(other.data_)"]
+          accept: ["other.data_"]
+          note: A move takes the pointer as it stands. Allocating anything here would make this a copy wearing a move constructor's signature.
+        - n: 2
+          as: select
+          options: ["nullptr", "other.data_", "new char[0]", "data_"]
+          accept: ["nullptr"]
+          note: The source still has a destructor to run. Unless its pointer is cleared, the same block is deleted twice.
+        - n: 3
+          as: select
+          options: ["delete[] data_", "delete[] other.data_", "data_ = nullptr", "size_ = 0"]
+          accept: ["delete[] data_"]
+          note: Assignment overwrites something that already exists, so whatever this object was holding has to be released before its pointer is replaced.
+      hints:
+        - The move constructor builds a new object and the move assignment overwrites one that already owns a buffer. Only one of them has anything to release.
+        - Two pointers naming one block is the bug, so a move is finished only when exactly one of them still names it.
+        - Deleting through the source would destroy the very block that was just taken.
+      reveal: >-
+        A move is two writes, not one: take the pointer and then clear the source. The second is
+        what turns a shallow copy into a transfer, and skipping it gives you a class that
+        compiles, runs, and aborts in the destructor of whichever object dies second.
+
+    - id: assigning-to-itself
+      kind: spot
+      prompt: >-
+        The line b = b appears in real code, usually through two references to the same object.
+        Click the earliest line that is already wrong when it does.
+      lang: cpp
+      source: |
+        SafeBuffer &SafeBuffer::operator=(const SafeBuffer &other) {
+            delete[] data_;
+            size_ = other.size_;
+            data_ = new char[other.size_];
+            std::memcpy(data_, other.data_, size_);
+            return *this;
+        }
+      targets: [1]
+      decoys:
+        '2': Copying the size across is harmless, and when the two objects are the same one it writes the value that was already there.
+        '3': Allocating a fresh block of the right size is what makes this a deep copy. The problem is what happened to the old block before this line ran.
+        '4': Copying the bytes is the point of the operation. It reads through a pointer that has already been invalidated, but it is not what invalidated it.
+        '5': Returning a reference to this object is what lets assignments chain, and it is what the operator is expected to do.
+      hints:
+        - Read the function with other and this naming the same object, and say what each line does to the one buffer that exists.
+        - The first line releases the buffer this object owns. When the source is the same object, that was also the source's buffer.
+        - Everything after it is reading and copying from a block that has already been handed back to the allocator.
+      reveal: >-
+        Self-assignment is the case nobody writes on purpose and everybody hits through
+        aliasing. The guard is either an if (this != &other) at the top, or copy-and-swap, which
+        removes the question by building the new buffer before releasing the old one. The second
+        is preferred because it is also exception safe: if the allocation throws, the object is
+        untouched rather than half destroyed.
 ---
 
 In C++, objects manage heap allocations, file handles, and network sockets. How an object is copied or transferred across scopes determines both memory correctness and runtime performance. Copying a pointer without copying its underlying buffer leads to double-free corruptions, while unnecessary deep copies waste CPU cycles. Move semantics provide zero-cost transfers of resource ownership.

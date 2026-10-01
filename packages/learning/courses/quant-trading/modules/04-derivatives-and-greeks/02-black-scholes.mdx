@@ -7,6 +7,186 @@ estimatedMinutes: 25
 exercise:
   id: black-scholes-pricing
   timeboxMinutes: 25
+challenges:
+  goal: Price a European call from the closed form, guard the boundaries it cannot handle, and say what implied volatility actually is.
+
+  steps:
+    - id: price-it-by-hand
+      kind: numeric
+      prompt: >-
+        Price this three month at the money call. The two normal probabilities are given, so
+        this is arithmetic rather than calculus.
+      unit: dollars
+      context:
+        as: pairs
+        items:
+          - { k: Spot and strike, v: both 100.00 }
+          - { k: Time to expiry, v: 0.25 years }
+          - { k: Risk-free rate, v: zero }
+          - { k: Volatility, v: 20 percent annualised }
+          - { k: Phi of d1, v: '0.51994' }
+          - { k: Phi of d2, v: '0.48006' }
+      answer: 3.99
+      tolerance: 0.03
+      scaleHint: >-
+        That is out by more than a factor of ten. A three month at the money call on a 100
+        dollar stock at 20 vol is a few dollars, not a few cents or a few hundred.
+      hints:
+        - With a rate of zero the discount factor is one, so the strike enters at its face value.
+        - The formula is spot times the first probability less the discounted strike times the second.
+        - Both terms are near 50, and the answer is what is left when you subtract them.
+      reveal: >-
+        A useful thing to carry: an at the money option is worth roughly 0.4 times spot times
+        sigma times the square root of the time in years. Here that is 0.4 times 100 times
+        0.2 times 0.5, which is 4.00 against the exact 3.99. It is accurate enough to catch a
+        pricing library that is out by a factor of anything, and you can do it in your head
+        while somebody is quoting you.
+
+    - id: assemble-the-formula
+      kind: blanks
+      prompt: >-
+        Fill in the three expressions. One is the normal CDF, one is the second argument, and
+        one is what the strike is worth today.
+      lang: python
+      template: |
+        def norm_cdf(x: float) -> float:
+            return 0.5 * (1.0 + math.erf({{1}}))
+
+
+        def black_scholes_call(s, k, tau, r, sigma):
+            if tau <= 0.0 or sigma <= 0.0:
+                return max(0.0, s - k * math.exp(-r * tau))
+
+            root = sigma * math.sqrt(tau)
+            d1 = (math.log(s / k) + (r + 0.5 * sigma * sigma) * tau) / root
+            d2 = {{2}}
+            return s * norm_cdf(d1) - {{3}} * norm_cdf(d2)
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'x / math.sqrt(2.0)'
+            - 'x'
+            - 'x * math.sqrt(2.0)'
+          accept: ['x / math.sqrt(2.0)']
+          note: >-
+            The error function is defined against a different scale from the standard normal,
+            and the root of two converts between them. Feeding x straight in gives a
+            distribution of the wrong width and a wrong price at every strike.
+        - n: 2
+          as: select
+          options:
+            - 'd1 - root'
+            - 'd1 + root'
+            - '-d1'
+          accept: ['d1 - root']
+          note: >-
+            d2 sits one standard deviation of log price below d1, and that standard deviation
+            is exactly the quantity the line above divided by. Adding it instead prices the
+            option above the stock.
+        - n: 3
+          as: select
+          options:
+            - 'k * math.exp(-r * tau)'
+            - 'k'
+            - 'k * math.exp(r * tau)'
+          accept: ['k * math.exp(-r * tau)']
+          note: >-
+            The strike is paid at expiry, so what it costs today is less than its face value.
+            The undiscounted version prices every call too cheaply, by an amount that grows
+            with the rate and the time.
+      hints:
+        - Two of the three blanks are conversions between one scale and another.
+        - The denominator on the d1 line already has the quantity the d2 line needs.
+        - Money paid later is worth less now, and the exponent that expresses that is negative.
+      reveal: >-
+        The guard at the top is doing more work than the formula. At tau of zero the
+        denominator is zero, at sigma of zero it is also zero, and both are ordinary states
+        for a real position to be in on expiry morning or on an illiquid name. A pricer
+        without that branch works perfectly in a backtest and raises in production on the
+        third Friday of the month.
+
+    - id: the-line-that-raises-on-expiry
+      kind: spot
+      prompt: >-
+        This prices correctly for a month and raises on the third Friday. Click the line that
+        raises.
+      lang: python
+      source: |
+        def call(s, k, tau, r, sigma):
+            root = sigma * math.sqrt(tau)
+            d1 = (math.log(s / k) + (r + 0.5 * sigma ** 2) * tau) / root
+            d2 = d1 - root
+            discounted_k = k * math.exp(-r * tau)
+            return s * norm_cdf(d1) - discounted_k * norm_cdf(d2)
+      targets: [2]
+      requireAll: true
+      decoys:
+        '1': >-
+          Sigma times the root of tau is the standard deviation of log price over the option's
+          remaining life, and computing it once is right. It goes to zero at expiry and
+          nothing here divides by it.
+        '3': >-
+          d2 is d1 less that same standard deviation, which is the correct relationship and
+          is well defined for every value it can take.
+        '4': >-
+          Discounting the strike is right, and at tau of zero it returns the strike itself,
+          which is exactly what it should do.
+        '5': >-
+          The assembly is right. Every quantity it uses is already computed by the time it
+          runs.
+      hints:
+        - Three of these lines are still perfectly defined when time to expiry is zero.
+        - Sigma times the square root of zero is zero, and one line does something with that value that zero does not permit.
+        - The option is worth its intrinsic value at expiry, and no arrangement of these five lines produces that.
+      reveal: >-
+        Expiry is not an edge case, it is a date every position in the book passes through.
+        The same line raises for a name with no volatility quote and for a deeply illiquid
+        strike where sigma comes back as zero. Both branches return intrinsic value, which is
+        the limit the formula is approaching anyway, so the guard is not a special case bolted
+        on but the continuous extension of the model to its own boundary.
+
+    - id: what-implied-volatility-is
+      kind: choice
+      prompt: >-
+        A screen quotes an option at 32 percent implied volatility. What is that number?
+      options:
+        - id: inverted
+          label: The sigma that makes this formula reproduce the quoted price
+          correct: true
+          note: >-
+            It is the price, restated in different units. Nothing about it is a forecast,
+            a measurement, or an output of the model; it is the input you have to feed in to
+            get the number the market is already showing you.
+        - id: forecast
+          label: The market's forecast of the volatility the stock will realize
+          note: >-
+            The folk description, and close enough to be dangerous. It also carries a
+            variance risk premium, which is why implied sits above subsequently realized
+            volatility most of the time and why selling it is a business.
+        - id: historical
+          label: The standard deviation of the stock's returns over the last year
+          note: >-
+            That is realized volatility, which you can compute yourself from prices and
+            which nobody needs a quote for. Implied volatility is backed out of a price
+            rather than measured from a series.
+        - id: fitted
+          label: One parameter fitted across every strike on the name at once
+          note: >-
+            Each quote implies its own number and they disagree. That disagreement across
+            strikes is the smile, and it is the clearest evidence that the constant-volatility
+            assumption underneath the formula is false.
+      hints:
+        - The formula takes five inputs and returns a price. Four of the five are on the screen already.
+        - Ask which direction the arrow points. Is this something the model produced or something it was given?
+        - If the number were a property of the stock, all the options on that stock would share it.
+      reveal: >-
+        Black-Scholes survives as a quoting convention rather than as a model of the world.
+        Everyone knows volatility is not constant and the returns are not lognormal, and
+        everyone uses the formula anyway, because it is a monotone map between price and one
+        number, so quoting the number is the same as quoting the price and it is far easier
+        to compare across strikes and dates. The smile is the market's correction, carried
+        outside the model rather than inside it.
 ---
 
 The **Black-Scholes-Merton (BSM)** model prices European options assuming the underlying asset follows a Geometric Brownian Motion with constant volatility $\sigma$ and constant risk-free rate $r$.
