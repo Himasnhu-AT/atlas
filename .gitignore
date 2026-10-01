@@ -69,3 +69,6 @@ apps/web/public/pyodide/
 
 # Copied from packages/learning/runner by apps/web/scripts/copy-runner.mjs.
 apps/web/public/atlas_report.py
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
