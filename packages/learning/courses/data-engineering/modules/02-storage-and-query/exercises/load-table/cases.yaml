@@ -1,0 +1,161 @@
+version: 1
+cases:
+  TestSchema.test_creates_the_table:
+    condition: 'a fresh database with no orders table in it yet'
+    hints:
+      - 'The load has nowhere to write until the table exists, and counting rows in a table that is not there raises.'
+      - 'One statement creates the table, and the connection has to be told to keep it.'
+      - 'Execute the create statement and commit, so the table survives past this function.'
+    concept: de-storage.loading-a-table
+
+  TestSchema.test_is_safe_to_run_twice:
+    condition: 'a second run against a database that already has the table'
+    hints:
+      - 'Setup runs on every deploy, and a create that raises the second time makes the whole run fail on an empty change.'
+      - 'The database can be asked to skip the create rather than being asked whether the table is there first.'
+      - 'Add the IF NOT EXISTS clause to the create statement instead of querying the schema.'
+    concept: de-storage.loading-a-table
+
+  TestSchema.test_quantity_is_the_only_nullable_column:
+    condition: 'an order that shipped without a known quantity, beside four columns that must never be empty'
+    hints:
+      - 'The unknown quantity from the extract is a real gap in the source, so the column has to allow it. A customer with no address is a row nobody can act on.'
+      - 'Nullability is a claim about the data, declared once in the schema rather than checked in every query.'
+      - 'Mark customer, placed_at, total and status NOT NULL and leave quantity without that constraint.'
+    concept: de-storage.loading-a-table
+
+  TestSchema.test_order_id_is_the_primary_key:
+    condition: 'a retried export that sends order 1003 a second time'
+    hints:
+      - 'Without a key the database will happily hold the same order twice, and every count from then on is wrong.'
+      - 'The key is what gives the load something to detect a conflict against.'
+      - 'Declare order_id as the primary key in the create statement, and leave every other column out of the key.'
+    concept: de-storage.loading-a-table
+
+  TestDuplicateKeys.test_finds_an_identical_duplicate:
+    condition: 'order 1003 appearing twice with every field the same'
+    hints:
+      - 'A retried export sends byte-identical rows, and keeping the first one loses nothing.'
+      - 'Sameness here is the whole row, not only the key.'
+      - 'Hold the first row seen for each key and compare a later row against it in full.'
+    concept: de-storage.loading-a-table
+
+  TestDuplicateKeys.test_finds_a_conflicting_duplicate:
+    condition: 'one key sent twice, once pending and once shipped'
+    hints:
+      - 'Keeping the first is only honest when the duplicates agree. Here one of the two is a correction and you cannot tell which.'
+      - 'This is a different report from the identical case, because it needs a human rather than a rule.'
+      - 'Put a key into the conflicting list when a later row with that key differs from the first one.'
+    concept: de-storage.loading-a-table
+
+  TestDuplicateKeys.test_a_conflict_anywhere_beats_a_match:
+    condition: 'a key sent three times, where two copies agree and the third does not'
+    hints:
+      - 'Some of these agree is not a reason to keep the first. One disagreement makes the key untrustworthy.'
+      - 'The same key can land in both buckets while you are walking the rows.'
+      - 'Collect both sets and then remove every conflicting key from the identical set before returning.'
+    concept: de-storage.loading-a-table
+
+  TestDuplicateKeys.test_unique_rows_report_nothing:
+    condition: 'a batch where every key appears exactly once'
+    hints:
+      - 'The clean case has to produce the same dict shape with two empty lists.'
+      - 'A key met for the first time is recorded and nothing more.'
+      - 'Return both lists unconditionally rather than returning early when nothing was found.'
+    concept: de-storage.loading-a-table
+
+  TestDuplicateKeys.test_sorts_both_lists:
+    condition: 'duplicate keys first met in the order 3, 1, 2'
+    hints:
+      - 'A report in encounter order changes whenever the file does, and cannot be diffed against yesterday''s.'
+      - 'Sets have no order at all, so the order has to be imposed on the way out.'
+      - 'Sort each list before putting it in the result.'
+    concept: de-storage.loading-a-table
+
+  TestDuplicateKeys.test_empty_rows_report_nothing:
+    condition: 'a batch with no rows to check'
+    hints:
+      - 'An empty extract still has to produce a report the caller can read.'
+      - 'Both accumulators are already empty and the loop never runs.'
+      - 'Return the two sorted empty lists rather than raising or returning None.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_reports_what_it_did:
+    condition: 'four rows in, one of them a repeat of another'
+    hints:
+      - 'A load that says done tells you nothing. Received, written and skipped are three different numbers and any of them can be the surprise.'
+      - 'Written is what the database actually took, which is not the length of the input.'
+      - 'Accumulate the rows the insert affected as you go, and derive skipped from the difference.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_writes_the_rows:
+    condition: 'three distinct orders that have to be in the table when the load returns'
+    hints:
+      - 'An insert that was never committed disappears when the connection closes.'
+      - 'The report and the table have to agree, so the write has to be finished before the count is taken.'
+      - 'Commit once after the loop rather than leaving the transaction open.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_keeps_a_null_quantity:
+    condition: 'order 1004, whose quantity is None rather than a number'
+    hints:
+      - 'The gap was real in the source, and turning it into a zero invents an order for nothing.'
+      - 'A None passed as a parameter becomes a database null, which is what the nullable column is for.'
+      - 'Pull each column with a default of None and pass it through unchanged rather than substituting a value.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_stores_the_total_exactly:
+    condition: 'a total of "1499.00" that has to survive the round trip to the cent'
+    hints:
+      - 'Money is stored as the exact decimal, because a column of floats drifts until a report is out by a cent.'
+      - 'A REAL column would accept the string and quietly convert it.'
+      - 'Declare the total as text and store the string as it came, without converting it to a number on the way in.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_running_the_same_load_twice_writes_nothing_new:
+    condition: 'the same file loaded a second time after a retry'
+    hints:
+      - 'A pipeline gets re-run, and the second run must not double the table. The key already in the table is what makes the repeat detectable.'
+      - 'INSERT OR IGNORE would also pass this test and would swallow every other constraint violation with it.'
+      - 'Name the conflict target on the insert so only a repeated key is forgiven, and let everything else still raise.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_survives_a_value_containing_a_quote:
+    condition: 'a customer address with an apostrophe in the middle of it'
+    hints:
+      - 'In a pipeline the attacker is usually an apostrophe in a name, and a formatted SQL string breaks on it long before anybody malicious shows up.'
+      - 'The values never belong in the statement text.'
+      - 'Build the statement with placeholders once and pass the row values as parameters to execute.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_an_empty_load_is_not_an_error:
+    condition: 'a batch with no rows in it at all'
+    hints:
+      - 'An empty file reaches the loader often enough that it cannot be an exception, and it still has to report three zeroes.'
+      - 'The loop runs zero times and the written counter stays where it started.'
+      - 'Return the report built from the input length and the counter, which gives zeroes here without a special case.'
+    concept: de-storage.loading-a-table
+
+  TestLoad.test_a_broken_row_leaves_nothing_behind:
+    condition: 'a row with a null customer arriving after three good ones'
+    hints:
+      - 'One transaction means the load either happened or it did not. Three rows in and a raise is the worst of both.'
+      - 'Committing per row makes the partial state permanent before the failure is seen.'
+      - 'Wrap the whole loop in one transaction and roll it back before re-raising the error.'
+    concept: de-storage.loading-a-table
+
+  TestRowCount.test_counts:
+    condition: 'a table holding three rows after a load'
+    hints:
+      - 'This is the cheapest check there is, and most load bugs show up in it first.'
+      - 'The count comes back as the first column of the single row the query returns.'
+      - 'Fetch one row from the count query and return its first value as an int.'
+    concept: de-storage.loading-a-table
+
+  TestRowCount.test_refuses_a_table_it_does_not_know:
+    condition: 'a table name of "orders; DROP TABLE orders"'
+    hints:
+      - 'A table name cannot be passed as a parameter, so it has to be interpolated, which is why it has to be checked.'
+      - 'Deciding what is safe by inspecting the string is a game you lose. Deciding by listing what is allowed is not.'
+      - 'Keep a set of the table names this module knows and raise ValueError for anything outside it, before building the query.'
+    concept: de-storage.loading-a-table

@@ -7,6 +7,154 @@ estimatedMinutes: 20
 exercise:
   id: streaming-stats
   timeboxMinutes: 25
+challenges:
+  goal: Update a mean and a variance in constant time per tick, without a warmup artefact or a negative variance.
+
+  steps:
+    - id: the-fifth-ema-value
+      kind: numeric
+      prompt: >-
+        An EMA with a span of 4 warms up on the arithmetic mean of its first 4 observations,
+        then smooths. What does it report after the fifth price?
+      context:
+        as: pairs
+        items:
+          - { k: Span, v: 4 observations }
+          - { k: Smoothing factor, v: alpha is 2 / (4 + 1) }
+          - { k: Prices in order, v: '10, 20, 30, 40, 50' }
+      answer: 35
+      tolerance: 0.0001
+      hints:
+        - Nothing is smoothed until the warmup is over, so work out what the fourth observation left behind first.
+        - The mean of 10, 20, 30 and 40 is what the recursion starts from.
+        - Alpha is 0.4, so the fifth value is 0.4 of the new price and 0.6 of what was already there.
+      reveal: >-
+        The warmup is what keeps the first dozen readings honest. Seeding at zero instead
+        would have made this fifth value 0.4 times 50 plus 0.6 times a number that was never
+        a price, and the error decays at 0.6 per tick rather than disappearing.
+
+    - id: the-seed-that-poisons-the-series
+      kind: spot
+      prompt: >-
+        This EMA is correct after a few hundred ticks and badly wrong before that. Click the
+        line responsible.
+      lang: python
+      source: |
+        class EMA:
+            def __init__(self, window: int) -> None:
+                self.alpha = 2.0 / (window + 1.0)
+                self.value = 0.0
+
+            def update(self, price: float) -> float:
+                self.value = self.alpha * price + (1.0 - self.alpha) * self.value
+                return self.value
+      targets: [3]
+      requireAll: true
+      decoys:
+        '2': The smoothing factor is right. A span of N gives 2 over N plus 1, and that is the standard convention.
+        '6': The recursion is right. It is the value it starts from that has never been a price.
+        '7': Returning the current value is what the caller asked for.
+      hints:
+        - The recursion is correct. Ask what it has to work with the very first time it runs.
+        - On a stock trading at 400 the first reading comes back near 4, and it climbs toward the price rather than tracking it.
+        - Nothing in this class counts how many observations it has seen, and a warmup needs that count.
+      reveal: >-
+        Zero is not a neutral starting value, it is a price the asset has never traded at, and
+        the recursion decays its influence by only one minus alpha per tick. A span of 200
+        takes several hundred observations to shake it off, which is several hundred bars of a
+        backtest quietly trading against an artefact.
+
+    - id: the-order-of-an-update
+      kind: order
+      prompt: Put the steps of one rolling variance update in the order they have to happen.
+      items:
+        - { id: append, label: Push the new value onto the queue }
+        - { id: accumulate, label: Add it into the running sum and the running sum of squares }
+        - { id: evict, label: Pop the oldest value if the queue is now longer than the window }
+        - { id: unaccumulate, label: Subtract that popped value back out of both running totals }
+        - { id: count, label: Read the count off the queue and form the mean }
+      solution: [append, accumulate, evict, unaccumulate, count]
+      because:
+        accumulate: The accumulators have to see every value that enters the queue, and they see it on the way in rather than later.
+        evict: The eviction has to happen before anything reads the length. Leave it until after and the first full window is measured over one observation too many.
+        unaccumulate: The running totals do not know the queue shrank. Popping without subtracting leaves the evicted value in the sums for the rest of the run.
+        count: The count comes off the queue after the eviction, not from the window parameter, because the queue is shorter than the window for the first several updates.
+      hints:
+        - Two of these come in a pair with two others. Each pair touches the queue and then the accumulators.
+        - Something has to leave before anything reads the length.
+        - Push and add, then pop and subtract, and only then look at how many are left.
+      reveal: >-
+        The sequence is what makes the update constant time. Nothing here walks the window,
+        so the cost per tick does not depend on how long the window is, which is the whole
+        reason to keep running totals rather than recomputing.
+
+    - id: the-variance-that-goes-negative
+      kind: blanks
+      prompt: >-
+        Fill in the four expressions. Two keep the accumulators honest and two decide what the
+        variance actually means.
+      lang: python
+      template: |
+        def update(self, x: float) -> tuple[float, float]:
+            self.queue.append(x)
+            self._sum += x
+            self._sum_sq += {{1}}
+
+            if len(self.queue) > self.window:
+                old = self.queue.popleft()
+                self._sum -= old
+                self._sum_sq -= {{2}}
+
+            n = len(self.queue)
+            if n < 2:
+                return 0.0, 0.0
+
+            mean = self._sum / n
+            raw = (self._sum_sq - n * mean * mean) / ({{3}})
+            variance = {{4}}
+            return variance, math.sqrt(variance * self.annualized_factor)
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'x * x'
+            - 'x'
+            - 'abs(x)'
+          accept: ['x * x']
+          note: This accumulator holds the sum of squares, so it takes the square of the arriving value. Adding the value itself makes it a second copy of the running sum.
+        - n: 2
+          as: select
+          options:
+            - 'old * old'
+            - 'old'
+            - 'x * x'
+          accept: ['old * old']
+          note: Whatever went in has to come back out in the same form. The value leaving the window was added as a square, so it is removed as one.
+        - n: 3
+          as: select
+          options:
+            - 'n - 1'
+            - 'n'
+            - 'self.window'
+          accept: ['n - 1']
+          note: This is the sample variance, so the divisor is n minus one. Dividing by n gives the population figure, which is smaller, and dividing by the window is wrong for every update before the window is full.
+        - n: 4
+          as: select
+          options:
+            - 'max(0.0, raw)'
+            - 'abs(raw)'
+            - 'raw'
+          accept: ['max(0.0, raw)']
+          note: Clamp at zero rather than taking the absolute value. The subtraction can land a hair below zero through rounding when the prices are large and close together, and a genuine negative could only come from a bug, which abs would hide.
+      hints:
+        - Two of these blanks are about symmetry between what enters the window and what leaves it.
+        - The divisor decides whether this is the sample estimator or the population one, and the tests compare against the sample one.
+        - Subtracting two large and nearly equal numbers loses precision, and the result can come out fractionally negative on values that have no dispersion at all.
+      reveal: >-
+        Catastrophic cancellation is why the clamp is there. On prices around 4,000 the sum of
+        squares and n times the squared mean agree to eleven digits, and a double carries about
+        sixteen, so a window of identical prices can produce a variance of minus 1e-9. Feed
+        that to a square root and the volatility is not a number for the rest of the run.
 ---
 
 Trading systems process continuous market data tick-by-tick. Recalculating mean and variance over a full array on every new tick requires $O(W)$ time per event, where $W$ is the window length.

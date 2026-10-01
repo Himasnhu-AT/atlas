@@ -7,6 +7,143 @@ estimatedMinutes: 25
 exercise:
   id: ffi-marshaling-bridge
   timeboxMinutes: 30
+challenges:
+  goal: Lay out a struct the way the compiler does before handing it across the boundary, and decide who owns the bytes once it is over there.
+
+  readingOptional: true
+  steps:
+    - id: which-arguments-spill
+      kind: numeric
+      prompt: >-
+        A native function takes eight int64_t parameters and three doubles. Under the System V
+        AMD64 ABI, how many of those eleven arguments arrive on the stack rather than in a
+        register?
+      context:
+        as: prose
+        text: >-
+          Six registers carry integer and pointer arguments, in order: rdi, rsi, rdx, rcx, r8,
+          r9. Eight separate registers, xmm0 through xmm7, carry floating point arguments.
+          Anything that does not fit is pushed.
+      unit: arguments
+      answer: 2
+      tolerance: 0
+      hints:
+        - Eleven arguments and fourteen registers, and yet something still spills.
+        - The two kinds of argument do not compete for the same registers. Count each queue on its own.
+        - Eight integers into six slots leaves a remainder. Three doubles into eight slots does not.
+      reveal: >-
+        The classes are counted separately, which is why adding a double parameter to a function
+        with six pointer parameters costs nothing and adding a seventh pointer costs a stack
+        slot. A bridge that models the convention as one queue of eleven gets the last arguments
+        from the wrong place and reads whatever the caller happened to leave there.
+
+    - id: pack-the-padding
+      kind: blanks
+      prompt: >-
+        Write the struct format that reproduces what the C compiler laid out. The assertion at
+        the bottom is the same 24 bytes the native side will read.
+      lang: python
+      template: |
+        import struct
+
+        # struct Entry {
+        #     int32_t id;      // offset 0
+        #     double  score;   // offset 8
+        #     char    status;  // offset 16
+        # };  sizeof == 24
+
+        ENTRY = "<i{{1}}d{{2}}{{3}}"
+
+        payload = struct.pack(ENTRY, 41, 0.75, b"k")
+        assert len(payload) == 24
+      blanks:
+        - n: 1
+          as: select
+          options: ["4x", "x", "8x", "4s"]
+          accept: ["4x"]
+          note: score has to start at offset 8 because a double is 8 byte aligned, and id ended at 4.
+        - n: 2
+          as: select
+          options: ["c", "b", "s", "i"]
+          accept: ["c"]
+          note: The value being packed is a bytes object of length one, and only one format code takes that and emits a single raw byte.
+        - n: 3
+          as: select
+          options: ["7x", "x", "8x", "3x"]
+          accept: ["7x"]
+          note: The struct has to be a multiple of its widest member's alignment, so an array of them keeps every double aligned.
+      hints:
+        - Two of the three blanks are padding, and neither of them carries a value from the pack call.
+        - A field is placed at the next offset divisible by its own alignment, and the whole struct is rounded up to the alignment of its widest member.
+        - The gaps are 4 bytes after id and 7 bytes after status, which is what takes 13 bytes of data up to 24.
+      reveal: >-
+        The bridge is not describing your data, it is describing the compiler's decision about
+        your data. Get the padding wrong and nothing raises: the native side reads score from
+        offset 4, which holds four bytes of your double and four bytes of whatever came next,
+        and returns a number.
+
+    - id: the-wrong-free
+      kind: spot
+      prompt: >-
+        This corrupts a heap, and not always the one you would expect. Click the line that does
+        it.
+      lang: python
+      source: |
+        import ctypes
+
+        lib = ctypes.CDLL("./libatlas.so")
+        lib.render.restype = ctypes.c_void_p
+        lib.render_free.argtypes = [ctypes.c_void_p]
+
+        def render(n: int) -> bytes:
+            ptr = lib.render(n)
+            out = ctypes.string_at(ptr)
+            ctypes.pythonapi.PyMem_Free(ptr)
+            return out
+      targets: [9]
+      decoys:
+        '3': Declaring restype is necessary and correct here. Leave it out and ctypes hands back a plain int, truncating the pointer on a 64-bit build.
+        '7': Calling into the library is fine. The address that comes back is real memory, and the library still owns it at this point.
+        '8': string_at copies the bytes into a Python object before anything is released, so out survives whatever happens to ptr afterwards.
+      hints:
+        - Two allocators are in this file and only one of them handed out this block.
+        - A pointer does not record who allocated it, so nothing at the call site can catch the mismatch.
+        - The library declares its own release function on line 5, and nothing ever calls it.
+      reveal: >-
+        Every allocator keeps its own bookkeeping next to the blocks it handed out. Releasing a
+        block into the wrong one writes that bookkeeping into a structure it does not belong to,
+        so the crash lands in an unrelated allocation later. Memory acquired on one side of the
+        boundary is released by the same side, and the bridge's job is to remember which side
+        that was.
+
+    - id: who-holds-the-buffer
+      kind: choice
+      prompt: >-
+        A native routine writes 4 MiB of output into a caller-supplied buffer and takes about
+        200 ms doing it. What do you hand it?
+      options:
+        - id: copy-in
+          label: A fresh bytes object built from the runtime's buffer, passed by address.
+          note: bytes is immutable and this is a copy, so the native routine writes 4 MiB into memory nothing will ever read again. It returns successfully and the output is lost.
+        - id: raw-address
+          label: The address of the runtime's own buffer, read once before the call.
+          note: The address is correct at the moment you read it and the runtime is free to move or reclaim that object during the 200 ms it is not looking. Nothing in the native code will notice.
+        - id: pinned
+          label: The runtime's buffer, pinned for the duration of the call, passed by address.
+          correct: true
+          note: Pinning is the runtime being told that an address it handed out is in use by something it cannot see. The buffer stays put, the write lands where the caller can read it, and ownership never changes hands.
+        - id: c-allocates
+          label: Nothing. Let the native side allocate its own buffer and copy the result back afterwards.
+          note: This works and it is what many bridges do, at the cost of a second 4 MiB copy and a release call that has to reach the right allocator. Defensible when the runtime cannot pin at all.
+      hints:
+        - One of these hands the native routine a buffer the caller will never look at again.
+        - The call lasts 200 ms, and the runtime does not stop having opinions about its heap during that time.
+        - The address has to stay meaningful for the whole call, not only at the instant it was taken.
+      reveal: >-
+        An FFI boundary is two contracts, and layout is only the first one. The second is that
+        an address stays valid for as long as the other side is using it, which the runtime
+        cannot infer because it cannot see the other side. Pinning is how you say it out loud,
+        and a bridge that skips it works in every test and fails under memory pressure.
 ---
 
 A Foreign Function Interface (FFI) allows a high-level runtime (such as Python, Java, or Node.js) to call compiled native subroutines written in C, C++, or Rust. FFI bridges eliminate the runtime overhead of interpreters for compute-intensive workloads while preserving high-level developer ergonomics.

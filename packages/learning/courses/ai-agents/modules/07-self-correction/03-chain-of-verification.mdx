@@ -7,6 +7,155 @@ estimatedMinutes: 35
 exercise:
   id: verify-claims
   timeboxMinutes: 35
+challenges:
+  goal: Split a draft into claims that can be checked on their own, and give each answer the verdict it has earned.
+
+  steps:
+    - id: the-four-phases
+      kind: order
+      prompt: >-
+        Put the verification pass in the order it has to run. Two of these steps only make
+        sense because of what the step before them did to the text.
+      items:
+        - { id: split, label: Split each sentence into one fact per claim }
+        - { id: resolve, label: Replace every pronoun and every relative date with the thing it refers to }
+        - { id: drop, label: Discard the claims that are judgements rather than facts }
+        - { id: ask, label: Turn each surviving claim into a question that stands on its own }
+        - { id: answer, label: Answer each question in a context that has never seen the draft }
+        - { id: reconcile, label: Set each claim against its answer and mark it }
+      solution: [split, resolve, drop, ask, answer, reconcile]
+      because:
+        resolve: Splitting is what creates the dangling reference. "It was discontinued the following year" was anchored by the sentence it used to share, and now it is not.
+        drop: Discard after resolving, because a fragment reading like an opinion may only read that way while its subject is still missing.
+        answer: Answering comes after asking, and the answering context gets the question and nothing else. That gap is the entire method.
+        reconcile: Reconciliation is last because it needs two things to compare, and one of them does not exist until the answers come back.
+      hints:
+        - Everything before the answering step is text surgery on the draft. Nothing has been checked yet.
+        - Two operations clean up the claims, and the order between them is not arbitrary.
+        - Ask which step causes the pronoun problem in the first place.
+      reveal: >-
+        The decomposition is most of the work and none of the intelligence. By the time a
+        question reaches the model it has to carry its own subject, its own dates and no
+        trace of the argument it came from, because that is the only thing keeping the
+        second answer from being a copy of the first.
+
+    - id: split-the-sentence
+      kind: text-contract
+      prompt: >-
+        This is one sentence of a draft, already loaded as a single claim. Break it into
+        the claims a verifier could actually check.
+      lang: json
+      initial: |
+        {
+          "claims": [
+            "The Meridian 40 was announced in March 2019 and it sold 12,000 units in its first year, which was a remarkable result for a debut product."
+          ]
+        }
+      rules:
+        - message: This no longer parses as JSON. Check the brackets and the commas between the strings.
+          check: { op: parses, as: json }
+        - message: claims has to stay a list of strings. One claim per entry.
+          check: { op: type, path: claims, is: array }
+        - message: There are two checkable facts in that sentence and one list entry. Split on the conjunction, and keep it to two.
+          check: { op: length, path: claims, min: 2, max: 2 }
+        - message: A remarkable result is a judgement. Nobody can answer a question about it, so it does not belong in a list of things to verify.
+          check: { op: notContains, text: remarkable }
+        - message: The first claim should carry the announcement and its date.
+          check: { op: contains, path: claims.0, text: March 2019 }
+        - message: The second claim should carry the sales figure.
+          check: { op: contains, path: claims.1, text: "12,000" }
+        - message: The second claim starts with a pronoun. On its own it is a question about nothing, so name the product again.
+          check: { op: contains, path: claims.1, text: Meridian 40 }
+        - message: There is still a bare it in there. Every claim has to make sense with the others deleted.
+          check: { op: notMatches, pattern: "\\bit\\b", flags: i }
+      hints:
+        - The sentence joins two facts with and, and then adds an opinion about them.
+        - Two entries survive. The third thing in the sentence is not a fact and does not become a claim.
+        - Once the halves are apart, the second one has lost the noun the first one was holding for it.
+      reveal: >-
+        A claim that needs its neighbours is not a claim, it is a fragment. The rewriting
+        feels mechanical and it is the step that decides whether verification works,
+        because every question you send is only as isolated as the claim it was built from.
+      solution: |
+        {
+          "claims": [
+            "The Meridian 40 was announced in March 2019.",
+            "The Meridian 40 sold 12,000 units in its first year."
+          ]
+        }
+
+    - id: three-verdicts
+      kind: assign
+      prompt: >-
+        The answers are back. Give each claim its verdict, remembering that the verifier
+        failing to confirm something is not the same as denying it.
+      buckets:
+        - id: supported
+          label: Supported, keep it
+        - id: contradicted
+          label: Contradicted, correct or cut it
+        - id: unsupported
+          label: Unsupported, flag it
+      items:
+        - id: date-match
+          label: 'Claim: announced March 2019. Answer: the announcement was in March 2019.'
+          bucket: supported
+          because: The independent answer names the same month and year without having seen the claim. That is confirmation.
+        - id: units-mismatch
+          label: 'Claim: 12,000 units in the first year. Answer: 8,400 units in the first year.'
+          bucket: contradicted
+          because: Two numbers for the same quantity. One of them is wrong and the draft does not get to keep its own.
+        - id: discontinued-unknown
+          label: 'Claim: discontinued in 2022. Answer: I have no information about a discontinuation.'
+          bucket: unsupported
+          because: The verifier said it does not know, which is not the same as saying no. Deleting the claim here throws away something that may be true.
+        - id: founder-detail
+          label: 'Claim: the founder came from Kestrel Audio. Answer: the founder worked at Kestrel Audio from 2011 to 2016.'
+          bucket: supported
+          because: The answer says more than the claim did and contradicts none of it. Extra detail is confirmation, not conflict.
+        - id: price-mismatch
+          label: 'Claim: launch price 249 dollars. Answer: the launch price was 279 dollars.'
+          bucket: contradicted
+          because: A direct conflict on a figure the reader will act on. Correct it from the verified answer rather than deleting the sentence.
+        - id: award-vague
+          label: 'Claim: it won a design award. Answer: several audio awards ran in 2019, and I cannot say which this product received.'
+          bucket: unsupported
+          because: The answer is about the category, not the claim. An answer that talks around the question has confirmed nothing.
+      hints:
+        - Two of these verdicts mean the verifier gave you a fact. The third means it did not.
+        - An answer that adds detail without disagreeing is not a conflict.
+        - Look for the answers that never engage with the specific thing asked.
+      reveal: >-
+        Collapsing unsupported into contradicted deletes true statements, and collapsing it
+        into supported publishes unchecked ones. Keeping the third verdict is what lets the
+        pass be honest about the size of its own coverage.
+
+    - id: what-to-do-with-unknown
+      kind: choice
+      prompt: >-
+        One claim came back unsupported, and the brief goes out in ten minutes. What ships?
+      options:
+        - id: drop-it
+          label: Delete the claim. If it cannot be confirmed it does not belong in the brief.
+          note: This quietly loses true statements, and it loses the ones about recent or obscure things first, which are usually the ones the reader wanted.
+        - id: keep-quiet
+          label: Keep it as written. Nothing contradicted it.
+          note: Absence of contradiction is what an unchecked claim looks like. Publishing it flat tells the reader it passed, and it did not.
+        - id: keep-marked
+          label: Keep it, marked as unverified, and carry the mark into the output the reader sees.
+          correct: true
+          note: The claim survives, and so does the fact that nobody could confirm it. The reader decides what to do with a marked sentence; a silently dropped one gives them nothing to decide.
+        - id: re-ask-with-draft
+          label: Ask again, this time showing the verifier the draft so it has more to go on.
+          note: More context here means the draft, and the draft is the thing under test. This turns an honest unsupported into a confident supported without learning anything.
+      hints:
+        - Two of these change the brief and one changes what the brief admits about itself.
+        - Ask which option a reader could audit afterwards.
+        - The tempting one makes the unsupported count go to zero. Ask what it did to get there.
+      reveal: >-
+        Quarantine rather than deletion, the same rule the data course applies to rows that
+        fail validation. The unsupported pile is the honest part of the output, and a
+        verification pass that reports none of them has usually stopped being independent.
 ---
 
 Chain of verification replaces subjective self-critique with structured factual validation. Instead of asking whether an entire draft looks sound, the process decomposes the output into isolated propositions and evaluates each piece independently.

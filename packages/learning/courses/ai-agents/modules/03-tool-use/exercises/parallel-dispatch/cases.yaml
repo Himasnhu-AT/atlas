@@ -1,0 +1,193 @@
+version: 1
+cases:
+  TestRunOne.test_a_working_call:
+    condition: 'a well formed call to a tool that returns a mapping'
+    hints:
+      - 'The result has to carry more than the content: which call it answers, which tool ran, and whether it worked.'
+      - 'A mapping is not text, so it needs serialising before it can go back to the model.'
+      - 'Build a result holding the call id, the tool name, the serialised output and a successful flag.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunOne.test_a_string_result_is_not_re_encoded:
+    condition: 'a tool that already returned a plain string'
+    hints:
+      - 'Text is already what goes on the wire.'
+      - 'Running it through the JSON encoder wraps it in quotes the model has to see through.'
+      - 'Check for a string first and pass it through unchanged.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunOne.test_a_tool_that_raises_becomes_a_failed_result:
+    condition: 'a city the lookup table does not know, which makes the tool raise'
+    hints:
+      - 'The exception has to become a result, because the model is owed an answer for this call whatever happened.'
+      - 'The type and the message say different things: one tells the model to try a different city, the other tells it to stop trying.'
+      - 'Catch the exception, put its type name and its message into the content behind an error marker, and mark the result as failed.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunOne.test_an_unknown_tool_becomes_a_failed_result:
+    condition: 'a call naming a tool that is not in the registry'
+    hints:
+      - 'Models invent tool names, and raising here would take the rest of the batch down with it.'
+      - 'The content goes straight back into the conversation, so it has to be enough for the model to recover from.'
+      - 'Return a failed result listing the tools that do exist.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunOne.test_unparseable_arguments_become_a_failed_result:
+    condition: 'an argument string that is not valid JSON'
+    hints:
+      - 'The arguments are text the model generated, so malformed JSON is ordinary.'
+      - 'The failure still belongs to a specific call, and that call still needs answering.'
+      - 'Catch the parse error and return a failed result carrying the same call id.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunOne.test_arguments_that_are_not_an_object_become_a_failed_result:
+    condition: 'arguments that parse as a JSON list rather than an object'
+    hints:
+      - 'The parse succeeded, so it is easy to move straight on to the call.'
+      - 'Unpacking a list as keyword arguments raises from inside the call rather than returning a result.'
+      - 'Check the parsed value is a mapping before calling, and return a failed result otherwise.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunOne.test_nothing_escapes:
+    condition: 'three different kinds of broken call, none of which may raise'
+    hints:
+      - 'This function runs inside a pool alongside others, and one raise leaves the rest of the batch unanswered.'
+      - 'Every failure path has to converge on the same return type as the success path.'
+      - 'Return a result in every branch rather than raising from any of them.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestDispatchAll.test_one_result_per_call_in_request_order:
+    condition: 'three calls whose results must line up with the order they were requested in'
+    hints:
+      - 'Concurrency decides when things finish, not what order they are reported in.'
+      - 'Collecting results as they complete makes the order depend on latency.'
+      - 'Submit in request order and read the handles back in that same order.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestDispatchAll.test_an_empty_batch:
+    condition: 'a turn that requested no tools at all'
+    hints:
+      - 'An empty batch is a common shape once tool choice gets involved.'
+      - 'Spinning up a pool to run nothing costs threads for no work.'
+      - 'Return an empty list before creating the pool.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestDispatchAll.test_one_failure_does_not_take_the_batch_with_it:
+    condition: 'three calls where the middle one fails and the other two succeed'
+    hints:
+      - 'You still owe the model three results, one for each call it made.'
+      - 'Letting a failure propagate out of the pool abandons the two that worked.'
+      - 'Have each call absorb its own failure so the batch always returns a full set of results.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestDispatchAll.test_the_batch_actually_runs_concurrently:
+    condition: 'two calls where the first cannot finish until the second has run'
+    hints:
+      - 'Running the calls one after another in request order deadlocks on this pair.'
+      - 'The whole point of a batch is that independent lookups overlap rather than queue.'
+      - 'Submit every call to a worker pool before waiting on any of them.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestDispatchAll.test_completion_order_does_not_reorder_the_results:
+    condition: 'a batch where the second call finishes before the first'
+    hints:
+      - 'The faster call finishing first must not promote it up the list.'
+      - 'Iterating over completions hands them back by latency, which is exactly the ordering the protocol must not inherit.'
+      - 'Keep the handles in submission order and read them in that order, blocking on each in turn.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestFormatToolMessages.test_one_message_per_call_in_call_order:
+    condition: 'two answered calls that each need their own tool message'
+    hints:
+      - 'A batch of results is not a batch of messages. Each call gets its own.'
+      - 'The messages go out in the order the calls were made, not the order the results arrived.'
+      - 'Walk the calls and emit one tool message per call.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestFormatToolMessages.test_the_content_comes_from_the_result:
+    condition: 'a message whose content has to be what the tool actually produced'
+    hints:
+      - 'The call knows what was asked for and the result knows what came back.'
+      - 'Reading the content off the call gives you the arguments, not the answer.'
+      - 'Take the id from the call and the content from the result it pairs with.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestFormatToolMessages.test_results_are_paired_by_id_not_by_position:
+    condition: 'results handed over in the reverse of the order the calls were made'
+    hints:
+      - 'The id is what pairs a result to its call. Position only agrees with it by luck.'
+      - 'Zipping the two lists silently answers each call with somebody else''s result.'
+      - 'Index the results by call id and look each call up in that mapping.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestFormatToolMessages.test_an_unanswered_call_is_an_error:
+    condition: 'two calls made and only one result to answer them with'
+    hints:
+      - 'An unanswered call makes the next request malformed, and the provider rejects the whole conversation.'
+      - 'Quietly skipping the missing one produces a transcript that fails later, far from here.'
+      - 'Check every requested id has a result before emitting anything and raise ValueError.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestFormatToolMessages.test_a_result_for_a_call_that_was_never_made_is_an_error:
+    condition: 'an extra result carrying an id that appears on no call'
+    hints:
+      - 'A stray result means the pairing has gone wrong somewhere upstream.'
+      - 'Ignoring it hides a bug that will show up as a mismatched answer later.'
+      - 'Compare the result ids against the requested ids and raise ValueError on anything left over.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunAgent.test_three_calls_in_one_turn_produce_three_tool_messages:
+    condition: 'one assistant turn requesting three lookups at once'
+    hints:
+      - 'The turn is one assistant message however many calls it carries, and then one tool message per call.'
+      - 'Splitting the calls into separate assistant messages misrepresents what the model did.'
+      - 'Append a single assistant turn, then extend the conversation with the batch of tool messages.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunAgent.test_every_call_is_answered_with_its_own_id_in_order:
+    condition: 'a batch whose answered ids must match the requested ids exactly'
+    hints:
+      - 'The provider checks this, and a mismatch is a rejected request rather than a wrong answer.'
+      - 'Both the set and the order have to agree with what the assistant turn asked for.'
+      - 'Build the messages from the call list so the ids and the order come from the same place.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunAgent.test_a_partial_failure_still_answers_every_call:
+    condition: 'a batch of three where one lookup fails and the run has to continue'
+    hints:
+      - 'A failure in one call is information for the model, not the end of the run.'
+      - 'The failure has to land in the slot the failing call asked for, carrying the tool''s own message.'
+      - 'Let the failed result become a tool message like any other and go round the loop again.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunAgent.test_a_batch_turn_and_a_single_turn_in_one_run:
+    condition: 'a run whose first turn requests two tools and whose second requests one'
+    hints:
+      - 'A batch is not a special mode. A single call is a batch of one.'
+      - 'Branching on the number of calls gives you two code paths that will drift.'
+      - 'Run the same dispatch and formatting for every turn, whatever the batch size.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunAgent.test_one_assistant_message_per_turn:
+    condition: 'a turn with two calls that must be recorded on a single assistant message'
+    hints:
+      - 'The model produced one turn, and the transcript has to say so.'
+      - 'One assistant message per call would claim the model took two turns it never took.'
+      - 'Put every call from the turn into the tool calls list of one assistant message.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunAgent.test_the_budget_still_applies:
+    condition: 'a model that keeps requesting a tool, against a budget of three'
+    hints:
+      - 'Parallelism reduces latency, not the number of rounds, so the budget still bounds the run.'
+      - 'The budget counts model calls, and a batch of three tools is still one call.'
+      - 'Keep the loop bounded by the step budget and raise MaxStepsExceeded when it runs out.'
+    concept: ai-tool-use.parallel-tool-calls
+
+  TestRunAgent.test_a_worker_count_below_one_is_a_caller_bug:
+    condition: 'a pool configured with zero workers'
+    hints:
+      - 'A pool with no workers never runs anything, and the failure appears deep inside the dispatch.'
+      - 'This is the caller misconfiguring the run rather than the agent failing at it.'
+      - 'Validate the worker count alongside the step budget before the first call and raise ValueError.'
+    concept: ai-tool-use.parallel-tool-calls

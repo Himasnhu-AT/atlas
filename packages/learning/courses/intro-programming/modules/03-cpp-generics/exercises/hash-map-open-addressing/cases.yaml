@@ -1,0 +1,65 @@
+version: 1
+cases:
+  TestOpenAddressingHashMap.test_initial_state:
+    condition: 'a table whose slots are allocated but have never been written to'
+    hints:
+      - 'The slots exist from the start. Capacity is how many there are, size is how many hold a live entry.'
+      - 'A lookup across empty slots stops at the first one it meets and answers no.'
+      - 'Allocate the slots empty, report a size of 0, and work the load factor out as size over capacity.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables
+
+  TestOpenAddressingHashMap.test_put_get_contains_single:
+    condition: 'one key stored and read back out of the slot its hash chose'
+    hints:
+      - 'The slot index comes from the hash reduced into the table, not from a running count of insertions.'
+      - 'The key has to be stored alongside the value, because the slot alone does not say which key landed in it.'
+      - 'Take the hash modulo the capacity, store the pair there, and read it back by returning to the same starting slot.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables
+
+  TestOpenAddressingHashMap.test_update_existing_key:
+    condition: 'a key written a second time, which has to overwrite rather than take another slot'
+    hints:
+      - 'An update is not an insert. The size stays where it was and no probe chain grows.'
+      - 'The probe has to look for the key before it settles on somewhere to put the value.'
+      - 'When a slot holding the same key turns up, replace its value and return without touching the size.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables
+
+  TestOpenAddressingHashMap.test_missing_key_raises_key_error:
+    condition: 'a read and a delete of a key that was never stored'
+    hints:
+      - 'An empty slot on the probe path proves the key is not further along, because an insert would have taken that slot first.'
+      - 'Both operations end the same way, and answering None from the read would be indistinguishable from a stored None.'
+      - 'Raise KeyError from get and from remove once the probe meets an empty slot or has walked the whole table.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables
+
+  TestOpenAddressingHashMap.test_linear_probing_and_collision_retrieval:
+    condition: 'ten keys in sixteen slots, so several of them want the same slot'
+    hints:
+      - 'Two keys can hash to one slot, and the second has to go somewhere without displacing the first.'
+      - 'Linear probing walks to the next slot along, and that walk has to wrap round the end of the table.'
+      - 'Step forward a slot at a time modulo the capacity until an empty one appears, and repeat the identical walk when reading.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables
+
+  TestOpenAddressingHashMap.test_tombstone_preserves_probe_chain:
+    condition: 'a key removed from the middle of a probe chain, with the keys behind it still to be found'
+    hints:
+      - 'Emptying the slot cuts the chain: a later lookup stops there and reports keys beyond it as missing.'
+      - 'The slot has to record that something was here and has gone, which is not the same as never having held anything.'
+      - 'Write a tombstone marker into the slot, and have every probe step past a tombstone instead of stopping at it.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables
+
+  TestOpenAddressingHashMap.test_tombstone_recycling:
+    condition: 'a new key inserted while a tombstone sits on its probe path'
+    hints:
+      - 'Stepping past tombstones on insert as well as on lookup means a removed slot is never reused and the table silts up with dead space.'
+      - 'The probe still has to finish looking for the key before it commits to a slot, or an update turns into a duplicate entry.'
+      - 'Remember the first tombstone seen, carry on probing for the key, and fall back to that slot when the key proves absent.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables
+
+  TestOpenAddressingHashMap.test_dynamic_rehashing_and_capacity_growth:
+    condition: 'a third insert into four slots at a load limit of 0.66, then twenty six more keys'
+    hints:
+      - 'Probe chains lengthen as the table fills, so it grows before it gets crowded rather than waiting until it is full.'
+      - 'Every key''s slot is derived from the capacity, so growing means placing all of them again, not copying slots across.'
+      - 'After an insert, compare the live entries plus tombstones against the limit, and when it is reached allocate twice the slots and reinsert every live pair.'
+    concept: intro-cpp-generics.associative-containers-and-hash-tables

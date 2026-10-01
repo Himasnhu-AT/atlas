@@ -1,0 +1,129 @@
+version: 1
+cases:
+  TestQuarantineRecord.test_carries_where_and_when:
+    condition: 'a rejected row that has to say which file it came from, which line, and when it arrived'
+    hints:
+      - 'Six months later the errors are useless without the file name and the load time to tie them to a run.'
+      - 'The row number is already in the validation result; the file and the timestamp are what the caller supplies.'
+      - 'Copy the row number out of the result and store the source and received_at arguments beside it.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestQuarantineRecord.test_keeps_the_errors:
+    condition: 'the field, the offending value and the problem, all of which have to survive into the record'
+    hints:
+      - 'A quarantine that says a row was bad without saying why is a row nobody will ever repair.'
+      - 'The validation result already carries the full error list in the shape you want.'
+      - 'Put the result''s errors into the record under their own key rather than flattening them into a message.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestQuarantineRecord.test_keeps_the_raw_row_untouched:
+    condition: 'the original strings from the file, before any coercion touched them'
+    hints:
+      - 'The raw row is what makes a quarantine repairable when somebody fixes the source. Coerced values have already lost the evidence.'
+      - 'Store what arrived, not what the validator managed to make of it.'
+      - 'Take the raw dict from the argument rather than the values dict inside the result.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestQuarantineRecord.test_stores_a_copy_of_the_row:
+    condition: 'a pipeline that keeps mutating the same row dict after the record was written'
+    hints:
+      - 'A quarantine that shares objects with the pipeline is one careless mutation away from being wrong about what arrived.'
+      - 'Assigning the dict stores a reference, so the record changes whenever the pipeline does.'
+      - 'Build a new dict from the raw row so the record owns its own copy.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestQuarantineRecord.test_stores_a_copy_of_the_errors:
+    condition: 'error dicts nested inside a list, where a shallow copy still shares the dicts'
+    hints:
+      - 'Copying the list is not enough here. The entries inside it are dicts, and they are still the same objects.'
+      - 'The tampering happens one level down, on an error''s own key.'
+      - 'Copy the error list deeply rather than with list() or a slice.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestSummarise.test_counts_records:
+    condition: 'three quarantined records, one of which carries two errors'
+    hints:
+      - 'The total answers how many rows were held back, which is not the same as how many things went wrong.'
+      - 'One record is one row, whatever it says about itself.'
+      - 'Take the length of the record list rather than adding up error counts.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestSummarise.test_counts_errors_not_rows:
+    condition: 'quantity failing on two separate records and a row that broke on two fields at once'
+    hints:
+      - 'This summary is for deciding what to fix, so it counts problems. The per-field row count belongs to the extract report from the previous lesson.'
+      - 'Every error contributes to both tallies: one keyed by field, one keyed by the kind of problem.'
+      - 'Loop the errors inside each record and add one to each tally, with no deduplication per row.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestSummarise.test_lists_sources_sorted_and_unique:
+    condition: 'two records from a.csv and one from b.csv'
+    hints:
+      - 'A list repeating a.csv once per record cannot be read, and one in arbitrary order cannot be diffed against yesterday.'
+      - 'The same file name appears once however many records came from it.'
+      - 'Collect the source names in a set and sort them on the way out.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestSummarise.test_an_empty_quarantine_summarises_to_zero:
+    condition: 'a run where nothing was quarantined at all'
+    hints:
+      - 'A clean run still has to produce a summary. A dashboard reading this cannot handle a missing key.'
+      - 'The counters are already empty before the loop starts.'
+      - 'Return the same four keys with a zero, two empty tallies and an empty source list.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestRateMoved.test_a_steady_rate_has_not_moved:
+    condition: 'two broken rows in ten thousand yesterday against three today'
+    hints:
+      - 'A background failure rate that wobbles by one row is normal, and paging somebody for it trains them to ignore the alert.'
+      - 'The comparison is between rates, not between counts.'
+      - 'Divide today''s rate by yesterday''s and compare that against the threshold rather than comparing the broken counts.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestRateMoved.test_a_jump_has_moved:
+    condition: 'two broken rows in ten thousand yesterday against two hundred today'
+    hints:
+      - 'A hundredfold jump overnight means something changed upstream, and that is the whole reason for the check.'
+      - 'Both days have the same denominator here, so the ratio comes straight from the rates.'
+      - 'Report the ratio as a number alongside the verdict, so the reader sees how far it moved.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestRateMoved.test_reports_both_rates:
+    condition: 'one broken row in a hundred yesterday against five today'
+    hints:
+      - 'A verdict on its own cannot be argued with. The two rates are what let somebody check the maths.'
+      - 'A rate is the broken count over the day''s total, as a fraction rather than a percentage.'
+      - 'Put both computed rates into the result under their own keys, not only the ratio between them.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestRateMoved.test_none_to_some_is_news:
+    condition: 'a clean day yesterday and five broken rows today'
+    hints:
+      - 'Going from no failures to some failures is exactly the change worth reporting, and it is also a division by zero.'
+      - 'There is no finite multiple of zero that reaches five, so the ratio is infinite rather than undefined.'
+      - 'When yesterday''s rate is zero and today''s is not, set the ratio to positive infinity and let the threshold comparison do the rest.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestRateMoved.test_none_to_none_is_not_news:
+    condition: 'two clean days in a row, with a zero on both sides of the division'
+    hints:
+      - 'Nothing broke yesterday and nothing broke today, so there is nothing to say.'
+      - 'This is the other half of the zero denominator case, and it must not come out infinite.'
+      - 'When both rates are zero, report a ratio of zero rather than infinity, and do not flag a move.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestRateMoved.test_an_empty_day_does_not_raise:
+    condition: 'a day whose total row count is zero, so there is nothing to take a rate of'
+    hints:
+      - 'An empty load is common enough that this check must not be the thing that crashes the run.'
+      - 'The rate calculation is where the division by zero would happen, one level below the ratio.'
+      - 'Return a rate of zero for a day with no rows, before dividing anything.'
+    concept: de-cleaning.quarantine-not-deletion
+
+  TestRateMoved.test_honours_the_threshold:
+    condition: 'a rate that grew by exactly half, judged against a threshold of 2.0 and then 1.5'
+    hints:
+      - 'How much movement counts as news is the caller''s decision, and the same day is quiet under one threshold and loud under another.'
+      - 'The 1.5 case sits exactly on the boundary, so a strict comparison would miss it.'
+      - 'Flag a move when the ratio reaches the threshold rather than only when it passes it, and require today''s rate to be above zero.'
+    concept: de-cleaning.quarantine-not-deletion

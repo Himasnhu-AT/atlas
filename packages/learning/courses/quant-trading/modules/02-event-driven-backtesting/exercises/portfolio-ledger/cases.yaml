@@ -1,0 +1,25 @@
+version: 1
+cases:
+  TestPortfolioLedger.test_initial_state:
+    condition: 'a ledger holding only cash, valued against an empty price map'
+    hints:
+      - 'With nothing held, equity is the cash and there is nothing to mark.'
+      - 'The price map is empty, so walking the positions must not reach for a symbol that is not in it.'
+      - 'Start the market value at zero and add only the symbols that both carry quantity and appear in the prices you were handed.'
+    concept: quant-backtesting.portfolio-accounting
+
+  TestPortfolioLedger.test_buy_and_sell_cycle_with_commission:
+    condition: '100 shares bought at 150 and sold at 160, with two dollars of commission each way'
+    hints:
+      - 'Commission always leaves the account. It is added to the cost of a purchase and taken out of the proceeds of a sale, never added to them.'
+      - 'Realised PnL here is 1,000, the ten point move on 100 shares. It is measured against the average entry price and does not net out the four dollars of commission, which has already gone through cash.'
+      - 'On the closing sale, credit cash with the fill price times quantity less the commission, and credit the position with fill price minus average entry, times the quantity closed.'
+    concept: quant-backtesting.portfolio-accounting
+
+  TestPortfolioLedger.test_short_position_accounting:
+    condition: '50 shares sold short at 200 and covered at 180, so the position sits negative'
+    hints:
+      - 'A short sale brings cash in and leaves the position quantity negative, and that sign has to be carried through everything computed afterwards.'
+      - 'Profit on a short runs the other way: entry price minus cover price. Reusing the long formula turns a 1,000 gain into a 1,000 loss.'
+      - 'Keep the average entry on the absolute size. On the cover, add average entry minus fill price times the quantity closed to realised PnL, and move the quantity back toward zero.'
+    concept: quant-backtesting.portfolio-accounting

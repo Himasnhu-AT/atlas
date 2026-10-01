@@ -1,0 +1,73 @@
+version: 1
+cases:
+  TestStackVM.test_basic_arithmetic:
+    condition: 'two constants pushed and added, with the stack checked as empty afterwards'
+    hints:
+      - 'The operands are not named anywhere. They are whatever the last two pushes left on the stack.'
+      - 'An add consumes both operands and leaves one result, and the return consumes that.'
+      - 'Pop two values, push their sum, and have the return pop the answer so nothing is left behind.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_sub_mul_div:
+    condition: 'a chain of operations where operand order matters, ending in an integer division'
+    hints:
+      - 'The value pushed second is the right hand operand, so taking the two pops in the order they come off reverses the subtraction.'
+      - '100 minus 30 is not 30 minus 100, and 280 over 8 is not 8 over 280.'
+      - 'Pop the right operand first and the left second, and divide two integers with floor division so the result is not a float.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_division_by_zero:
+    condition: 'a divisor of zero sitting on top of the operand stack'
+    hints:
+      - 'The failure happens inside the dispatch loop, so an unhandled one leaves the machine in a state nobody can reason about.'
+      - 'The divisor has to be checked once it has been popped and before the division runs.'
+      - 'Raise ZeroDivisionError when the right operand is 0.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_variables:
+    condition: 'values stored under names, read back out, and one name that was never stored'
+    hints:
+      - 'A store consumes the top of the stack while a load pushes onto it, so the two instructions move values in opposite directions.'
+      - 'The variable table lives across the whole program, unlike the stack, which is only where intermediate values sit.'
+      - 'Pop into the table on a store, push out of it on a load, and raise KeyError for a name the table does not hold.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_comparison_eq_and_lt:
+    condition: 'comparisons that leave their answer as a value, including one that comes out false'
+    hints:
+      - 'A comparison is an instruction like any other. It leaves a value on the stack rather than branching by itself.'
+      - 'Operand order matters as much as it does for subtraction: 10 < 5 and 5 < 10 do not agree.'
+      - 'Pop the right operand first, then the left, and push the boolean result of comparing them.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_jump_unconditional:
+    condition: 'a jump over two instructions that must not execute'
+    hints:
+      - 'By the time the jump runs, the instruction pointer has already stepped past it.'
+      - 'Assigning the target to the pointer replaces that step rather than adding to it.'
+      - 'Set the instruction pointer to the target address, so the loop reads its next instruction from there.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_jump_if_false:
+    condition: 'a branch taken in one run of the program and not taken in the other'
+    hints:
+      - 'The condition is consumed whichever way the branch goes. Leaving it behind corrupts everything after it.'
+      - 'The jump fires when the condition is false, which is the inverse of how the source code read.'
+      - 'Pop the condition and move the instruction pointer to the target only when it is falsy, otherwise fall through.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_loop_summation:
+    condition: 'a jump backward to an earlier address, running the same instructions with new values'
+    hints:
+      - 'A loop is a jump to a lower address. Nothing in the machine tells it apart from a forward one.'
+      - 'The stack has to come back to the same depth at the loop header, or it grows on every pass.'
+      - 'Let the instruction pointer take whatever address the program names, and keep the loop state in variables rather than balanced on the stack.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine
+
+  TestStackVM.test_pop_instruction:
+    condition: 'a value discarded off the stack without ever being used'
+    hints:
+      - 'An expression evaluated for its effect leaves a value nobody wants, and it has to go somewhere.'
+      - 'Pop discards. It stores nothing and it pushes no replacement.'
+      - 'Take the top value off and throw it away, which leaves the value beneath it for the return.'
+    concept: intro-virtual-machines.building-a-stack-virtual-machine

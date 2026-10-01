@@ -1,0 +1,233 @@
+version: 1
+cases:
+  TestToInt.test_reads_an_integer:
+    condition: 'a quantity of "42", clean digits with nothing around them'
+    hints:
+      - 'The ordinary case has to come back with the flag set, not merely without raising.'
+      - 'Every one of these functions returns a pair: the value and whether reading it worked.'
+      - 'Return the converted number alongside True rather than returning the number on its own.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToInt.test_ignores_surrounding_whitespace:
+    condition: 'a quantity padded with a space at each end'
+    hints:
+      - 'A column exported with alignment padding is still the number it looks like.'
+      - 'Trim before you decide anything about the text, including whether it is empty.'
+      - 'Strip once at the top and work from the trimmed copy from then on.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToInt.test_reads_a_sign:
+    condition: 'a value of "-3", where a minus sign leads the digits'
+    hints:
+      - 'Refunds and corrections arrive negative, so a leading sign is ordinary data.'
+      - 'A hand written digit check rejects the sign character; the built-in conversion does not.'
+      - 'Let int() do the parsing rather than testing the text with isdigit.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToInt.test_a_word_fails:
+    condition: 'the literal text "unknown" sitting in the quantity column'
+    hints:
+      - 'Somebody upstream typed a word where a count belongs. Returning 0 turns that into a real order of nothing.'
+      - 'The conversion raises here, and the raise is the answer rather than a crash.'
+      - 'Catch the ValueError and hand back None with the flag clear.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToInt.test_empty_fails:
+    condition: 'a quantity column that came through blank'
+    hints:
+      - 'A blank is a question nobody answered, and it is not a zero.'
+      - 'The emptiness test belongs after the trim, since a field of two spaces is also blank.'
+      - 'Return the failure pair for empty text before attempting any conversion.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToInt.test_absent_fails:
+    condition: 'a quantity of None, because the source row ran out of fields'
+    hints:
+      - 'The short row from module 0 reaches here as None, and calling strip on it raises.'
+      - 'Absent has to be handled before anything treats the input as text.'
+      - 'Check for None as the very first branch and return the failure pair.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToInt.test_a_decimal_fails_rather_than_truncating:
+    condition: 'a quantity of "2.7" where a whole count was expected'
+    hints:
+      - '2.7 items is not two items, it is a field that does not mean what you assumed. Truncating hides that.'
+      - 'Converting through float and then rounding is exactly the silent repair to avoid.'
+      - 'Hand the trimmed text straight to int(), which refuses a decimal point on its own.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToInt.test_never_returns_a_number_and_false:
+    condition: 'a run of readable and unreadable inputs, each of which has to agree with its own flag'
+    hints:
+      - 'A pair saying (0, False) or (None, True) makes every caller downstream choose which half to believe.'
+      - 'The flag is not extra information. It says exactly whether the value half is real.'
+      - 'Make sure every return path pairs a value with True or None with False, and none pairs them the other way round.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_reads_a_plain_amount:
+    condition: 'a total of "29.99" with no symbol and no separator on it'
+    hints:
+      - 'The clean amount still has to come back as an exact value, not a float.'
+      - 'Construct the value from the text rather than from a float built out of the text.'
+      - 'Pass the trimmed string into Decimal directly, so no float ever exists in the path.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_strips_a_currency_symbol:
+    condition: 'a total written as "$59.00", with the currency glued to the number'
+    hints:
+      - 'Every export writes money differently, and a dollar sign is the most common thing stuck to the front of one.'
+      - 'The symbol is a prefix. Remove it before the numeric conversion sees the text.'
+      - 'Test whether the first character is one of the currency symbols and drop it, then trim again in case a space followed it.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_strips_a_thousands_comma:
+    condition: 'a total of "1,499.00" carrying a thousands separator'
+    hints:
+      - 'This is the same value that broke the naive CSV split in module 0, and it breaks the conversion too.'
+      - 'The comma is presentation. Nothing in the amount depends on it.'
+      - 'Remove every comma from the text before converting.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_returns_a_decimal_not_a_float:
+    condition: 'an amount of "0.10", which no binary float holds exactly'
+    hints:
+      - 'A float cannot hold 0.10 exactly, and the drift shows up as a total that is out by a cent in a report somebody has to explain.'
+      - 'The type of what you return is part of the answer, not an implementation detail.'
+      - 'Return a Decimal built from the string. float(text) anywhere in the chain loses the exactness even if you convert afterwards.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_keeps_the_value_exact:
+    condition: 'two amounts that have to add up to exactly 0.30'
+    hints:
+      - 'In floats, 0.10 plus 0.20 is not 0.30, and a month of order totals is a lot of those additions.'
+      - 'Exactness survives only if it was never converted through a float on the way in.'
+      - 'Build the Decimal from the text you cleaned, not from a number parsed out of it.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_a_word_fails:
+    condition: 'a total written as the word "free"'
+    hints:
+      - 'A promotional order priced in words is still a row you cannot total.'
+      - 'The Decimal constructor signals this with its own exception rather than ValueError.'
+      - 'Catch InvalidOperation and return the failure pair.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_empty_and_absent_fail:
+    condition: 'a total that is blank on one row and absent on another'
+    hints:
+      - 'Neither one is a zero-priced order, and both would become one if you defaulted them.'
+      - 'These two checks are the same two the integer reader needs, in the same order.'
+      - 'Return the failure pair for None first, then for text that is empty after trimming.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_a_currency_symbol_alone_is_not_zero:
+    condition: 'a total field holding a dollar sign and nothing else'
+    hints:
+      - 'Stripping the symbol leaves an empty string, and an empty string is not an amount.'
+      - 'The blank check ran before the symbol was removed, so it never saw this.'
+      - 'Test for empty text again after the cleanup, not only before it.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDecimal.test_a_sign_alone_is_not_zero:
+    condition: 'a total field holding a bare minus sign'
+    hints:
+      - 'A lone sign is a truncated export, not a negative nothing.'
+      - 'What is left after cleanup is one character long and that character is not a digit.'
+      - 'Reject text that is a single plus or minus before converting, since some parsers would take it as zero.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDate.test_reads_iso:
+    condition: 'a placed_at already written as 2026-03-01'
+    hints:
+      - 'The output format is the input format here, but it still has to go through the same validity check as the others.'
+      - 'Dashes mean the parts are already in year, month, day order.'
+      - 'Split on the dash, build a real date from the three parts, and return its ISO form.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDate.test_reads_a_timestamp_and_keeps_the_date:
+    condition: 'a placed_at of 2026-03-02T09:14:00, with the time attached'
+    hints:
+      - 'One system in the chain sends a full timestamp and the rest send a date, so both arrive in the same column.'
+      - 'The time part is not wanted, and the date part in front of it is already in the format you handle.'
+      - 'Cut the text at the T and keep only what came before it, then carry on as if it had been a plain date.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDate.test_reads_slashes_day_first_by_default:
+    condition: 'a placed_at of 01/03/2026 with no reading preference from the caller'
+    hints:
+      - 'Slashes carry no ordering information, so somebody has to decide, and the default has to be documented rather than accidental.'
+      - 'Day first is the default here, which makes this the first of March.'
+      - 'Unpack the slash separated parts as day, month, year when day_first is set.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDate.test_reads_slashes_month_first_when_told_to:
+    condition: 'the same 01/03/2026 with the caller asking for month first'
+    hints:
+      - 'Nothing in the file says which reading is right, so the caller decides and the decision is visible.'
+      - 'The same three parts go into the same date, in a different order.'
+      - 'Swap which of the first two parts is the day when day_first is false, and leave the year where it is.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDate.test_a_date_that_does_not_exist_fails:
+    condition: 'a placed_at of 31/02/2026, a day February never had'
+    hints:
+      - 'Rolling into March would invent a day the source never sent, and the invented row would look fine.'
+      - 'Splitting into three integers is not the same as checking they name a real day.'
+      - 'Build an actual date object from the parts and let its own error be the failure signal.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDate.test_nonsense_fails:
+    condition: 'a placed_at of "last tuesday", plus the blank and absent cases beside it'
+    hints:
+      - 'Free text in a date column happens, and it has to come back as a failure rather than as today.'
+      - 'Text with no dash and no slash never reaches the part that builds a date.'
+      - 'Return the failure pair when neither separator is present, and handle None and empty text before that.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToDate.test_reads_every_spelling_in_the_extract:
+    condition: 'all three spellings of placed_at that the sample extract mixes together'
+    hints:
+      - 'One column, three formats, ten rows: every one of them has to read, or the count for the day is short.'
+      - 'The extract carries ISO dates, slash dates and one timestamp, and each needs its own branch.'
+      - 'Handle the timestamp cut, the dash split and the slash split, and all ten rows come back readable.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToBool.test_reads_the_true_spellings:
+    condition: 'true, TRUE, a padded " t ", yes, y and 1, all meaning the same thing'
+    hints:
+      - 'Six upstream systems, six spellings of yes. Comparing against the single word "true" reads five of them as failures.'
+      - 'Case and padding are noise, so remove both before comparing.'
+      - 'Trim, lower case, and test membership in a set of the accepted true spellings.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToBool.test_reads_the_false_spellings:
+    condition: 'false, F, no, n and 0 arriving from five different exports'
+    hints:
+      - 'The false side needs the same treatment as the true side, not a fallback that catches everything left over.'
+      - 'Anything not in the true list is not automatically false.'
+      - 'Keep a second set for the false spellings and test it explicitly.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToBool.test_empty_is_not_false:
+    condition: 'a boolean column that came through blank'
+    hints:
+      - 'An empty boolean is a question nobody answered, and reading it as False invents a no the source never sent.'
+      - 'The empty string is in neither the true set nor the false set, and that is the correct outcome.'
+      - 'Let anything matching neither set fall through to the failure pair rather than defaulting to False.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToBool.test_absent_is_not_false:
+    condition: 'a boolean field the row never carried at all'
+    hints:
+      - 'A column that was not sent says nothing, and a False here would be a claim the source did not make.'
+      - 'None cannot be lower cased, so it has to be handled before the text work starts.'
+      - 'Return the failure pair for None as the first branch.'
+    concept: de-cleaning.coercion-and-what-it-costs
+
+  TestToBool.test_a_word_fails:
+    condition: 'a boolean written as "maybe"'
+    hints:
+      - 'A word outside both vocabularies is a field somebody has to look at, not one to guess about.'
+      - 'The two set checks both miss, and the fall-through is the answer.'
+      - 'Return None with the flag clear after both membership tests fail.'
+    concept: de-cleaning.coercion-and-what-it-costs

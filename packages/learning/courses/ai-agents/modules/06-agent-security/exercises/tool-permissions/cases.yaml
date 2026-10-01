@@ -1,0 +1,169 @@
+version: 1
+cases:
+  TestToolsFor.test_gathering_gets_read_tools_only:
+    condition: 'a session still working out what the customer wants'
+    hints:
+      - 'While the agent is gathering information there is nothing for it to act on yet.'
+      - 'A write tool offered during this phase can be reached by anything that persuades the model.'
+      - 'Return only the read tools when the phase is not the acting one.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestToolsFor.test_acting_without_approval_is_still_read_only:
+    condition: 'a session in the acting phase where nobody has approved anything'
+    hints:
+      - 'Reaching the acting phase is not the same as being cleared to act.'
+      - 'Testing the phase alone hands out the write tool as soon as the conversation moves on.'
+      - 'Require both the phase and the approval before adding the write tool.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestToolsFor.test_acting_and_approved_gets_the_write_tool:
+    condition: 'a session that has reached the acting phase with an approval recorded'
+    hints:
+      - 'This is the only combination that earns the write tool.'
+      - 'The approval lives on the session, which came from outside the conversation.'
+      - 'Add the write tools to the read ones when both conditions hold.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestToolsFor.test_is_sorted:
+    condition: 'a tool list that must come out in a fixed order every time'
+    hints:
+      - 'The list goes into the prompt, and a prompt that reorders itself cannot be cached or compared.'
+      - 'Concatenating two lists gives an order that depends on which branch ran.'
+      - 'Sort the names before returning them.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_a_read_tool_is_fine_while_gathering:
+    condition: 'a documentation search during the gathering phase'
+    hints:
+      - 'A tool that is on the list and has no further rules attached is simply allowed.'
+      - 'Applying the refund checks to every tool refuses calls that have no order id because they need none.'
+      - 'Return an allowed decision for any available tool that is not the write one.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_an_unavailable_tool_is_refused:
+    condition: 'a refund requested during a phase where the tool was never offered'
+    hints:
+      - 'The model can name a tool it was not given, and the check is what stops it running.'
+      - 'Trusting the offered list alone leaves nothing enforcing it.'
+      - 'Compare the requested name against the list for this session and refuse when it is absent.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_availability_is_checked_before_anything_else:
+    condition: 'an unavailable tool called with an order id that does not exist'
+    hints:
+      - 'The order of the checks decides what the refusal reveals.'
+      - 'Checking the order first tells the caller whether some order exists, which they were guessing at.'
+      - 'Test availability before looking anything up.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_an_allowed_refund_passes:
+    condition: 'a delivered order under the limit, refunded in an approved session'
+    hints:
+      - 'The checks only refuse. A call that passes all of them has to come back allowed.'
+      - 'Refusing everything is as broken as allowing everything.'
+      - 'Return an allowed decision once every condition has been satisfied.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_a_missing_order_id_is_refused:
+    condition: 'a refund call with no order id in its arguments'
+    hints:
+      - 'The model can omit an argument, and the lookup that follows would raise or return everything.'
+      - 'An empty string is as absent as a missing key here.'
+      - 'Read the argument and refuse when there is nothing usable in it.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_an_order_from_outside_the_session_is_refused:
+    condition: 'an order id that belongs to somebody else''s account'
+    hints:
+      - 'The values the decision reads are values the attacker cannot write.'
+      - 'The session orders came from authentication, not from the conversation.'
+      - 'Look the id up in the session orders and refuse anything that is not there.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_an_undelivered_order_is_refused:
+    condition: 'an order in this session that has not been delivered yet'
+    hints:
+      - 'Being the customer''s own order is not enough. The order also has to be in a refundable state.'
+      - 'The state is on the order record, not something the model reports.'
+      - 'Check the state and refuse anything that is not delivered.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_an_amount_over_the_limit_is_refused:
+    condition: 'a delivered order whose total is well above the automatic limit'
+    hints:
+      - 'The amount comes from the order record, not from the arguments the model supplied.'
+      - 'Reading the amount out of the call would let the model refund a large order by claiming it was small.'
+      - 'Compare the order''s own total against the session limit.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_the_same_check_catches_the_model_simply_being_wrong:
+    condition: 'an order id the model made up while reading a long context'
+    hints:
+      - 'This is not an attack. A long context, two ids and the wrong one chosen is far more common than an injection.'
+      - 'A check written only against hostile input misses the mistake that happens every day.'
+      - 'The same session lookup rejects the invented id with no extra code.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestCheckCall.test_a_reason_does_not_leak_policy:
+    condition: 'refusal reasons that must not disclose the automatic limit'
+    hints:
+      - 'The reason goes into the model''s context, which the attacker can read.'
+      - 'Naming the limit tells them exactly what amount would have gone through.'
+      - 'Say what kind of refusal it was without putting the threshold in the text.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestDenialObservation.test_is_a_tool_message_the_loop_can_carry_on_from:
+    condition: 'a refusal that has to reach the model as an ordinary tool result'
+    hints:
+      - 'The loop expects a result for every call, and a refusal is a result.'
+      - 'Anything without the tool role and a call id makes the next request malformed.'
+      - 'Build a tool message naming the tool and the reason it was not permitted.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestRunGuarded.test_the_injection_persuades_the_model_and_achieves_nothing:
+    condition: 'a model that asked for a refund after reading a hostile document'
+    hints:
+      - 'The persuasion succeeded, and the tool was not in the array, so there is nothing to run.'
+      - 'That is what a control looks like: the attack works on the model and produces no effect.'
+      - 'Check every call against the session before executing any of them.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestRunGuarded.test_a_denial_does_not_stop_the_run:
+    condition: 'a refused refund followed by a perfectly ordinary lookup'
+    hints:
+      - 'Stopping would make a refused call indistinguishable from a crash.'
+      - 'The refusal is information for the model, not the end of the turn.'
+      - 'Record the denial and carry on to the next call.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestRunGuarded.test_produces_one_observation_per_denial:
+    condition: 'two refused refunds in one turn'
+    hints:
+      - 'The model asked twice, so it is owed two answers.'
+      - 'A single summary observation leaves one call unanswered and the request malformed.'
+      - 'Append an observation for each denial as it happens.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestRunGuarded.test_observations_have_distinct_call_ids:
+    condition: 'two denials whose observations must not share one call id'
+    hints:
+      - 'Two results answering one id is ambiguous, and providers reject it.'
+      - 'A constant id inside the helper gives every observation the same one.'
+      - 'Derive the id from the call''s position so each one is unique.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestRunGuarded.test_an_approved_run_executes_the_refund:
+    condition: 'a legitimate refund in a session that has been approved for it'
+    hints:
+      - 'The control has to let the real work through, or the agent does nothing useful.'
+      - 'An allowed call produces no denial and no observation.'
+      - 'Record it as executed and move on without appending anything else.'
+    concept: ai-agent-security.least-privilege-for-tools
+
+  TestRunGuarded.test_no_calls_is_not_an_error:
+    condition: 'a turn where the model asked for no tools at all'
+    hints:
+      - 'A turn that answers directly requests nothing, and that is the common case.'
+      - 'All three lists still have to be present in the result.'
+      - 'Let the loop run zero times and return the empty lists you started with.'
+    concept: ai-agent-security.least-privilege-for-tools

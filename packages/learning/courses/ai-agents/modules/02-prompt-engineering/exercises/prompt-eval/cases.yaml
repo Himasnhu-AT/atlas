@@ -1,0 +1,257 @@
+version: 1
+cases:
+  TestGraders.test_exact_match_accepts_the_expected_value:
+    condition: 'an output that is exactly the word the grader was built with'
+    hints:
+      - 'A grader reports problems and stays quiet otherwise, so a pass returns nothing.'
+      - 'Returning an empty string on success reads as a reason to anything checking for one.'
+      - 'Return None when the two sides agree.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_exact_match_strips_surrounding_whitespace:
+    condition: 'the right answer padded with spaces and a trailing newline'
+    hints:
+      - 'Models add trailing newlines. That is not the failure you are hunting for.'
+      - 'A grader that fails on whitespace fills the report with noise and hides the real regressions.'
+      - 'Strip the ends of the output before comparing it.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_exact_match_is_case_sensitive:
+    condition: 'a capitalised version of the expected label'
+    hints:
+      - 'This grader is for values that go into code, where the case is part of the value.'
+      - 'Lowering both sides here would let a label through that no downstream lookup will match.'
+      - 'Compare the stripped output against the expected value without folding the case.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_exact_match_reason_names_both_sides:
+    condition: 'a failure whose reason has to say what was wanted and what arrived'
+    hints:
+      - 'A reason of "did not match" sends you back to run the case again to see what happened.'
+      - 'The report is read later, away from the run, so it has to carry the evidence with it.'
+      - 'Put both the expected value and the actual output into the returned string.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_contains_all_accepts_when_every_term_appears:
+    condition: 'an answer carrying every required term somewhere inside it'
+    hints:
+      - 'This grader does not care where the terms appear or what surrounds them.'
+      - 'All of them have to be present, so one match is not enough.'
+      - 'Return None only when nothing is missing.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_contains_all_is_case_insensitive:
+    condition: 'a required term written in capitals against an answer that is lower case'
+    hints:
+      - 'The model chooses its own capitalisation and it is not what is being tested here.'
+      - 'Both sides have to be folded, not just one, or a lower case term still fails against a capitalised answer.'
+      - 'Lower the output once and lower each term as you check it.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_contains_all_reports_every_missing_term:
+    condition: 'three required terms of which two are absent'
+    hints:
+      - 'Reporting the first missing term means fixing it and running again to find the next one.'
+      - 'Returning early on the first miss throws away work already done.'
+      - 'Collect every term that is absent and name them all in one reason.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_rejects_accepts_when_the_term_is_absent:
+    condition: 'an answer that carefully avoids the forbidden word'
+    hints:
+      - 'This grader is the inverse of the others: absence is the pass.'
+      - 'Getting the direction the wrong way round passes every unsafe answer and fails every safe one.'
+      - 'Return None when the term does not appear.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_rejects_fails_case_insensitively:
+    condition: 'a forbidden word shouted in capitals'
+    hints:
+      - 'A promise in capitals is still a promise.'
+      - 'Matching the raw text lets any change of case slip past the check.'
+      - 'Fold both the term and the output before testing for the substring.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_matches_schema_accepts_a_valid_object:
+    condition: 'a clean JSON object whose fields all have the declared types'
+    hints:
+      - 'Parsing has to succeed and every field in the spec has to be present and correctly typed.'
+      - 'Fields the spec does not mention are not this grader''s business.'
+      - 'Walk the spec entries rather than the keys of the parsed data.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_matches_schema_rejects_a_code_fence:
+    condition: 'a valid object wrapped in triple backticks with a language tag'
+    hints:
+      - 'It is tempting to strip the fence here, because the JSON inside it is fine.'
+      - 'A grader that digs the object out hides the fact that the prompt is producing fences at all.'
+      - 'Parse the output as it stands and let the fence make it fail.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_matches_schema_rejects_a_json_array:
+    condition: 'output that parses cleanly but is a list rather than an object'
+    hints:
+      - 'The parse succeeded, so it is easy to move straight on to the field checks.'
+      - 'A list has no named fields, and looking one up on it raises rather than reporting a reason.'
+      - 'Check that the parsed value is a mapping before walking the spec.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_matches_schema_reports_a_missing_field:
+    condition: 'an object that left out one of the fields the spec declares'
+    hints:
+      - 'An absent key is different from a key holding a wrong value, and the reason should say which it was.'
+      - 'Reading the value before testing for the key raises instead of returning a reason.'
+      - 'Test membership first and return a reason naming the field.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_matches_schema_reports_a_wrong_type:
+    condition: 'a quantity sent back as the string "two" rather than a number'
+    hints:
+      - 'A number in quotes parses fine and breaks the first piece of arithmetic downstream.'
+      - 'The schema names types as words, so those words have to map to Python types somewhere.'
+      - 'Look the declared type name up in a table and check the value against the types it stands for.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestGraders.test_matches_schema_does_not_accept_bool_as_integer:
+    condition: 'a quantity of true, which Python counts as a whole number'
+    hints:
+      - 'In Python a bool is a subclass of int, so a plain type check lets true through as a count.'
+      - 'The bool case has to be settled before the numeric check runs, not after it.'
+      - 'Reject a bool whenever the declared type is anything other than boolean.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_pass_rate_when_everything_passes:
+    condition: 'a suite where both cases produce the answer their grader wanted'
+    hints:
+      - 'The rate is the fraction of cases with no failures, not the fraction of graders that passed.'
+      - 'A case passes only when nothing was reported against it.'
+      - 'Count the cases with no failures and divide by the number of cases.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_pass_rate_when_half_the_suite_fails:
+    condition: 'two cases where the same answer comes back for both and only one wanted it'
+    hints:
+      - 'Half of two is a number the report has to state, not a rounding of something close.'
+      - 'Leaving the raw division unrounded gives long decimals that make two runs hard to compare.'
+      - 'Round the rate to two places before storing it.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_cases_run_in_the_order_given:
+    condition: 'a scripted client whose replies are handed out in sequence'
+    hints:
+      - 'The client answers in order, so running the cases in a different order pairs each output with the wrong case.'
+      - 'Sorting or grouping the cases for any reason silently corrupts every result.'
+      - 'Iterate the case list as it was given and append results in that same order.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_one_model_call_per_case:
+    condition: 'a two case suite that must cost exactly two calls'
+    hints:
+      - 'An eval suite is run repeatedly, so an extra call per case doubles the bill every time.'
+      - 'Retrying a failing case would make the measurement disagree with what production does.'
+      - 'Call once per case, hold the reply, and run every grader over that one output.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_sends_what_prompt_fn_built:
+    condition: 'a request whose messages must be exactly what the prompt function produced'
+    hints:
+      - 'The prompt function is the thing under test. Everything else has to be held constant.'
+      - 'Adding a system message or an instruction here means you are measuring something else.'
+      - 'Pass what the prompt function returns straight to the call without editing it.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_keeps_the_output_of_each_case:
+    condition: 'a failing case whose actual output has to survive into the report'
+    hints:
+      - 'Recording only whether a case passed leaves you rerunning the suite to see what happened.'
+      - 'The output is what you read when deciding whether the grader or the prompt is wrong.'
+      - 'Store the reply text on the result alongside the failures.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_a_case_fails_when_any_one_grader_fails:
+    condition: 'an output that satisfies one grader and violates another'
+    hints:
+      - 'Every grader on a case is a requirement, so passing most of them is not passing.'
+      - 'Counting a case as passing when any grader passed makes the suite report almost anything as green.'
+      - 'A case passes only when it collected no reasons at all.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_every_grader_runs_and_every_reason_is_kept:
+    condition: 'an output that fails both of the graders attached to its case'
+    hints:
+      - 'Stopping at the first failure reports one problem per run, so a case with three problems takes three runs to understand.'
+      - 'The graders are independent, and running the rest costs nothing once the call is made.'
+      - 'Run all of them and collect every reason that came back.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestRunEval.test_an_empty_suite_scores_zero:
+    condition: 'a suite with no cases in it, where dividing would raise'
+    hints:
+      - 'A runner pointed at the wrong list finds nothing to run, and that must not look like success.'
+      - 'Dividing by the number of cases raises here, and defaulting the rate to one is worse.'
+      - 'Return an empty result with a rate of zero, and make no calls.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_names_the_regressed_cases:
+    condition: 'a case that passed in the baseline and fails in the candidate'
+    hints:
+      - 'A regression is a specific transition, not a case that is failing now.'
+      - 'A case that was already failing has not regressed, however bad it looks.'
+      - 'Pair the two runs case by case and record the ones that went from passing to failing.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_names_the_improved_cases:
+    condition: 'a case that failed in the baseline and passes in the candidate'
+    hints:
+      - 'An improvement is the opposite transition, and a case that was already passing is not one.'
+      - 'Both lists come out of the same pass over the pairs.'
+      - 'Record the cases that went from failing to passing in the other list.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_a_clean_improvement_is_better:
+    condition: 'a candidate that fixes one case and breaks none'
+    hints:
+      - 'This is the only shape that earns an unqualified yes.'
+      - 'The rate has to have gone up and the regression list has to be empty.'
+      - 'Compute the difference between the two rates and require it to be positive with nothing regressed.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_a_regression_is_not_better_even_at_a_higher_pass_rate:
+    condition: 'a candidate that fixes two cases and breaks one, with the rate up overall'
+    hints:
+      - 'The average says yes and the report says a working case was traded away.'
+      - 'That trade can be the right call, but it is a call somebody makes with the case in front of them.'
+      - 'Require an empty regression list as well as a positive delta before calling the candidate better.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_no_change_is_not_better:
+    condition: 'two identical runs with nothing moved in either direction'
+    hints:
+      - 'A change that moved nothing is not an improvement, and shipping it costs review time for no gain.'
+      - 'A delta of zero has to fail the test, so the comparison cannot be greater than or equal.'
+      - 'Require the delta to be strictly positive.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_different_case_sets_raise:
+    condition: 'a baseline of two cases held against a candidate of one'
+    hints:
+      - 'Comparing runs over different suites produces a number that means nothing.'
+      - 'Zipping the two lists silently truncates to the shorter one and reports a result anyway.'
+      - 'Check the case names of both runs before comparing anything and raise ValueError when they differ.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_reordered_cases_raise:
+    condition: 'the same two case names arriving in the opposite order'
+    hints:
+      - 'The comparison walks the two lists in step, so position is identity here.'
+      - 'Comparing the names as sets accepts a reordering and then pairs every case with the wrong one.'
+      - 'Compare the two name lists in order rather than as sets.'
+    concept: ai-prompt-engineering.measuring-a-prompt
+
+  TestCompare.test_end_to_end_against_two_scripted_versions:
+    condition: 'two real runs where the candidate fixes the case it was written for and breaks another'
+    hints:
+      - 'This is the classic bad fix, and the rate alone cannot see it.'
+      - 'The runner and the comparison have to agree on case names for the pairing to work at all.'
+      - 'Carry the case name onto each result so the comparison can report which case moved.'
+    concept: ai-prompt-engineering.measuring-a-prompt

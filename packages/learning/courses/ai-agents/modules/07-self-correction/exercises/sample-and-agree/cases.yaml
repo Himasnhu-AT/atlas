@@ -1,0 +1,209 @@
+version: 1
+cases:
+  TestNormalise.test_makes_four_spellings_of_one_answer_equal:
+    condition: 'the same number written bare, with a full stop, in a sentence, and padded'
+    hints:
+      - 'Counted raw these give four groups of one and no majority.'
+      - 'The whole method depends on two identical answers comparing equal.'
+      - 'Reduce each answer to a canonical form before anything counts it.'
+    concept: ai-self-correction.self-consistency
+
+  TestNormalise.test_lowercases_and_trims:
+    condition: 'a one word answer padded with spaces and capitalised'
+    hints:
+      - 'The model varies its capitalisation and spacing between samples for no reason that matters.'
+      - 'Those variations split one answer into several groups.'
+      - 'Strip the ends and fold the case first.'
+    concept: ai-self-correction.self-consistency
+
+  TestNormalise.test_strips_surrounding_punctuation:
+    condition: 'an answer ending in an exclamation mark, and one wrapped in quotes'
+    hints:
+      - 'Punctuation on the outside of an answer is decoration, not content.'
+      - 'Removing it from one end only leaves quoted answers in their own group.'
+      - 'Strip the punctuation characters from both ends.'
+    concept: ai-self-correction.self-consistency
+
+  TestNormalise.test_collapses_internal_whitespace:
+    condition: 'an answer with several spaces between two words'
+    hints:
+      - 'Extra spaces inside an answer are invisible to a reader and fatal to an equality check.'
+      - 'Stripping the ends does nothing about the middle.'
+      - 'Replace every run of whitespace with a single space.'
+    concept: ai-self-correction.self-consistency
+
+  TestNormalise.test_keeps_a_worded_answer_as_words:
+    condition: 'an answer that is a place name with no number in it'
+    hints:
+      - 'Not every answer is a number, and a normaliser that only handles numbers erases the rest.'
+      - 'The folded text is already canonical here.'
+      - 'Fall through to returning the cleaned text when no single number stands alone.'
+    concept: ai-self-correction.self-consistency
+
+  TestNormalise.test_does_not_collapse_two_numbers_into_one:
+    condition: 'a range answer holding two numbers'
+    hints:
+      - 'A range is not the answer of its first number.'
+      - 'Extracting the first number found makes two genuinely different answers agree.'
+      - 'Only reduce to a number when exactly one appears.'
+    concept: ai-self-correction.self-consistency
+
+  TestNormalise.test_keeps_a_sentence_that_carries_meaning_besides_the_number:
+    condition: 'a number followed by words that change what it is a count of'
+    hints:
+      - 'A count of recalled units is a different answer from a bare number.'
+      - 'Reducing it to the number makes it agree with an answer to a different question.'
+      - 'Only reduce when the words around the number carry nothing, ignoring the short ones and the carrier words.'
+    concept: ai-self-correction.self-consistency
+
+  TestSample.test_asks_n_times:
+    condition: 'a request for five samples, which must cost five calls'
+    hints:
+      - 'The whole method is the spread across independent draws.'
+      - 'Asking once and repeating the answer produces perfect agreement and measures nothing.'
+      - 'Loop the requested number of times, calling once per pass.'
+    concept: ai-self-correction.self-consistency
+
+  TestSample.test_passes_the_temperature_on_every_call:
+    condition: 'a temperature that must reach each of the requests'
+    hints:
+      - 'At temperature zero every sample is identical and you have paid n times for one answer.'
+      - 'The variation is what the disagreement is measured over.'
+      - 'Pass the temperature argument on each call.'
+    concept: ai-self-correction.self-consistency
+
+  TestSample.test_returns_the_replies_in_order:
+    condition: 'three different replies that have to come back in the order they arrived'
+    hints:
+      - 'The order lets a caller line a sample up with the call that produced it.'
+      - 'Collecting into a set removes duplicates, which are exactly what the tally needs.'
+      - 'Append each reply to a list as it comes back.'
+    concept: ai-self-correction.self-consistency
+
+  TestTally.test_counts_normalised_answers:
+    condition: 'three samples where two are the same answer written differently'
+    hints:
+      - 'Counting the raw replies gives three groups of one.'
+      - 'The canonical form is what makes the two agree.'
+      - 'Normalise each answer before using it as the counting key.'
+    concept: ai-self-correction.self-consistency
+
+  TestTally.test_orders_by_count_descending:
+    condition: 'six samples across three answers with different frequencies'
+    hints:
+      - 'The caller reads the first entry as the majority answer.'
+      - 'A mapping in insertion order puts whatever was sampled first at the front.'
+      - 'Sort the pairs by their count, largest first.'
+    concept: ai-self-correction.self-consistency
+
+  TestTally.test_breaks_a_tie_the_same_way_every_run:
+    condition: 'two answers with one sample each, presented in either order'
+    hints:
+      - 'A mode that moves between runs is a strange property for a method whose point is stability.'
+      - 'Sorting on the count alone leaves ties in the order the samples happened to arrive.'
+      - 'Add the answer text as a second sort key so equal counts resolve alphabetically.'
+    concept: ai-self-correction.self-consistency
+
+  TestTally.test_empty_is_empty:
+    condition: 'a tally over no samples at all'
+    hints:
+      - 'No samples means no groups, not a group of nothing.'
+      - 'Counting over an empty list gives an empty mapping.'
+      - 'Sorting the empty mapping already produces an empty list.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_unanimous_is_high_confidence:
+    condition: 'five samples that all gave the same answer'
+    hints:
+      - 'Complete agreement is the only state that needs nothing further.'
+      - 'The agreement figure is the winning count over the number of samples.'
+      - 'Report high confidence and leave the escalation flag unset when the agreement clears the threshold.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_a_three_two_split_is_marked_uncertain:
+    condition: 'five samples that split three against two'
+    hints:
+      - 'Reporting a three-two split as a confident answer throws away the one thing the method produced.'
+      - 'The majority is still the best answer, so it is reported alongside the doubt.'
+      - 'Report the winner with a split label and set the escalation flag.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_total_scatter_is_its_own_state:
+    condition: 'five samples that all disagreed with each other'
+    hints:
+      - 'Total scatter usually means the question is underspecified or the information is not in the context, and more sampling fixes neither.'
+      - 'Reporting it as a narrow split invites somebody to draw more samples.'
+      - 'Give it its own label when every sample produced a different answer.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_reports_the_whole_distribution:
+    condition: 'a result whose caller needs to see how the samples divided'
+    hints:
+      - 'The winner alone hides whether it won by five to zero or three to two.'
+      - 'A reviewer deciding whether to escalate needs the shape, not just the label.'
+      - 'Include the tallied pairs in the result.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_honours_the_threshold:
+    condition: 'four out of five agreeing, assessed against two different thresholds'
+    hints:
+      - 'How much agreement is enough depends on what the answer is for.'
+      - 'A hardcoded threshold makes the label meaningless in either direction.'
+      - 'Compare the agreement figure against the supplied threshold.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_no_samples_is_not_an_answer:
+    condition: 'an agreement computed over no samples'
+    hints:
+      - 'Dividing by the sample count raises here, and returning a confident empty answer is worse.'
+      - 'Reading the first entry of an empty distribution also raises.'
+      - 'Return an empty answer with zero agreement and the escalation flag set, before touching the distribution.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_two_different_answers_are_a_split_not_scatter:
+    condition: 'two samples that disagree, which is a small sample rather than chaos'
+    hints:
+      - 'Two samples that disagree is not evidence of an underspecified question.'
+      - 'Every sample being unique is trivially true at n of two.'
+      - 'Require a minimum number of samples before calling a result scatter.'
+    concept: ai-self-correction.self-consistency
+
+  TestAgree.test_the_spread_distinguishes_two_cases_one_draw_cannot:
+    condition: 'two runs producing the same winning answer from very different distributions'
+    hints:
+      - 'Same answer, very different states, and one draw shows neither.'
+      - 'Returning only the majority answer collapses the two into one report.'
+      - 'Derive the confidence label from the agreement rather than from the answer.'
+    concept: ai-self-correction.self-consistency
+
+  TestSuitability.test_short_answers_suit_it:
+    condition: 'answers of one or two words, which can be compared exactly'
+    hints:
+      - 'The method needs two correct answers to be identical after normalising.'
+      - 'Short answers are the case where that actually happens.'
+      - 'Report suitable when every answer is within the word limit.'
+    concept: ai-self-correction.self-consistency
+
+  TestSuitability.test_prose_does_not:
+    condition: 'a two clause summary sentence as an answer'
+    hints:
+      - 'Two summaries are never equal, and a normaliser that makes them equal is measuring nothing.'
+      - 'Applied to prose, self consistency reports scatter on answers that all agree.'
+      - 'Report unsuitable when an answer runs past the word limit.'
+    concept: ai-self-correction.self-consistency
+
+  TestSuitability.test_one_long_answer_spoils_it:
+    condition: 'a set where one answer is short and another runs to twenty words'
+    hints:
+      - 'The long answer will be in a group of its own however the others agree.'
+      - 'Checking only the first answer, or the average length, misses it.'
+      - 'Require every answer to be within the limit.'
+    concept: ai-self-correction.self-consistency
+
+  TestSuitability.test_empty_does_not_suit_it:
+    condition: 'a suitability check over no answers at all'
+    hints:
+      - 'Nothing to measure is not the same as suitable.'
+      - 'A check over an empty list passes vacuously and reports yes.'
+      - 'Return unsuitable when there are no answers.'
+    concept: ai-self-correction.self-consistency

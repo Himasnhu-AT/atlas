@@ -114,6 +114,30 @@ deliberately small, and cashed in later.
 
 If you add a lesson, it belongs in this table. If it does not, ask what it is for.
 
+## Lesson shape
+
+A lesson is three stages, and the first is where it starts.
+
+**Play** is three or four hands-on challenges, written in the lesson's `challenges:`
+frontmatter as data rather than as a component. The kinds are fixed and live in
+`packages/core/src/challenges/kinds.ts`: repair a buffer until it satisfies a contract, drive
+a state machine to a goal inside a budget, put steps in the order they have to happen in,
+sort items into the region they belong to, click the offending line, hit a number, tune a
+slider into a window, fill the blank, choose among approaches. `custom` names a bespoke
+component and exists for the few concepts that are genuinely visual and whose state space
+cannot be written down. Across 122 lessons it is used twice, which is the number to keep an
+eye on: the model this replaced would have wanted one component per lesson.
+
+Every step carries a prompt, up to three escalating hints and a reveal, and every option or
+item carries its own note. Those strings are the lesson. A `choice` with empty notes is a
+quiz, and the build cannot tell the difference, so this is the part that needs a human.
+
+**Read** is the prose. It is optional for the learner and it is the whole of what a search
+engine is served, so it is never thinned to make room for the challenges. It stays in the
+served HTML even when the lesson opens on stage 1.
+
+**Code** is the graded exercise.
+
 ## Module shape
 
 Every module is four or five lessons, except Foundations, which is three because its job is
@@ -126,10 +150,23 @@ module 6 carries an exercise on all four of its lessons, and module 10 puts its 
 lesson last, because "Running it for real" is the ship-it wrap-up and an exercise there would
 be strange. Place it where the module needs it and do not add a lesson to satisfy a pattern.
 
-An exercise is a directory of three files, `scaffold.py`, `reference.py` and `test.py`, run
-against `mockllm` with nothing installed but Python 3.10 or newer. The gate in
-`packages/learning/scripts/` refuses to ship an exercise whose reference fails its own test,
-whose scaffold passes it, or whose signatures have drifted between the two.
+An exercise is a directory of four files, `scaffold.py`, `reference.py`, `test.py` and
+`cases.yaml`, run against `mockllm` with nothing installed but Python 3.10 or newer. The gate
+in `packages/learning/scripts/` refuses to ship an exercise whose reference fails its own
+test, whose scaffold passes it, or whose signatures have drifted between the two.
+
+`cases.yaml` maps every test method to the condition it stands for, in words the learner has
+not already read in the method name, plus escalating hints. It is what lets a failed run say
+"you did not handle: a closing brace that appears inside a string literal" instead of showing
+a page of unittest output. None of the 1775 test methods in the catalogue has a docstring, so
+there is nothing to derive it from; it is authored, and the build refuses a map that does not
+cover its suite exactly, a condition that merely restates the method name, or a hint carrying
+a line of the reference solution.
+
+The same bargain applies to a challenge. The build proves a `text-contract` starts failing and
+that its authored solution passes, and walks a `machine`'s transition graph to prove the goal
+is reachable, because a challenge that is already solved teaches nothing and one that cannot
+be solved ends the lesson.
 
 `estimatedHours` on a module is the sum of its lesson minutes plus the sum of its exercise
 timeboxes, rounded to the nearest half hour, and **a total landing exactly on a quarter hour

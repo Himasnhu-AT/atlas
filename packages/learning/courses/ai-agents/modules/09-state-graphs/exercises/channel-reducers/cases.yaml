@@ -1,0 +1,249 @@
+version: 1
+cases:
+  TestReducers.test_last_value_overwrites:
+    condition: 'a new value written over an existing one'
+    hints:
+      - 'This is the reducer for a slot that holds one answer at a time.'
+      - 'Combining the two would make a draft and a final answer into both.'
+      - 'Ignore the current value and return the update.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestReducers.test_append_returns_a_new_list:
+    condition: 'an accumulating channel whose existing list must not be edited'
+    hints:
+      - 'The current value may be held by a checkpoint taken before this write.'
+      - 'Appending in place rewrites the history as well as the present.'
+      - 'Build a new list from the current one and return that.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestReducers.test_append_extends_with_a_list_update:
+    condition: 'an update that is itself a list of items'
+    hints:
+      - 'A node producing three notes at once should contribute three notes.'
+      - 'Appending the list as one element nests it, and every reader then has to flatten.'
+      - 'Check whether the update is a list and extend rather than append when it is.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestReducers.test_merge_dicts_keeps_untouched_keys:
+    condition: 'an update naming one key of a mapping that already holds two'
+    hints:
+      - 'A node writing one fact should not erase the facts other nodes wrote.'
+      - 'Replacing the mapping outright is the overwrite reducer, not the merge one.'
+      - 'Build a new mapping from the current one with the update applied over it.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestReducers.test_add_int_sums:
+    condition: 'a counter channel receiving another amount'
+    hints:
+      - 'A token counter accumulates across the run rather than reporting the last call.'
+      - 'Overwriting here loses everything spent before this node ran.'
+      - 'Return the sum of the current value and the update.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestChannelStateDefaults.test_starts_at_the_defaults:
+    condition: 'a fresh state whose channels have to start at their declared empties'
+    hints:
+      - 'A node reading a channel before anything writes it needs a value of the right type.'
+      - 'Leaving a channel absent makes every reader guard the lookup.'
+      - 'Build the value mapping by calling each channel default as the state is constructed.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestChannelStateDefaults.test_every_version_starts_at_zero:
+    condition: 'a fresh state where nothing has been written yet'
+    hints:
+      - 'The version counts writes, and no writes have happened.'
+      - 'Starting at one would make every node eligible on the first pass for no reason.'
+      - 'Initialise every channel version to zero alongside the values.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestChannelStateDefaults.test_each_state_gets_its_own_default:
+    condition: 'two states built from the same channel definitions'
+    hints:
+      - 'The default is a callable rather than a value for exactly this reason.'
+      - 'Sharing the object is the mutable default bug in a new hat: a write to one state appears in the other.'
+      - 'Call the default once per state, not once per channel definition.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestChannelStateDefaults.test_values_returns_a_copy:
+    condition: 'a caller assigning into the mapping the accessor handed them'
+    hints:
+      - 'Returning the internal mapping lets anything holding it write to the state without a version bump.'
+      - 'The scheduler then never learns that the value moved.'
+      - 'Build a new mapping on every call.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_returns_only_the_touched_channels:
+    condition: 'a write naming one channel out of four'
+    hints:
+      - 'The caller records which channels moved so a checkpoint can say what the step wrote.'
+      - 'Returning every channel makes the step look like it wrote everything.'
+      - 'Return the names that appeared in the update.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_returns_names_sorted:
+    condition: 'a batch naming three channels in an arbitrary order'
+    hints:
+      - 'The list goes into a checkpoint, and a checkpoint that reorders itself cannot be diffed.'
+      - 'The order the caller happened to write the keys in is not meaningful.'
+      - 'Sort the touched names before returning them.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_leaves_other_versions_untouched:
+    condition: 'a write to one channel that must not bump the versions of the rest'
+    hints:
+      - 'A write to one channel is not a write to all.'
+      - 'Bumping everything wakes every node in the graph on every step.'
+      - 'Increment only the versions of the channels named in the update.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_an_identical_write_still_bumps_the_version:
+    condition: 'the same value written to a channel twice in a row'
+    hints:
+      - 'The version counts writes, not changes.'
+      - 'The scheduler needs to know a node produced something, even when the value happens to match.'
+      - 'Bump the version whenever the channel is named, without comparing the values.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_append_accumulates_in_call_order:
+    condition: 'two successive writes to an accumulating channel'
+    hints:
+      - 'The order the notes were written in is the order they should read in.'
+      - 'The reducer receives the current value and the update, and it is the reducer that decides the order.'
+      - 'Pass the stored value as the current one so each write builds on the last.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_add_int_accumulates:
+    condition: 'two successive writes to a counter channel'
+    hints:
+      - 'Each write contributes an amount rather than setting a total.'
+      - 'Storing the update directly would make the counter report the last write.'
+      - 'Store what the reducer returns rather than the update itself.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_last_value_overwrites_through_apply:
+    condition: 'a draft answer replaced by a final one'
+    hints:
+      - 'Different channels combine differently, and the channel decides which.'
+      - 'Hardcoding one combination here makes the reducers decorative.'
+      - 'Look the reducer up on the channel being written and call it.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_merge_dicts_through_apply:
+    condition: 'a second write to a facts channel naming only one of its keys'
+    hints:
+      - 'The reducer is what preserves the keys this write did not mention.'
+      - 'Assigning the update over the stored mapping loses them.'
+      - 'Route the write through the channel''s reducer like any other.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_a_batch_writes_every_named_channel:
+    condition: 'one update naming two different channels at once'
+    hints:
+      - 'A node can write several channels in a single return value.'
+      - 'Handling only the first key silently drops the rest.'
+      - 'Walk every entry in the update and reduce each into its own channel.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_unknown_channel_raises:
+    condition: 'a write naming a channel that does not exist, spelled almost right'
+    hints:
+      - 'A typo in a channel name would otherwise create a slot nobody subscribes to.'
+      - 'The node then looks like it worked and nothing downstream ever wakes.'
+      - 'Raise UnknownChannel naming the missing channel and listing the real ones.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestApply.test_unknown_channel_applies_none_of_the_batch:
+    condition: 'a batch where one key is good and another is a typo'
+    hints:
+      - 'Apply is all or nothing: a half applied step is a state nobody wrote.'
+      - 'A checkpoint taken after one looks entirely valid from the outside.'
+      - 'Validate every key before writing any of them.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestEligibleNodes.test_nothing_is_eligible_when_nothing_has_moved:
+    condition: 'a state where every channel is still at version zero'
+    hints:
+      - 'A channel at version zero that nobody has seen is not work.'
+      - 'Comparing with greater than or equal makes every node eligible forever.'
+      - 'Require the current version to be strictly greater than the seen one.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestEligibleNodes.test_everything_is_eligible_on_a_freshly_seeded_state:
+    condition: 'a state seeded with inputs where no node has read anything yet'
+    hints:
+      - 'An empty seen map means the node has read nothing yet.'
+      - 'Treating a missing entry as up to date means the graph never starts.'
+      - 'Default a missing seen version to zero.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestEligibleNodes.test_returns_only_the_node_whose_channel_moved:
+    condition: 'three nodes where only one subscribes to the channel that advanced'
+    hints:
+      - 'Waking every node on every write is the loop this design exists to avoid.'
+      - 'A node is stale only with respect to the channels it subscribes to.'
+      - 'Compare each node''s subscribed channels against what it has seen.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestEligibleNodes.test_ignores_a_node_subscribed_only_to_unchanged_channels:
+    condition: 'a node subscribed to two channels where only one of them moved'
+    hints:
+      - 'A node with several subscriptions wakes when any one of them advances.'
+      - 'Requiring all of them to have moved leaves nodes asleep forever.'
+      - 'Test whether any subscribed channel is newer than what the node has seen.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestEligibleNodes.test_nothing_is_eligible_when_every_node_has_seen_every_version:
+    condition: 'a settled state where every node is caught up'
+    hints:
+      - 'This is how the run knows it is finished.'
+      - 'A node that stays eligible after reading turns the graph into an infinite loop.'
+      - 'Return an empty list when nothing is newer than what was seen.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestEligibleNodes.test_returns_names_sorted:
+    condition: 'two eligible nodes declared in an order that is not alphabetical'
+    hints:
+      - 'The order decides how a fan out merges its writes.'
+      - 'Iterating the subscription mapping gives whatever order it was built in.'
+      - 'Sort the eligible names before returning them.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestMarkSeen.test_records_the_given_channels:
+    condition: 'a node that has just read a channel at a particular version'
+    hints:
+      - 'Without recording what was read, the node stays eligible forever.'
+      - 'The record is per node and per channel, not a single number.'
+      - 'Store the current version of each named channel under the node.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestMarkSeen.test_records_only_the_channels_passed:
+    condition: 'a state holding two channels where the node subscribes to one'
+    hints:
+      - 'A node records what it subscribes to, not everything in the state.'
+      - 'Recording everything marks the node as having seen channels it never read.'
+      - 'Walk the channel list you were given rather than the version mapping.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestMarkSeen.test_mutates_in_place_and_returns_none:
+    condition: 'an existing seen map that has to be updated rather than replaced'
+    hints:
+      - 'The caller holds this map across the whole run, so returning a new one loses the update.'
+      - 'Returning a value invites a caller to reassign, which is how half the updates get dropped.'
+      - 'Update the mapping in place and return nothing.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestMarkSeen.test_defaults_a_missing_version_to_zero:
+    condition: 'a channel named in the subscription that is absent from the version mapping'
+    hints:
+      - 'A subscription can name a channel that has not been written yet.'
+      - 'Reading it out of the mapping directly raises.'
+      - 'Default a missing version to zero as you record it.'
+    concept: ai-state-graphs.channels-and-reducers
+
+  TestMarkSeen.test_a_marked_node_stops_being_eligible:
+    condition: 'a node that was eligible, read its channel, and must now go quiet'
+    hints:
+      - 'The two functions have to agree on what a version means or the loop never settles.'
+      - 'Recording the version before the node reads, or recording a different number, breaks the pairing.'
+      - 'Record exactly the versions the eligibility check compares against.'
+    concept: ai-state-graphs.channels-and-reducers

@@ -7,6 +7,171 @@ estimatedMinutes: 25
 exercise:
   id: raii-resource-guard
   timeboxMinutes: 25
+challenges:
+  goal: Tie every release to a scope so no exit path can skip it, and get commit or rollback out of ordinary destructors.
+
+  steps:
+    - id: count-the-releases
+      kind: numeric
+      prompt: >-
+        Count every release call this function contains, meaning every free, close and unlock
+        written anywhere in it. Three resources, four ways out.
+      context:
+        as: code
+        lang: c
+        source: |
+          int process_transaction(const char *filename, pthread_mutex_t *mutex) {
+              pthread_mutex_lock(mutex);
+              int fd = open(filename, O_RDONLY);
+              if (fd < 0) {
+                  pthread_mutex_unlock(mutex);
+                  return -1;
+              }
+
+              char *buffer = malloc(4096);
+              if (!buffer) {
+                  close(fd);
+                  pthread_mutex_unlock(mutex);
+                  return -2;
+              }
+
+              if (read(fd, buffer, 4096) < 0) {
+                  free(buffer);
+                  close(fd);
+                  pthread_mutex_unlock(mutex);
+                  return -3;
+              }
+
+              free(buffer);
+              close(fd);
+              pthread_mutex_unlock(mutex);
+              return 0;
+          }
+      answer: 9
+      tolerance: 0
+      hints:
+        - Count one exit path at a time. There are four of them and no two of them release the same set.
+        - Each path has to release everything acquired above it, so the paths get longer the further down they are.
+        - One release on the first way out, two on the second, three on the third, and three again on the normal path.
+      reveal: >-
+        Nine release calls for three resources. Adding a fourth resource does not add one line,
+        it adds one line to every path below it, so the count grows with resources times exit
+        paths and each entry is somewhere a maintainer can forget. The RAII rewrite has three
+        declarations and no cleanup at all.
+
+    - id: unwinding-in-reverse
+      kind: order
+      prompt: >-
+        The activation email throws. Put everything that happens in this function, from the
+        first database call to the exception leaving it, in order.
+      context:
+        as: code
+        lang: cpp
+        source: |
+          void create_user_account(Database &db, const User &user) {
+              db.insert_user_record(user);
+              ScopeExit rollback_user([&]() { db.delete_user_record(user.id); });
+
+              db.allocate_user_quota(user.id);
+              ScopeExit rollback_quota([&]() { db.free_user_quota(user.id); });
+
+              db.send_activation_email(user.email);
+
+              rollback_quota.dismiss();
+              rollback_user.dismiss();
+          }
+      items:
+        - { id: insert, label: The user record is inserted }
+        - { id: guard-record, label: rollback_user is constructed }
+        - { id: quota, label: The quota is allocated }
+        - { id: guard-quota, label: rollback_quota is constructed }
+        - { id: throws, label: send_activation_email throws }
+        - { id: undo-quota, label: "The destructor of rollback_quota runs and frees the quota" }
+        - { id: undo-record, label: "The destructor of rollback_user runs and deletes the record" }
+        - { id: escape, label: The exception reaches the caller }
+      solution: [insert, guard-record, quota, guard-quota, throws, undo-quota, undo-record, escape]
+      because:
+        insert: The first step of the transaction, and nothing is guarded before something exists to guard.
+        guard-record: The guard is constructed on the line after its step, which is the only window where nothing can throw in between.
+        quota: The second step, taken with the first already protected.
+        guard-quota: Its guard follows its step for the same reason the first one did.
+        throws: The dismiss calls never run, because the throw happens above them and control leaves the block.
+        undo-quota: Destructors run in reverse order of construction, so the guard built second is destroyed first.
+        undo-record: The first guard built is destroyed last, which undoes the first step last.
+        escape: Unwinding finishes the frame before the exception moves up, so every destructor has already run by the time the caller sees it.
+      hints:
+        - Nothing below the throwing call runs at all, and that includes both dismiss calls.
+        - Only fully constructed local objects are destroyed, and both guards were constructed before the throw.
+        - Destruction is construction played backwards, which is what makes the rollbacks undo the steps in the reverse of the order they were done.
+      reveal: >-
+        The rollbacks come out in reverse purely because destruction is the reverse of
+        construction, and that happens to be exactly the order a transaction has to unwind in.
+        Nothing in ScopeExit knows about transactions. It borrows an ordering the language
+        already guarantees.
+
+    - id: which-guarantee
+      kind: choice
+      prompt: >-
+        The email throws and the two guards run. What can the caller of create_user_account say
+        about the database afterwards?
+      options:
+        - id: none
+          label: Nothing. An exception escaped, so the state is unknown.
+          note: The exception does escape, and that is a separate question from what was left behind. Both guards ran during unwinding, so the state is not unknown at all.
+        - id: basic
+          label: The basic guarantee. Nothing leaked and every object is still valid, but which steps committed is unknown.
+          note: This is the floor and the function clears it, but it clears something narrower too. Here it is known exactly which steps committed, because none did.
+        - id: strong
+          label: The strong guarantee. Either every step committed or none did, and a failed run leaves the state it started with.
+          correct: true
+          note: Each guard undoes exactly one step and they run in the reverse of the order the steps were taken, so a partial run is not observable from outside. That is commit or rollback.
+        - id: nothrow
+          label: The no-throw guarantee, because the guards themselves cannot fail.
+          note: The guards not throwing is a requirement of the mechanism rather than the promise it makes. This function throws, and what it guarantees is what is true after it does.
+      hints:
+        - Nothing is caught here, so ask what the caller can say about the database rather than about control flow.
+        - Both rollbacks run before the exception leaves the function, and each undoes exactly one step.
+        - If a failed run and a run that never started are indistinguishable from outside, that has a name.
+      reveal: >-
+        Strong means commit or rollback, and it is built by making each step's undo available
+        before the next step runs. Basic is the floor and it is nearly free. Only destructors
+        have to be no-throw, and that is not a style rule: a destructor that throws while the
+        stack is already unwinding calls std::terminate, because there are now two exceptions
+        in flight and no way to carry both.
+
+    - id: the-gap-before-the-guard
+      kind: spot
+      prompt: >-
+        The email fails and one of the two resources is left behind. Click the line that should
+        have come earlier.
+      lang: cpp
+      source: |
+        void create_user_account(Database &db, const User &user) {
+            db.insert_user_record(user);
+            ScopeExit rollback_user([&]() { db.delete_user_record(user.id); });
+
+            db.allocate_user_quota(user.id);
+            db.send_activation_email(user.email);
+            ScopeExit rollback_quota([&]() { db.free_user_quota(user.id); });
+
+            rollback_quota.dismiss();
+            rollback_user.dismiss();
+        }
+      targets: [6]
+      decoys:
+        '1': Inserting the record is the step being protected, and a step has to happen before anything can guard it. What matters is what runs between the two.
+        '2': This guard is constructed on the line straight after its own step, with nothing that can throw in between. It is the one that works.
+        '5': This is the call that fails, and it is meant to be able to. A step that can throw is not the bug. Being unguarded when it does is.
+        '8': Dismissing once every step has succeeded is how the transaction commits. Control never reaches this line on the failing run.
+      hints:
+        - Walk the function assuming the email call throws, and write down what the database is left holding.
+        - A guard protects only what already exists when it is constructed, and only against throws that happen after that.
+        - One statement sits between the quota being allocated and the quota being guarded, and it is the one that fails.
+      reveal: >-
+        A guard covers the window from its own construction to the end of the scope, so
+        everything between an acquisition and its guard is unprotected. The rule is that the
+        guard is the next statement, with nothing in the gap. Acquiring inside a constructor is
+        stronger still, because then there is no gap to get wrong.
 ---
 
 In procedural languages, managing operating system resources requires manual pairing of acquisition and release calls: `malloc` with `free`, `open` with `close`, `pthread_mutex_lock` with `pthread_mutex_unlock`. When functions have multiple early returns or throw exceptions, manual cleanup paths frequently fail. Resource acquisition is initialization (RAII) eliminates this class of bug by tying resource lifetime directly to object lifetime on the stack.

@@ -1,0 +1,41 @@
+version: 1
+cases:
+  TestFractionalDifferentiation.test_d_zero_identity:
+    condition: 'a differencing order of exactly zero, which has to hand the input straight back'
+    hints:
+      - 'At d of zero there is nothing to difference. The weight vector is a single 1.0, and any drift in how it is built shows up here first.'
+      - 'The comparison is for exact equality, so a value that has been through a floating point multiply may no longer match the price that went in.'
+      - 'Return a copy of the series as soon as d is zero, before any weights are generated.'
+    concept: quant-validation.fractional-differentiation
+
+  TestFractionalDifferentiation.test_empty_series_is_supported:
+    condition: 'an empty series handed a perfectly valid differencing order'
+    hints:
+      - 'No observations means no output, and that is an ordinary result rather than an error.'
+      - 'Both the weight loop and the dot product assume there is at least one point, so this has to be settled before either of them runs.'
+      - 'Return an empty list once the argument checks have passed and before the weights are built.'
+    concept: quant-validation.fractional-differentiation
+
+  TestFractionalDifferentiation.test_rejects_invalid_order_or_threshold:
+    condition: 'a d of -0.1, a d of 1.1, and a threshold of exactly zero'
+    hints:
+      - 'The order lives in the closed interval from zero to one. Below zero integrates rather than differences, and above one over-differences away the memory the method exists to keep.'
+      - 'A threshold of zero never truncates anything, so the weight loop runs until the weights underflow instead of until they stop mattering.'
+      - 'Raise ValueError for a d outside [0, 1] and for a threshold that is not strictly positive, both before the series is touched.'
+    concept: quant-validation.fractional-differentiation
+
+  TestFractionalDifferentiation.test_d_one_integer_difference:
+    condition: 'a d of exactly one, whose first output is the raw 100 rather than a difference'
+    hints:
+      - 'At d of one the weights are 1 and -1, so every value after the first is the ordinary first difference.'
+      - 'The first observation has nothing behind it, so it comes out as the raw price rather than a difference against a bar that does not exist. Dropping it or padding a zero in front both change the length.'
+      - 'Use only as much of the weight vector as there is history at each index, so index zero applies one weight and the output stays the same length as the input.'
+    concept: quant-validation.fractional-differentiation
+
+  TestFractionalDifferentiation.test_fractional_d_weights:
+    condition: 'ten flat prices at a d of 0.5, where more weights come into range on every step'
+    hints:
+      - 'At a fractional order the weights do not stop after two terms. They decay slowly, and that long tail is the memory the method is built to keep.'
+      - 'On a flat series the output is the price times the running sum of the weights in range, and that sum falls as more negative weights come into view, which is why the last value sits below the first.'
+      - 'Generate each weight from the one before it, stop once the absolute weight falls under the threshold, and dot the retained weights against the most recent observations.'
+    concept: quant-validation.fractional-differentiation

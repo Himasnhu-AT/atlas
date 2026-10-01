@@ -7,6 +7,132 @@ estimatedMinutes: 25
 exercise:
   id: dynamic-array
   timeboxMinutes: 25
+challenges:
+  goal: Count what growing a buffer actually costs, order the work an insert has to do, and find the realloc that loses the array.
+
+  steps:
+    - id: count-the-reallocations
+      kind: numeric
+      prompt: >-
+        An array starts with capacity 4 and doubles whenever a push arrives at a full buffer.
+        How many times does it reallocate over 100 pushes?
+      context:
+        as: prose
+        text: >-
+          The first four pushes fit in the buffer it was born with. Reallocation happens on the
+          push that arrives when size has caught up with capacity, and it doubles the capacity
+          each time.
+      answer: 5
+      tolerance: 0
+      scaleHint: >-
+        An answer near 100 is counting pushes rather than reallocations, and an answer near 25
+        is growing by a constant rather than doubling.
+      hints:
+        - Write the capacities out. They start at 4 and each one is twice the one before.
+        - Reallocation happens on the push that finds the buffer full, so count how many of those there are before you reach 100.
+        - The capacities are 4, 8, 16, 32, 64 and 128. Count the arrows between them, not the numbers.
+      reveal: >-
+        Five reallocations for a hundred pushes, and twenty for a million. Doubling turns the
+        number of expensive operations into a logarithm, which is why the array can be slow on
+        five individual pushes and still be constant time on average across all of them.
+
+    - id: what-an-insert-does
+      kind: order
+      prompt: >-
+        Put the work an insert at index i has to do in order. Getting two of these the wrong way
+        round destroys data rather than merely being slow.
+      items:
+        - { id: bounds, label: Reject an index greater than size }
+        - { id: grow, label: Grow the buffer if size has reached capacity }
+        - { id: shift, label: Copy each element from the last one down to index i one slot right }
+        - { id: write, label: Write the new value into index i }
+        - { id: bump, label: Increase size by one }
+      solution: [bounds, grow, shift, write, bump]
+      because:
+        bounds: Checking the index first means nothing has been moved or allocated when the call turns out to be invalid.
+        grow: The shift writes into the slot at index size, so the room has to exist before anything moves. Shifting first would write one past the end of the buffer.
+        shift: The elements have to move before the new value lands, or the value at index i is overwritten before it has been copied anywhere.
+        write: Once the gap exists the value goes into it. This is the only slot the caller asked about.
+        bump: Size changes last, so every earlier step sees the old size and reads the same element as the last live one.
+      hints:
+        - Two of these change how much memory exists and how much of it counts as live. They belong at opposite ends.
+        - The shift needs a slot to move the last element into, and that slot is one past the current end.
+        - Everything that could fail comes before anything that mutates, and the count is only updated once the element is really there.
+      reveal: >-
+        The shift itself runs backward, from the last element down to index i, and that direction
+        is not a style choice. Copying forward would smear the element at index i across every
+        slot behind it, which is the same overlap problem memmove exists to handle and memcpy
+        does not.
+
+    - id: pick-the-growth
+      kind: choice
+      multiple: true
+      prompt: >-
+        Two of these keep the average cost of an append constant however large the array gets.
+        Pick both.
+      options:
+        - id: plus-one
+          label: Grow by one slot every time the buffer fills
+          note: Every single append reallocates and copies the whole array, so appending N items copies about N squared over 2 elements. This is the version that turns a loop into a heat source.
+        - id: plus-ten
+          label: Grow by ten slots every time the buffer fills
+          note: Ten times fewer reallocations than growing by one, and still quadratic. Appending a million items copies about fifty billion elements, because a constant divisor does not change the shape of the curve.
+        - id: times-two
+          label: Double the capacity
+          correct: true
+          note: The capacity is a geometric series, so there are about log N reallocations and fewer than 2N copies in total. Every append costs under two element writes on average.
+        - id: times-one-point-five
+          label: Multiply the capacity by 1.5
+          correct: true
+          note: Also geometric, so also amortised constant. It wastes less capacity, and unlike doubling the blocks it has already freed can eventually be reused. CPython lists and several C++ standard libraries grow by less than 2 for that reason.
+      hints:
+        - The question is not how many reallocations happen. It is how the total copying grows as N grows.
+        - Adding a fixed number of slots means the reallocations keep coming at a steady rate while each one costs more than the last.
+        - Anything that multiplies the capacity spreads the cost, whatever it multiplies by. Anything that adds to it does not.
+      reveal: >-
+        Any factor above 1 gives amortised constant appends, so the choice between 2 and 1.5 is
+        about memory rather than speed. Doubling can never reuse the blocks it has already
+        released, because the sum of every previous capacity is always one short of the next
+        request. A factor below the golden ratio eventually can, which trades a few more copies
+        for a heap that does not keep drifting upward.
+
+    - id: the-realloc-that-loses-it
+      kind: spot
+      prompt: >-
+        This leaks the entire array, and only on the day the machine is under memory pressure.
+        Click the line responsible.
+      lang: c
+      source: |
+        int push_back(struct DynamicArray *arr, int value) {
+            if (arr->size == arr->capacity) {
+                size_t next = arr->capacity * 2;
+                arr->data = realloc(arr->data, next * sizeof(int));
+                if (arr->data == NULL) {
+                    return -1;
+                }
+                arr->capacity = next;
+            }
+            arr->data[arr->size] = value;
+            arr->size += 1;
+            return 0;
+        }
+      targets: [3]
+      decoys:
+        '1': Comparing size against capacity is the right test for a full buffer, and it is the only test that belongs here.
+        '2': Doubling is a sound growth policy, and computing the new capacity before the call is fine.
+        '4': Checking the result for NULL is necessary and this function does it. The problem is what was already lost by the time the check runs.
+        '7': Updating the capacity only after a successful reallocation is correct. On the failure path this line is never reached.
+        '9': Writing at index size is right, because size is the first free slot whenever size is less than capacity.
+      hints:
+        - The NULL check is present and correct, so the function does notice the failure. Ask what it can still do about it once it has noticed.
+        - When realloc fails it returns NULL and leaves the original block allocated and untouched.
+        - The result is assigned straight over the only pointer to the old buffer, so on failure the address of a live allocation is overwritten with NULL and nothing can ever free it.
+      reveal: >-
+        Assign into a temporary, check it, and only then commit it to the struct. The bug is
+        invisible in testing because realloc almost never fails, and when it does the array is
+        both leaked and emptied, so the caller sees data loss rather than an allocation error.
+        The same shape applies to any function that returns a replacement for something you
+        still hold.
 ---
 
 In systems programming, arrays provide contiguous memory storage where element access by index requires a single pointer addition: `address = base_address + (index * element_size)`.

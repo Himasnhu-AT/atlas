@@ -4,6 +4,138 @@ title: Returns and stationarity
 summary: Raw asset prices are non-stationary. Quantitative modeling requires transforming price paths into stationary return series.
 order: 1
 estimatedMinutes: 20
+challenges:
+  goal: Choose the return transform that lets you add across time, and tell a stationary series from one that only looks like one.
+
+  steps:
+    - id: the-round-trip-that-is-not-flat
+      kind: numeric
+      prompt: >-
+        A stock goes from 100 to 150, then from 150 to 75. What is the simple return over the
+        two periods together, in percent?
+      context:
+        as: pairs
+        items:
+          - { k: Price at t0, v: '100.00' }
+          - { k: Price at t1, v: '150.00 (a simple return of +50%)' }
+          - { k: Price at t2, v: '75.00 (a simple return of -50%)' }
+      answer: -25
+      tolerance: 0.01
+      unit: percent
+      scaleHint: >-
+        Out by a factor of ten or more, which is the decimal against the percent. A quarter of
+        the value lost is -25 in these units, not -0.25.
+      hints:
+        - Adding the two simple returns gives zero, and zero is not what happened to the money.
+        - Ignore the path and compare the last price against the first one.
+        - 75 against a starting 100.
+      reveal: >-
+        Simple returns compound, they do not add, and the gap between the two grows with
+        volatility. Log returns do add: ln(1.5) is 0.4055 and ln(0.5) is -0.6931, which sum to
+        -0.2877, and exp(-0.2877) - 1 is the -25 percent you just measured.
+
+    - id: which-series-do-you-sum
+      kind: choice
+      prompt: >-
+        You want a two period figure you can reach by adding. Which series do you add, and
+        what does that cost you?
+      options:
+        - id: sum-simple
+          label: Add the simple returns, +50 and -50.
+          note: Gives zero while the account is down a quarter. Simple returns are additive across the holdings of a portfolio at one instant, never across time for one holding.
+        - id: sum-log
+          label: Add the log returns, then convert back with exp minus one.
+          correct: true
+          note: The intermediate prices cancel, so the sum is ln of the last price minus ln of the first whatever happened in between. The cost runs the other way, because a portfolio log return is not the weighted sum of its holdings log returns.
+        - id: average-simple
+          label: Average the two simple returns and compound that average twice.
+          note: The arithmetic mean overstates what the money actually did. Compounding the mean of +50 and -50 gives zero again, and the geometric mean is the one that tracks the path.
+        - id: use-prices
+          label: Skip returns and work on the prices, which carry the same information.
+          note: The same information and a different distribution. The variance of a price series grows with time, which is exactly the assumption every estimator you are about to use needs to be false.
+      hints:
+        - One of these is additive across time and one is additive across assets, and no series is both.
+        - Write out what the sum telescopes to when you expand each log return into a difference of logs.
+        - Every intermediate price appears once positive and once negative.
+      reveal: >-
+        The choice is not about accuracy, it is about which axis you need to add along. Log
+        returns for aggregating one asset through time, simple returns for aggregating many
+        assets at one instant. Reaching for the wrong one produces a number that looks
+        reasonable and is wrong by roughly half the variance.
+
+    - id: which-of-these-is-stationary
+      kind: assign
+      prompt: Sort each series by whether its mean and variance stay put as the sample grows.
+      buckets:
+        - id: stationary
+          label: Stable mean and variance
+          note: Safe to feed a standard estimator. This is I(0).
+        - id: integrated
+          label: Variance grows with the sample
+          note: Needs differencing before any model touches it. This is I(1) or worse.
+      items:
+        - id: daily-closes
+          label: Five years of daily closing prices
+          bucket: integrated
+          because: A price path wanders further from where it started the longer you watch it. There is no level it is pulled back toward, so there is no mean to estimate.
+        - id: log-returns
+          label: The first difference of those log prices
+          bucket: stationary
+          because: Differencing an I(1) series once gives an I(0) one. This is the whole reason returns are the unit of analysis rather than prices.
+        - id: cumulative-returns
+          label: The running sum of those log returns
+          bucket: integrated
+          because: Summing the differences undoes the differencing. This is the log price series again, shifted by a constant, and it is non-stationary for the same reason it was before.
+        - id: pair-spread
+          label: log(KO) minus 1.2 times log(PEP), for a cointegrated pair
+          bucket: stationary
+          because: Two integrated series can have a linear combination that is not. That is what cointegration means, and it is the only reason a pairs trade has anything to revert to.
+        - id: random-walk-drift
+          label: A random walk with a positive drift term
+          bucket: integrated
+          because: The drift moves the mean every period and the random walk grows the variance every period. It fails two of the three conditions rather than one.
+        - id: ou-path
+          label: A mean reverting Ornstein-Uhlenbeck path
+          bucket: stationary
+          because: The pull toward the equilibrium level is what keeps the variance bounded. Without it the same process is a random walk.
+      hints:
+        - Ask of each one whether it has a level it gets pulled back toward, or only a place it happens to be.
+        - One of these is a transform of another one, applied in the direction that undoes the fix.
+        - Two integrated series can combine into a stationary one, which is the case that is easy to miss.
+      reveal: >-
+        The running sum is the trap, because it is built out of returns and inherits none of
+        their stability. Whether a series is stationary is a property of the series you hand
+        the model, not of the series it was derived from.
+
+    - id: the-correlation-that-means-nothing
+      kind: spot
+      prompt: >-
+        This prints a correlation of about 0.97 between two soft drink makers. Click the line
+        that makes the number meaningless.
+      lang: python
+      source: |
+        close_a = load_close("KO")
+        close_b = load_close("PEP")
+        ret_a = np.diff(np.log(close_a))
+        ret_b = np.diff(np.log(close_b))
+        corr = np.corrcoef(close_a, close_b)[0, 1]
+        print(f"correlation: {corr:.3f}")
+      targets: [4]
+      requireAll: true
+      decoys:
+        '0': Loading five years of closes is fine. Prices are the raw material and the mistake is downstream of here.
+        '2': Differencing the log prices is the transform that makes the series stationary. This line is the fix, and the bug is that nobody used it.
+        '3': The same transform on the other name. Correct, and never referred to again.
+        '5': Printing the number is not the problem. The number was already wrong when it arrived.
+      hints:
+        - Two lines compute something that the line after them then ignores.
+        - Both of these series trend upward over five years, so they will correlate strongly whether or not they have anything to do with one another.
+        - Look at which variables are passed to corrcoef, and compare them against the ones that were just built.
+      reveal: >-
+        Two independent random walks with drift correlate near one, and the t statistic on a
+        regression between them grows with the sample rather than converging. Adding data
+        makes a spurious result more confident rather than less. The correlation you want is
+        between ret_a and ret_b, and it is usually much smaller and much less exciting.
 ---
 
 Raw prices cannot be modeled directly with standard regression or classification algorithms because price levels drift over time, violating basic assumptions of statistical inference.

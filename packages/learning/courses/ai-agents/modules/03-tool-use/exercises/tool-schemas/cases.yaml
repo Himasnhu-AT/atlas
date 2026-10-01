@@ -1,0 +1,297 @@
+version: 1
+cases:
+  TestSplitDocstring.test_summary_is_everything_before_args:
+    condition: 'a docstring whose first line is the summary and whose parameters follow it'
+    hints:
+      - 'The summary is what the model reads to decide whether this tool is the right one.'
+      - 'Everything up to the parameter section belongs to it, and nothing after.'
+      - 'Collect lines until the Args heading appears, then stop adding to the summary.'
+    concept: ai-tool-use.tool-schemas
+
+  TestSplitDocstring.test_descriptions_are_keyed_by_parameter:
+    condition: 'three documented parameters that each need their own entry'
+    hints:
+      - 'The descriptions are not one block of text. Each one has to reach its own parameter in the schema.'
+      - 'A parameter line inside the args section names the parameter before the colon.'
+      - 'Match the name at the start of the line and use it as the key for the text after the colon.'
+    concept: ai-tool-use.tool-schemas
+
+  TestSplitDocstring.test_a_wrapped_description_stays_one_string:
+    condition: 'a description long enough to run onto a second, more indented line'
+    hints:
+      - 'Docstrings wrap at the margin, and the wrap is not a new parameter.'
+      - 'A continuation line has no name and colon of its own, which is how you can tell it apart.'
+      - 'When a line does not look like a parameter, append it to the description of the parameter above it.'
+    concept: ai-tool-use.tool-schemas
+
+  TestSplitDocstring.test_a_later_section_is_not_a_parameter:
+    condition: 'a Returns section following the parameters in the same docstring'
+    hints:
+      - 'Args is not the last section a docstring can have.'
+      - 'A heading such as Returns looks enough like a parameter line to be captured as one.'
+      - 'Stop reading parameters at the next section heading rather than at the end of the docstring.'
+    concept: ai-tool-use.tool-schemas
+
+  TestSplitDocstring.test_no_args_section:
+    condition: 'a docstring that is a single summary line with no parameters documented'
+    hints:
+      - 'A tool that takes nothing still has a summary worth reading.'
+      - 'The parameter mapping is empty here, not missing.'
+      - 'Return the summary alongside an empty mapping when the args section never appears.'
+    concept: ai-tool-use.tool-schemas
+
+  TestSplitDocstring.test_no_docstring:
+    condition: 'a function with no docstring at all'
+    hints:
+      - 'An undocumented function is still a usable tool, just a worse described one.'
+      - 'Reading lines off None raises before anything is parsed.'
+      - 'Return an empty summary and an empty mapping when the docstring is absent or blank.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_top_level_shape:
+    condition: 'the outer envelope the provider expects around a function description'
+    hints:
+      - 'The schema is nested: a wrapper naming the kind, then the function, then its parameters.'
+      - 'The parameters block is itself a JSON Schema object, so it carries its own type.'
+      - 'Build the three levels explicitly rather than returning the function block on its own.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_the_description_comes_from_the_docstring:
+    condition: 'a function whose docstring summary has to become the tool description'
+    hints:
+      - 'The description is the only thing telling the model what this tool is for.'
+      - 'Writing it by hand somewhere else means it drifts from the function the moment either changes.'
+      - 'Take the summary from the docstring split and put it in the description field.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_parameter_descriptions_reach_the_schema:
+    condition: 'a parameter documented as an account id rather than an email address'
+    hints:
+      - 'The parameter description is the prompt. It is what stops the model passing the wrong thing.'
+      - 'A properties entry that carries only a type tells the model nothing about what belongs there.'
+      - 'Put the per parameter description into each properties entry beside its type.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_annotations_become_json_types:
+    condition: 'annotations of str, int and bool that have to become JSON type names'
+    hints:
+      - 'JSON Schema names types with words, and Python names them with classes.'
+      - 'With postponed evaluation the annotations are stored as strings, so a lookup keyed on the class finds nothing.'
+      - 'Resolve the annotations back into real objects before mapping them, and fall back rather than crashing when that fails.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_required_excludes_anything_with_a_default:
+    condition: 'a function with one parameter that has no default and two that do'
+    hints:
+      - 'A parameter with a default is optional, and marking it required forces the model to invent a value.'
+      - 'Optional is not absent: it still belongs in the properties so the model knows it exists.'
+      - 'Add a parameter to the required list only when its default is empty.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_enums_are_merged_in:
+    condition: 'an allowed value list supplied for one parameter and not the others'
+    hints:
+      - 'The set of legal values often cannot be read off the annotation, so it arrives separately.'
+      - 'Only the named parameter gets the constraint. The rest must stay unconstrained.'
+      - 'Add the allowed values to a properties entry only when that parameter appears in the supplied mapping.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_an_enum_for_a_parameter_that_does_not_exist_raises:
+    condition: 'an allowed value list naming a parameter the function does not have'
+    hints:
+      - 'A misspelled parameter name means the constraint silently never reaches the model.'
+      - 'The tool then looks constrained in your source and is not constrained in production.'
+      - 'Compare the supplied names against the parameters found and raise ValueError on anything left over.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_additional_properties_is_false:
+    condition: 'a schema that has to refuse arguments it never declared'
+    hints:
+      - 'Without this the schema implies the model may pass anything alongside the declared parameters.'
+      - 'Providers offering a strict mode refuse a schema that leaves the key out.'
+      - 'Set the flag to false on the parameters block, and set it to the boolean rather than a string.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_a_function_with_no_parameters:
+    condition: 'a tool that takes no arguments at all'
+    hints:
+      - 'An empty parameter list is still a parameters block, not a missing one.'
+      - 'Omitting the properties or required keys makes the schema invalid rather than minimal.'
+      - 'Emit both keys with empty values, so the shape is the same as any other tool.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildSchema.test_an_unannotated_parameter_falls_back_to_string:
+    condition: 'a bare parameter with no annotation and a function with no docstring'
+    hints:
+      - 'Not every function you are handed is annotated, and a schema builder that dies on one is useless.'
+      - 'Looking the missing annotation up in the type table returns nothing, and that nothing has to become a type name.'
+      - 'Default the type to string when no annotation is available, and let the description be empty.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildRegistry.test_indexes_by_name:
+    condition: 'two functions that have to be reachable by the names the model will use'
+    hints:
+      - 'The model refers to a tool by its name and nothing else, so the name is the lookup key.'
+      - 'A list of tools means a scan on every call and no way to detect a collision.'
+      - 'Build a mapping keyed on each function name.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildRegistry.test_holds_the_function_and_its_schema:
+    condition: 'a registry entry that has to carry both what the model reads and what the code runs'
+    hints:
+      - 'The schema and the function are two halves of one thing, and separating them lets them drift.'
+      - 'Storing only the schema leaves nothing to call when the model asks for the tool.'
+      - 'Pair the function with the schema built from it in a single entry.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildRegistry.test_enums_are_routed_by_function_name:
+    condition: 'a mapping of allowed values keyed by tool name, covering only one of two tools'
+    hints:
+      - 'The outer mapping is per tool and the inner one is per parameter.'
+      - 'Passing the whole outer mapping into the schema builder makes it look for parameters named after tools.'
+      - 'Look up this function''s entry by name and pass only that inner mapping down.'
+    concept: ai-tool-use.tool-schemas
+
+  TestBuildRegistry.test_rejects_two_tools_with_one_name:
+    condition: 'the same function registered twice under one name'
+    hints:
+      - 'The name is the only handle the model has, so one of the two could never be called.'
+      - 'A mapping silently overwrites, and the loser disappears with no sign of it.'
+      - 'Check whether the name is already present before adding it and raise ValueError.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_returns_the_arguments:
+    condition: 'a well formed call whose arguments should come back untouched'
+    hints:
+      - 'Validation reports problems by raising, so a pass has nothing to fix.'
+      - 'Returning the arguments lets the caller write the check and the call as one expression.'
+      - 'Hand back the same mapping once every check has passed.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_missing_required_argument_names_it:
+    condition: 'a call that supplied the optional argument and left out the required one'
+    hints:
+      - 'This message goes back to the model, which then has to work out what to change.'
+      - 'A message saying the arguments were wrong leaves it guessing which one.'
+      - 'Collect the required keys that are absent and name them in the raised message.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_unexpected_argument_names_it:
+    condition: 'a call carrying an extra argument the function does not accept'
+    hints:
+      - 'An unknown keyword reaches the function as a TypeError, far from anything the model can act on.'
+      - 'Ignoring the extra argument quietly changes what the model asked for.'
+      - 'Find the supplied keys that are not in the declared properties and name them in the error.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_wrong_type_is_rejected:
+    condition: 'a limit supplied as the word "ten" rather than a number'
+    hints:
+      - 'A number in quotes is a string and it breaks the first piece of arithmetic inside the tool.'
+      - 'The declared type is a JSON Schema word, so it has to be turned into a Python check.'
+      - 'Compare each value against the types its declared name stands for and name the offending parameter in the error.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_a_bool_is_not_an_integer:
+    condition: 'a limit of true, which Python counts as a whole number'
+    hints:
+      - 'In Python a bool is a subclass of int, so a plain check lets true through as a count.'
+      - 'The bool case has to be settled before the numeric check, not after it.'
+      - 'Exclude bool explicitly in the integer and number checks, while still accepting it for boolean.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_an_int_is_an_acceptable_number:
+    condition: 'a whole number supplied for a parameter declared as a number'
+    hints:
+      - 'JSON has one number type, so a model that means 1.0 writes 1.'
+      - 'Demanding a float here rejects a call that is perfectly well formed.'
+      - 'Let the number check accept both int and float, while still keeping bool out.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_enum_violation_lists_the_allowed_values:
+    condition: 'a temperature unit of kelvin against a schema that lists two units'
+    hints:
+      - 'The model picked something plausible, and telling it the value was wrong does not tell it what to pick instead.'
+      - 'Naming only the first allowed value leaves it guessing between the rest.'
+      - 'Put every allowed value into the raised message alongside the one that arrived.'
+    concept: ai-tool-use.tool-schemas
+
+  TestValidateArguments.test_a_valid_enum_value_passes:
+    condition: 'a unit that is one of the values the schema lists'
+    hints:
+      - 'The constraint only rejects. A listed value passes straight through it.'
+      - 'The enum check has to be skipped entirely for parameters that declare no enum.'
+      - 'Read the allowed values off the properties entry and only compare when they are present.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_calls_the_function:
+    condition: 'a well formed call whose arguments have to reach the function as keywords'
+    hints:
+      - 'The arguments arrive as a mapping of names to values, which is what the function signature expects.'
+      - 'Passing the mapping as one positional argument gives the function a dict where it wanted a string.'
+      - 'Unpack the validated mapping into the call as keyword arguments.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_the_result_is_always_a_string:
+    condition: 'a tool whose return value has to travel back to the model as text'
+    hints:
+      - 'A tool message carries content, and content is text on the wire.'
+      - 'Returning whatever the function produced pushes the conversion onto every caller.'
+      - 'Convert the return value to a string before handing it back.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_omitted_optional_arguments_use_the_function_default:
+    condition: 'a call that leaves out an optional argument the function has a default for'
+    hints:
+      - 'The default lives on the function, and it is the one place it should live.'
+      - 'Filling in defaults during validation duplicates them and lets the two copies drift.'
+      - 'Pass only the arguments that were supplied and let Python apply the rest.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_a_tool_with_no_arguments:
+    condition: 'an empty JSON object as the arguments for a tool that takes none'
+    hints:
+      - 'An empty object is well formed. It is not a missing argument string.'
+      - 'Treating an empty mapping as falsy and skipping the call gets this wrong.'
+      - 'Parse it as normal and unpack nothing into the call.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_unknown_tool_lists_what_exists:
+    condition: 'a call naming a tool that is not in the registry'
+    hints:
+      - 'Models invent tool names, especially ones that sound like they should exist.'
+      - 'The error goes back into the conversation, so it has to be enough for the model to recover from.'
+      - 'Name the tool that was asked for and list the tools that are actually available.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_unparseable_arguments:
+    condition: 'an argument string that is not valid JSON'
+    hints:
+      - 'The arguments arrive as text the model generated, so malformed JSON is ordinary rather than exceptional.'
+      - 'Letting the parse error escape gives the caller an exception type that says nothing about tools.'
+      - 'Catch the parse failure and raise ToolError with the parser message included.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_arguments_that_are_not_an_object:
+    condition: 'arguments that parse as a JSON list rather than an object'
+    hints:
+      - 'The parse succeeded, so it is easy to move straight on to validation.'
+      - 'Unpacking a list as keyword arguments raises a TypeError from deep inside the call.'
+      - 'Check the parsed value is a mapping before validating it and raise ToolError otherwise.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_schema_violations_never_reach_the_function:
+    condition: 'a unit outside the enum, on a call that is otherwise well formed'
+    hints:
+      - 'The schema is the contract, and a call that breaks it must not reach the code behind it.'
+      - 'Validating after the call, or not at all, means the tool defends itself or does not.'
+      - 'Run the argument validation between parsing and calling.'
+    concept: ai-tool-use.tool-schemas
+
+  TestDispatch.test_the_tools_own_exception_is_not_swallowed:
+    condition: 'a tool that raises because its own backend failed'
+    hints:
+      - 'A malformed call and a broken database are different problems with different fixes.'
+      - 'Wrapping the call in a broad handler turns a real outage into a message telling the model to try different arguments.'
+      - 'Leave the call itself unguarded so whatever the tool raises travels up unchanged.'
+    concept: ai-tool-use.tool-schemas

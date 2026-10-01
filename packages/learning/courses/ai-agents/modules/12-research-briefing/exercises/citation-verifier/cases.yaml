@@ -1,0 +1,209 @@
+version: 1
+cases:
+  TestNormalise.test_lowercases_and_drops_punctuation:
+    condition: 'a phrase carrying capitals, a comma and an exclamation mark'
+    hints:
+      - 'A quote and its source differ by punctuation and case for reasons that have nothing to do with truth.'
+      - 'Comparing the raw text rejects every honest citation that was retyped.'
+      - 'Fold the case and keep only the alphanumeric characters and single spaces.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestNormalise.test_collapses_whitespace_including_newlines:
+    condition: 'text padded with spaces and broken across a line'
+    hints:
+      - 'Documents wrap, and a quote pulled from a wrapped paragraph carries different whitespace.'
+      - 'Stripping the ends does nothing about the newline in the middle.'
+      - 'Replace every run of whitespace with a single space and trim the result.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestNormalise.test_two_spellings_of_the_same_words_normalise_alike:
+    condition: 'the same words written once with a newline and a comma and once without'
+    hints:
+      - 'The whole point is that two spellings of the same words compare equal.'
+      - 'Handling punctuation but not whitespace, or the other way round, leaves half the cases failing.'
+      - 'Apply both rules in the same pass.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestLocate.test_finds_a_quote_that_differs_by_punctuation_and_wrapping:
+    condition: 'a real quote separated from its source by one comma and a line break'
+    hints:
+      - 'The quote is in the document. Only a comma and a line break differ.'
+      - 'A matcher that gives up on those rejects honest citations and redacts them out of the brief.'
+      - 'Search the normalised document for the normalised quote.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestLocate.test_the_span_indexes_back_into_the_original_text:
+    condition: 'a span that must cut the quote out of the document as it was written'
+    hints:
+      - 'The span must cut the quote out of the original text, not the normalised one.'
+      - 'A position in the normalised string indexes into a string nobody will ever read.'
+      - 'Record where each surviving character came from as you normalise, and map the match back through those offsets.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestLocate.test_returns_none_for_a_fabricated_quote:
+    condition: 'a quote that appears nowhere in the document it cites'
+    hints:
+      - 'This is the free half of the verification, and it has to be able to fail.'
+      - 'Returning the nearest passage would hand a fabrication to the model to judge.'
+      - 'Return None when the normalised search finds nothing.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestLocate.test_returns_none_for_an_empty_quote:
+    condition: 'a quote consisting only of whitespace'
+    hints:
+      - 'An empty needle is found at position zero in any haystack.'
+      - 'That reports a fabricated note as located at the start of the document.'
+      - 'Check the normalised quote is non-empty before searching.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestLocate.test_a_quote_at_the_very_start_locates_at_zero:
+    condition: 'a quote taken from the opening words of a document'
+    hints:
+      - 'A match at position zero is a real match, not a failure.'
+      - 'Treating a falsy index as not found rejects every quote from the start of a document.'
+      - 'Compare the search result against the sentinel for not found rather than testing it for truthiness.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestLocate.test_punctuation_inside_a_word_locates_the_same_way_normalise_reads_it:
+    condition: 'a quote containing an apostrophe and a hyphen inside words'
+    hints:
+      - 'The two functions have to agree on the same normalised form.'
+      - 'Rebuilding the rule and treating dropped punctuation as a separator makes one hyphenated word into two, and an honest citation is then redacted as a fabrication.'
+      - 'Derive both the normalised text and the offsets from one pass, and have the plain normaliser use it.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyClaim.test_the_verdict_list_is_the_agreed_one:
+    condition: 'three verdicts that everything downstream counts and compares against'
+    hints:
+      - 'The counts, the pass decision and the redaction all key on these words.'
+      - 'A fourth verdict added here silently breaks the counting.'
+      - 'Keep the three verdicts in a fixed sequence and compare against it.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyClaim.test_a_missing_quote_never_reaches_the_model:
+    condition: 'a claim whose quote is not in the cited document at all'
+    hints:
+      - 'The free check has to run before the paid one.'
+      - 'There is nothing to judge when the quote is not in the document, and asking anyway pays for an opinion about a passage that does not exist.'
+      - 'Return the not in source verdict before making any call.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyClaim.test_the_located_passage_is_what_the_model_judges:
+    condition: 'a judging request that must carry the passage and the sentence together'
+    hints:
+      - 'Sending the whole document lets the model find support anywhere in it, which defeats the citation.'
+      - 'Sending only the sentence gives it nothing to judge against.'
+      - 'Slice the original text with the located span and send that passage alongside the sentence.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyClaim.test_a_supported_verdict_comes_back_whole:
+    condition: 'a judged claim whose record has to carry the verdict, the reason, the tag and the document'
+    hints:
+      - 'A report of bare verdicts cannot be traced back to what was checked.'
+      - 'The reason is the only record of why the judgement went the way it did.'
+      - 'Build the verification from the tag, the sentence, the document id, the verdict, the reason and the span.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyClaim.test_an_unknown_verdict_becomes_unsupported:
+    condition: 'a model answering with a word that is not one of the three'
+    hints:
+      - 'A verdict off the list is a failed judgement, not a pass.'
+      - 'Defaulting to supported means every confused reply waves a claim through.'
+      - 'Map anything outside the list to the unsupported verdict, while keeping the reason the model gave.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_counts_sum_to_the_number_of_markers:
+    condition: 'a brief whose citation markers must each produce exactly one verdict'
+    hints:
+      - 'Every marker gets exactly one verdict, and the counts have to add up.'
+      - 'Skipping the unknown tags leaves markers with no verdict and counts that do not reconcile.'
+      - 'Walk both the real tags and the unknown ones for every claim.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_a_fabricated_quote_fails_the_brief:
+    condition: 'a brief where one of three citations quotes something not in its document'
+    hints:
+      - 'A single fabrication makes the brief unshippable, whatever the other citations did.'
+      - 'Only the locatable quotes should cost a model call.'
+      - 'Fail the whole report unless every verification came back supported.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_an_unsupported_verdict_fails_the_brief:
+    condition: 'a quote that is genuinely in the document but does not support the sentence'
+    hints:
+      - 'Locating the quote is not the same as the quote supporting the claim.'
+      - 'A report that only checks locatability passes a citation to real text that says something else.'
+      - 'Treat an unsupported verdict as fatal alongside a missing quote.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_an_uncited_sentence_fails_the_brief_when_required:
+    condition: 'an untagged sentence in a brief checked under the strict setting'
+    hints:
+      - 'Under the strict setting an untagged sentence is a failure, however sensible it reads.'
+      - 'The sentence still has to be reported, not silently counted.'
+      - 'Carry the uncited list onto the report and fold it into the pass decision when the flag is set.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_an_uncited_sentence_is_allowed_when_not_required:
+    condition: 'the same untagged sentence checked with the strict setting turned off'
+    hints:
+      - 'Saying plainly that the notes do not cover something is sometimes exactly what was asked for.'
+      - 'It is still reported, just not fatal.'
+      - 'Gate only the pass decision on the flag, and report the uncited sentences either way.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_the_judged_calls_go_on_the_meter:
+    condition: 'a verification pass whose model calls must appear under their own stage'
+    hints:
+      - 'Verification is a model call per judged claim, and it is the stage that grows with the size of the brief.'
+      - 'A run that does not meter it reports a total smaller than the invoice.'
+      - 'Charge the response usage against a verify stage on every judged claim.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_the_free_check_charges_nothing:
+    condition: 'a brief whose only citation fails the locatability check'
+    hints:
+      - 'The quote was not in the document, so no call was made and nothing is owed.'
+      - 'The breakdown is only worth reading if it counts calls rather than claims.'
+      - 'Charge only where a call actually happened.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestVerifyBrief.test_an_unknown_tag_is_not_in_source_and_costs_nothing:
+    condition: 'a citation to a tag that names no note in this run'
+    hints:
+      - 'A tag naming no note is a citation to a source that does not exist.'
+      - 'That is the same failure as a quote that is not in the document, and there is nothing to send a model.'
+      - 'Record the not in source verdict directly for each unknown tag.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestRedact.test_the_failed_sentence_is_replaced:
+    condition: 'a sentence whose citation could not be located'
+    hints:
+      - 'Shipping the sentence with a note attached leaves the false claim in the text a reader sees.'
+      - 'The replacement has to say which verdict removed it, or nobody can tell an unsupported claim from a fabricated source.'
+      - 'Replace the sentence with a marker naming the verdict.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestRedact.test_supported_sentences_are_byte_identical:
+    condition: 'sentences that passed verification and must not be touched'
+    hints:
+      - 'Rewriting a verified sentence throws away the verification that was just paid for.'
+      - 'Reassembling the brief from the claims loses whatever formatting the model produced.'
+      - 'Operate on the document text and replace only the failing sentences.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestRedact.test_the_rest_of_the_document_is_untouched:
+    condition: 'a title line and a sources block that must survive redaction unchanged'
+    hints:
+      - 'Redaction replaces sentences in place. It does not reflow the document.'
+      - 'Rebuilding the brief around the surviving claims loses the heading and the sources.'
+      - 'Start from the brief text and substitute the failing sentences within it.'
+    concept: ai-research-briefing.the-verification-pass
+
+  TestRedact.test_a_clean_brief_is_returned_unchanged:
+    condition: 'a brief where every citation checked out'
+    hints:
+      - 'A clean brief needs no editing at all.'
+      - 'A pass that always rewrites something changes the document for no reason.'
+      - 'Collect the failing sentences first and return the text unchanged when there are none.'
+    concept: ai-research-briefing.the-verification-pass

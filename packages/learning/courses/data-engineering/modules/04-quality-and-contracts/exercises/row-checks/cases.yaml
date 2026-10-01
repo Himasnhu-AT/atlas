@@ -1,0 +1,201 @@
+version: 1
+cases:
+  TestRowCount.test_passes_in_line_with_history:
+    condition: 'three rows loaded on a day whose recent history is three, three and four'
+    hints:
+      - 'An ordinary day has to pass, and the result has to carry the check''s name so a report can say which one spoke.'
+      - 'The comparison is against a baseline drawn from the history, with room for normal variation.'
+      - 'Return a dict carrying the name, the verdict and a readable detail line, whatever the outcome.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRowCount.test_fails_on_a_truncated_extract:
+    condition: 'one row loaded on a day that normally brings around a hundred'
+    hints:
+      - 'The extract was empty or truncated is the most common failure there is, and nothing else in the pipeline notices it.'
+      - 'A fixed lower bound goes stale as the business grows. The bound has to come from what the table usually holds.'
+      - 'Measure how far the count is from the baseline as a fraction of the baseline and fail when that exceeds the tolerance.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRowCount.test_uses_the_median_so_one_bad_day_does_not_move_the_bar:
+    condition: 'a history of three, three, three and one day of three thousand'
+    hints:
+      - 'A mean of that history is 752, so an ordinary day of three rows fails. One bad day should not move the bar for the next month.'
+      - 'The middle value of the history is unmoved by an outlier at either end.'
+      - 'Take the median of the history as the baseline rather than the average.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRowCount.test_passes_with_no_history:
+    condition: 'a first run, with no previous days to compare against'
+    hints:
+      - 'A check that fails on a first run trains people to ignore it, and by the time it means something nobody is looking.'
+      - 'There is no baseline to divide by, so there is no comparison to make.'
+      - 'Return a pass when the history is empty, and say in the detail that there was nothing to compare against.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRowCount.test_says_what_it_saw:
+    condition: 'a result somebody will read without opening the database'
+    hints:
+      - 'Passed or failed on its own starts an investigation. The number that was seen usually ends one.'
+      - 'The detail line is the check talking, so it carries the count and what it was measured against.'
+      - 'Put the observed count into the detail string alongside the baseline.'
+    concept: de-contracts.counting-is-a-test
+
+  TestNoNulls.test_passes_when_there_are_none:
+    condition: 'two columns that are fully populated'
+    hints:
+      - 'The clean case has to pass and still say something readable.'
+      - 'A column with no nulls contributes nothing to the report.'
+      - 'Collect only the columns that came back with a count above zero, and pass when that collection is empty.'
+    concept: de-contracts.counting-is-a-test
+
+  TestNoNulls.test_fails_and_names_the_column:
+    condition: 'a null customer on one row out of four'
+    hints:
+      - 'A detail of nulls found sends somebody looking through six columns. Naming the column ends the search.'
+      - 'Each column is counted separately, so which one broke is already known.'
+      - 'Build the detail from the offending column names and their counts rather than from a single total.'
+    concept: de-contracts.counting-is-a-test
+
+  TestNoNulls.test_refuses_a_column_it_cannot_vouch_for:
+    condition: 'a column name of "order_id; DROP TABLE orders"'
+    hints:
+      - 'A column name cannot be a query parameter, so it lands in the SQL text and has to be checked before it gets there.'
+      - 'The database already knows which columns the table has, so nothing has to be listed by hand.'
+      - 'Read the table''s columns from the schema and raise ValueError for any name that is not among them, before running any count.'
+    concept: de-contracts.counting-is-a-test
+
+  TestUnique.test_passes_when_unique:
+    condition: 'a table where every order id appears once'
+    hints:
+      - 'The key being a key is the assumption everything downstream rests on, and it is worth asserting rather than hoping.'
+      - 'The grouped query returns nothing when there is nothing repeated.'
+      - 'Pass when the list of repeated values is empty, and say which column was checked in the detail.'
+    concept: de-contracts.counting-is-a-test
+
+  TestUnique.test_fails_and_names_the_duplicate:
+    condition: 'order id 1 appearing on two different rows'
+    hints:
+      - 'Knowing that a duplicate exists is not enough to go and look at it. The id is what makes the report actionable.'
+      - 'The offending values come out of the same query that found them.'
+      - 'List the repeated values in the detail when there are only a few of them.'
+    concept: de-contracts.counting-is-a-test
+
+  TestUnique.test_counts_rather_than_listing_when_there_are_many:
+    condition: 'ten ids each appearing four times, where a full list would be unreadable'
+    hints:
+      - 'A check that prints four thousand ids is a check nobody reads, and the useful fact is how big the problem is.'
+      - 'There are two shapes of detail here, chosen by how many offenders were found.'
+      - 'List the values up to a small limit, and above that report how many distinct values were repeated instead.'
+    concept: de-contracts.counting-is-a-test
+
+  TestUnique.test_refuses_an_unknown_column:
+    condition: 'a column named "nope" that the orders table does not have'
+    hints:
+      - 'A typo in a check configuration should fail loudly at the check, not produce a confusing database error later.'
+      - 'The same guard the null check needs applies here for the same reason.'
+      - 'Compare the column against the table''s real columns and raise ValueError when it is not one of them.'
+    concept: de-contracts.counting-is-a-test
+
+  TestAllowedValues.test_passes_when_every_value_is_known:
+    condition: 'a status column holding only states the contract lists'
+    hints:
+      - 'The passing case has to be quiet, because a check that fires on ordinary data gets muted.'
+      - 'The distinct values are what matters, not how many rows carry each one.'
+      - 'Select the distinct values and pass when none of them falls outside the allowed set.'
+    concept: de-contracts.counting-is-a-test
+
+  TestAllowedValues.test_fails_on_a_new_state:
+    condition: 'a status of "disputed" that the contract never mentioned'
+    hints:
+      - 'Upstream added a state and told nobody. Every downstream filter written as not cancelled now silently includes it.'
+      - 'The new value has to be named, because the point is to go and ask what it means.'
+      - 'Collect the values outside the allowed set and put them in the detail.'
+    concept: de-contracts.counting-is-a-test
+
+  TestAllowedValues.test_a_null_is_not_an_unexpected_value:
+    condition: 'a status that is null rather than an unrecognised word'
+    hints:
+      - 'Nulls are the null check''s business, and reporting them twice is noise that makes both reports less trusted.'
+      - 'A null is an absent value, not a value outside the vocabulary.'
+      - 'Exclude nulls in the query that gathers the distinct values.'
+    concept: de-contracts.counting-is-a-test
+
+  TestSumInRange.test_passes_in_line_with_history:
+    condition: 'a total of 60 against recent days of 60, 58 and 62'
+    hints:
+      - 'Row count catches a truncated file. The sum catches the day where the rows arrived and the amounts did not.'
+      - 'The comparison is the same shape as the row count one, against the median of the history.'
+      - 'Reuse the same drift calculation, with the total in place of the count.'
+    concept: de-contracts.counting-is-a-test
+
+  TestSumInRange.test_fails_when_a_join_doubled_it:
+    condition: 'every row loaded twice, giving a total of 120 where 60 was expected'
+    hints:
+      - 'The double-counting join produces a number that looks plausible, and this is the check that catches it.'
+      - 'The rows doubled and so did the money, so the drift is a full hundred percent.'
+      - 'Fail when the drift from the baseline exceeds the tolerance, in either direction.'
+    concept: de-contracts.counting-is-a-test
+
+  TestSumInRange.test_skips_values_it_cannot_read:
+    condition: 'a total of "n/a" sitting among four otherwise readable amounts'
+    hints:
+      - 'One unreadable amount should not take the check down, and it should not silently vanish either.'
+      - 'The row is skipped for the arithmetic and counted for the report.'
+      - 'Catch the failed conversion, increment a counter, and mention the unreadable count in the detail.'
+    concept: de-contracts.counting-is-a-test
+
+  TestSumInRange.test_a_null_is_skipped_for_the_sum_not_read_as_zero:
+    condition: 'a total column holding null on one row'
+    hints:
+      - 'A null is absent, not malformed, so it must not be reported as unreadable and must not be added as a zero.'
+      - 'The two cases look similar and mean different things to whoever reads the report.'
+      - 'Skip a null before the conversion is attempted, so it never reaches the unreadable counter.'
+    concept: de-contracts.counting-is-a-test
+
+  TestSumInRange.test_refuses_a_column_it_cannot_vouch_for:
+    condition: 'a column name of "total; DROP TABLE orders"'
+    hints:
+      - 'The column is interpolated into the sum query, so it needs the same guard the other checks use.'
+      - 'The guard belongs before any query runs, not inside the loop.'
+      - 'Check the column against the table''s real columns and raise ValueError first thing.'
+    concept: de-contracts.counting-is-a-test
+
+  TestSumInRange.test_passes_with_no_history:
+    condition: 'a first run with no previous totals to compare against'
+    hints:
+      - 'Same reason as the row count: a check that cannot pass on day one gets switched off by day three.'
+      - 'The total is still worth computing and reporting even when there is nothing to judge it against.'
+      - 'Return a pass with the total in the detail when the history is empty.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRunChecks.test_passes_when_everything_passed:
+    condition: 'two checks that both came back clean'
+    hints:
+      - 'This is the single answer somebody wants: is today usable.'
+      - 'The verdict follows from whether anything failed.'
+      - 'Collect the failing names and pass when that list is empty.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRunChecks.test_reports_every_failure_not_just_the_first:
+    condition: 'two failing checks with a passing one between them'
+    hints:
+      - 'The answer to "is today usable" is never "check three failed". Stopping at the first failure hides the other two.'
+      - 'Every check has already run by the time this function sees them.'
+      - 'Walk all the results and keep the name of each one that failed, in order.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRunChecks.test_keeps_every_result:
+    condition: 'a failing check whose detail line is the only explanation anybody will get'
+    hints:
+      - 'A verdict without the details behind it means re-running everything to find out what happened.'
+      - 'The individual results pass through unchanged, alongside the summary.'
+      - 'Include the full result list in the returned dict rather than only the names.'
+    concept: de-contracts.counting-is-a-test
+
+  TestRunChecks.test_no_checks_is_a_pass:
+    condition: 'a run configured with no checks at all'
+    hints:
+      - 'Nothing failed, so the verdict is a pass. It is a pass that says nothing, which is a different problem from a failure.'
+      - 'The failing list comes back empty from an empty input.'
+      - 'Let the emptiness of the failure list decide the verdict rather than special-casing an empty input.'
+    concept: de-contracts.counting-is-a-test

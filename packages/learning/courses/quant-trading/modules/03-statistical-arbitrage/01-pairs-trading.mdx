@@ -7,6 +7,199 @@ estimatedMinutes: 25
 exercise:
   id: pairs-strategy
   timeboxMinutes: 30
+challenges:
+  goal: Run a spread through entry, convergence and a stop, and see why the entry band needs a ceiling as well as a floor.
+
+  readingOptional: true
+  steps:
+    - id: the-hedge-that-is-not-neutral
+      kind: numeric
+      prompt: >-
+        The spread has widened and you put the trade on at the fitted hedge ratio. What is
+        the book's net dollar exposure?
+      unit: dollars
+      context:
+        as: pairs
+        items:
+          - { k: Hedge ratio beta, v: '1.6 shares of X per share of Y' }
+          - { k: Position, v: 'long 1,000 shares of Y, short the hedge in X' }
+          - { k: Price of Y, v: '42.00' }
+          - { k: Price of X, v: '21.00' }
+      answer: 8400
+      tolerance: 1
+      scaleHint: >-
+        That is out by more than a factor of ten. Both legs are in the tens of thousands of
+        dollars and the gap between them is a fraction of that.
+      hints:
+        - The hedge ratio is denominated in shares, so turn it into shares of X before turning anything into dollars.
+        - 1.6 times 1,000 is 1,600 shares of X, and at 21 a share that is 33,600 short.
+        - Net exposure is the long notional less the short notional, and these two are not equal.
+      reveal: >-
+        A regression hedge neutralises the spread, not the market. The book is 8,400 dollars
+        long an index it claims to have no view on, which is small against a 42,000 dollar
+        leg and not small against the spread's own expected move. Desks either re-express
+        the ratio in dollars and accept a slightly worse fit, or carry the residual beta
+        deliberately and hedge it at the portfolio level.
+
+    - id: why-the-exit-is-not-zero
+      kind: choice
+      prompt: >-
+        Entry is at 2.0 sigma and the exit band is at 0.5 rather than at 0. What does giving
+        up that last half sigma buy?
+      options:
+        - id: exactly-zero
+          label: Nothing. Exiting at exactly zero captures the whole move and costs nothing.
+          note: >-
+            The residual is a continuous quantity sampled discretely, so it almost never
+            prints exactly zero. A position waiting for it stays open until something else
+            closes it, which is usually the stop.
+        - id: shorter-hold
+          label: A shorter holding period and less exposure to the relationship breaking
+          correct: true
+          note: >-
+            The last half sigma is the slowest and least reliable part of the reversion, and
+            every bar spent waiting for it is another bar the cointegration can fail in. You
+            trade a quarter of the move for a materially shorter hold.
+        - id: overshoot
+          label: The chance to hold through zero and close at minus 0.5, taking the overshoot too
+          note: >-
+            That is two trades priced as one, and it assumes the spread overshoots
+            symmetrically. It does not, and the second half is a fresh entry that has not
+            met any entry condition.
+        - id: costs
+          label: Lower transaction costs, because the exit order is smaller
+          note: >-
+            The exit closes the whole position wherever it happens, so the size is the same
+            at 0.5 as it is at 0. The band changes when you trade, not how much.
+      hints:
+        - The question is not how much of the move you capture but what you are exposed to while you wait for it.
+        - Reversion is fastest when the spread is widest, so the last part of the journey takes the longest.
+        - Whatever risk is worth stopping out at 3.5 sigma for is a risk you are carrying every bar the position is open.
+      reveal: >-
+        Every threshold in a pairs strategy is a statement about time as much as about price.
+        The half-life from the calibration is what tells you whether the wait between 0.5 and
+        0 is a day or a fortnight, and that is the number the exit band is really set
+        against.
+
+    - id: the-stop-that-reopened
+      kind: spot
+      prompt: >-
+        The stop fires on Monday. By Tuesday the book is short the same spread again, three
+        and a half sigma wider. Click the line that lets that happen.
+      lang: python
+      source: |
+        def signal(z, position, entry, exit_, stop):
+            if position != 0 and abs(z) > stop:
+                return 0
+            if position == 0 and abs(z) >= entry:
+                return -1 if z > 0 else 1
+            if position != 0 and abs(z) <= exit_:
+                return 0
+            return position
+      targets: [3]
+      requireAll: true
+      decoys:
+        '1': >-
+          The stop applies only to an open position, which is right. A stop is an exit rule
+          and there is nothing to exit from flat.
+        '4': >-
+          The sign is right. A high z means Y is rich against X, so the spread is sold.
+        '5': >-
+          Closing inside the exit band, and only when something is open, is the convergence
+          rule as specified.
+        '7': >-
+          Holding whatever is already on when no rule fires is what makes this a state
+          machine rather than a fresh opinion every bar.
+      hints:
+        - The stop and the entry look at the same quantity and disagree about what it means.
+        - Stop is 3.5 and entry is 2.0, so every z that trips the stop also satisfies the entry condition.
+        - The entry band has a floor and no ceiling.
+      reveal: >-
+        A stop that the entry rule immediately undoes is not a stop, it is a round trip
+        through the spread every bar the divergence lasts. The entry condition needs both
+        ends, entry at or below the absolute z and strictly below the stop, so the band the
+        strategy trades in is a band rather than a half line. This is the single most common
+        way a pairs book turns a structural break into a hundred losing trades instead of
+        one.
+
+    - id: take-one-spread-round-trip
+      kind: machine
+      prompt: >-
+        z is measured in half sigma, so entry is 4, the exit band is 1 and the stop is 7.
+        Take one short spread trade from flat to a close on convergence.
+      initial: flat
+      vars: { z: 0 }
+      states:
+        flat:
+          label: Flat
+          note: No position. The spread is free to move without costing anything.
+        short-spread:
+          label: Short the spread
+          note: Short Y and long beta of X. This makes money as z falls toward zero.
+        converged:
+          label: Closed inside the exit band
+          terminal: true
+        stopped:
+          label: Closed at the stop
+          terminal: true
+          error: true
+      transitions:
+        - from: flat
+          on: spread widens
+          to: flat
+          when: [{ var: z, cmp: lt, value: 7 }]
+          effects: [{ var: z, op: inc, value: 1 }]
+          note: Nothing is at risk while the book is flat, however wide the spread gets.
+        - from: flat
+          on: sell the spread
+          to: short-spread
+          when: [{ var: z, cmp: gte, value: 4 }, { var: z, cmp: lt, value: 7 }]
+          note: Inside the band. Y is rich against X by at least two sigma and the relationship has not been declared broken.
+        - from: flat
+          on: sell the spread
+          to: stopped
+          when: [{ var: z, cmp: gte, value: 7 }]
+          note: >-
+            Opening at the stop level opens a spread the strategy has already decided is
+            broken. The stop fires on the next bar and the trade is a pure loss.
+        - from: short-spread
+          on: spread widens
+          to: short-spread
+          when: [{ var: z, cmp: lte, value: 5 }]
+          effects: [{ var: z, op: inc, value: 1 }]
+          note: Moving against the position and still inside the stop.
+        - from: short-spread
+          on: spread widens
+          to: stopped
+          when: [{ var: z, cmp: gte, value: 6 }]
+          effects: [{ var: z, op: inc, value: 1 }]
+          note: Past three and a half sigma. The relationship is treated as broken and the position is closed at a loss.
+        - from: short-spread
+          on: spread narrows
+          to: short-spread
+          when: [{ var: z, cmp: gte, value: 3 }]
+          effects: [{ var: z, op: dec, value: 1 }]
+          note: Converging, and still outside the exit band.
+        - from: short-spread
+          on: spread narrows
+          to: converged
+          when: [{ var: z, cmp: lte, value: 2 }]
+          effects: [{ var: z, op: dec, value: 1 }]
+          note: Inside half a sigma. The position closes and the trade is booked.
+      mode: drive
+      win:
+        state: converged
+        maxSteps: 12
+        requires: []
+      hints:
+        - Nothing can be traded until z reaches the entry band, and widening while flat costs nothing.
+        - There is a point past which selling the spread is offered and is still the wrong thing to do.
+        - Once the position is on, every widening step moves you toward the red state and every narrowing step moves you toward the goal.
+      reveal: >-
+        Selling the spread is offered at z of 7 and it is still a mistake, which is the whole
+        point of a band. The machine will let you do it because a real signal generator will
+        let you do it, and the only thing standing between the two is a second comparison in
+        the entry condition.
 ---
 
 A pairs trading strategy monetizes temporary deviations between two cointegrated assets $Y$ and $X$.

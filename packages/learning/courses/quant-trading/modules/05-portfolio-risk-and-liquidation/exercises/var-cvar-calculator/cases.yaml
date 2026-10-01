@@ -1,0 +1,33 @@
+version: 1
+cases:
+  TestVaRCVaRCalculator.test_historical_var_cvar:
+    condition: '100 returns spread from -10 to +9 percent, cut at 95 percent confidence'
+    hints:
+      - 'VaR is a single point in the sorted losses and CVaR is the average of everything at or beyond it, so the two can only be equal when the tail holds one observation.'
+      - 'Both are quoted as positive losses, which means negating a return that is already negative.'
+      - 'Sort ascending, take the tail size as alpha times n rounded up, read VaR off the last observation in that slice, and average the whole slice for CVaR.'
+    concept: quant-risk.value-at-risk
+
+  TestVaRCVaRCalculator.test_parametric_var_cvar:
+    condition: 'a zero mean Gaussian at 2 percent per period volatility, quoted at 95 percent'
+    hints:
+      - 'The Gaussian quantile at 5 percent is about -1.645 and the loss being quoted is its negative, so a sign left in the wrong place produces a VaR that protects nothing.'
+      - 'Expected shortfall under a normal has a closed form and needs no simulation. It comes from the density at the quantile divided by alpha.'
+      - 'Take VaR as minus the mean plus the quantile times the standard deviation, and CVaR as minus the mean plus the standard deviation times the normal density at the quantile over alpha.'
+    concept: quant-risk.value-at-risk
+
+  TestVaRCVaRCalculator.test_historical_tail_count_is_exact:
+    condition: 'exactly five losses among 95 gains, where taking one observation too many changes the answer'
+    hints:
+      - 'Five percent of a hundred observations is five, and the sixth is a gain. Pulling it into the loss tail drags the reported VaR down to zero.'
+      - 'One minus 0.95 is not exactly 0.05 in binary floating point. It comes out a hair above, so a ceiling on alpha times n lands on six rather than five.'
+      - 'Subtract a small tolerance before taking the ceiling, then clamp the count into one to n so the tail can never be empty or longer than the sample.'
+    concept: quant-risk.value-at-risk
+
+  TestVaRCVaRCalculator.test_rejects_invalid_inputs:
+    condition: 'an empty return series, a confidence of exactly 1.0, and a negative standard deviation'
+    hints:
+      - 'A confidence of 1.0 asks for the loss that is never exceeded, which no finite sample can name and which drives alpha to zero in the parametric form.'
+      - 'An empty series has no distribution to read a quantile out of, and a negative standard deviation is not a dispersion.'
+      - 'Raise ValueError on all three: refuse an empty series, require alpha strictly between zero and one, and require the standard deviation to be non-negative.'
+    concept: quant-risk.value-at-risk

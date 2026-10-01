@@ -7,6 +7,193 @@ estimatedMinutes: 25
 exercise:
   id: generator-pipeline
   timeboxMinutes: 25
+challenges:
+  goal: Pull items through a lazy pipeline one at a time, and know where a suspended frame is still standing.
+
+  readingOptional: true
+  steps:
+    - id: who-asks-whom
+      kind: order
+      prompt: >-
+        The caller asks the pipeline for its first item. Put everything that happens next in
+        order, up to that item arriving.
+      context:
+        as: code
+        lang: python
+        source: |
+          with open("system.log") as handle:
+              pipeline = extract_ip(filter_errors(parse_lines(handle)))
+              first = next(pipeline)
+      items:
+        - { id: ask-extract, label: "next() is called on the generator that extract_ip returned" }
+        - { id: ask-filter, label: "extract_ip asks filter_errors for a record" }
+        - { id: ask-parse, label: "filter_errors asks parse_lines for a record" }
+        - { id: read-line, label: "parse_lines reads one line from the file handle" }
+        - { id: yield-parse, label: "parse_lines yields the stripped line to filter_errors" }
+        - { id: yield-filter, label: "filter_errors yields it on, because it contains ERROR" }
+        - { id: yield-extract, label: "extract_ip yields the first field to the caller" }
+      solution: [ask-extract, ask-filter, ask-parse, read-line, yield-parse, yield-filter, yield-extract]
+      because:
+        ask-extract: Nothing in the pipeline has run yet. Composing the three stages built three generator objects and executed none of their bodies.
+        ask-filter: Each stage is suspended at the top of its own for loop, and the only way it can make progress is to ask the stage above it for something.
+        ask-parse: The demand travels all the way to the source before a single byte is read, which is what makes the pipeline lazy rather than merely composed.
+        read-line: This is the first thing that touches the file, and it reads one line rather than the file.
+        yield-parse: The value now travels back down, and each stage resumes exactly where its yield left it.
+        yield-filter: A record that failed the test would be dropped here and the stage would go back and ask for another one, without the caller ever knowing.
+        yield-extract: One line was read and one item came out. Nothing between them was ever held in a list.
+      hints:
+        - Building the pipeline runs none of it. The first thing that happens is a request, not a read.
+        - The request travels one way and the value travels back the other way.
+        - The file is not read until the demand for a value has reached it.
+      reveal: >-
+        A pipeline of generators is pull driven, so demand flows from the consumer up to the
+        source and values flow back down one at a time. That is where the constant memory comes
+        from: no stage ever holds more than the item it is currently working on, however large
+        the file behind it is.
+
+    - id: the-frame-that-waits
+      kind: machine
+      prompt: >-
+        count_down(3) has just returned a generator object. Take all three values out of it and
+        run it to exhaustion.
+      context:
+        as: code
+        lang: python
+        source: |
+          def count_down(start):
+              current = start
+              while current > 0:
+                  yield current
+                  current -= 1
+
+          gen = count_down(3)
+      initial: created
+      vars: { yielded: 0 }
+      states:
+        created:
+          label: Created, body not started
+          note: The generator object exists and not one line of the function body has run.
+        suspended:
+          label: Suspended at the yield
+          note: The frame is kept alive with every local exactly as it was, and the instruction pointer sits on the yield.
+        exhausted:
+          label: Exhausted, frame discarded
+          terminal: true
+      transitions:
+        - from: created
+          on: call next()
+          to: suspended
+          effects: [{ var: yielded, op: inc, value: 1 }]
+          note: The body runs for the first time here, not when count_down(3) was called. Anything before the first yield, argument checking included, was deferred to this moment.
+        - from: created
+          on: call close()
+          to: exhausted
+          note: Closing a generator that never started throws nothing into it, because there is no frame to throw into. It is marked finished and nothing runs.
+        - from: suspended
+          on: call next()
+          to: suspended
+          when: [{ var: yielded, cmp: lt, value: 3 }]
+          effects: [{ var: yielded, op: inc, value: 1 }]
+          note: Execution resumes on the instruction after the yield, with current holding whatever it held when the frame was put down.
+        - from: suspended
+          on: call next()
+          to: exhausted
+          when: [{ var: yielded, cmp: gte, value: 3 }]
+          note: The loop condition fails, the function returns, and the frame raises StopIteration on the way out. A for loop catches that and stops quietly.
+        - from: suspended
+          on: call close()
+          to: exhausted
+          note: Closing throws GeneratorExit into the suspended frame so its finally blocks run, then discards it. Values not yet yielded are never computed at all.
+        - from: exhausted
+          on: call next()
+          to: exhausted
+          note: StopIteration again, and every time after that. A generator is a position in a stream and this one is at the end of it.
+        - from: exhausted
+          on: make a new generator
+          to: created
+          effects: [{ var: yielded, op: set, value: 0 }]
+          note: The only way to get the values a second time. Calling count_down(3) again builds a fresh object with a fresh frame.
+      mode: drive
+      win:
+        state: exhausted
+        maxSteps: 10
+        requires:
+          - { var: yielded, cmp: eq, value: 3 }
+      hints:
+        - Reaching the end is not enough on its own. The three values have to come out on the way.
+        - Closing gets you to the end immediately and skips everything that had not been computed yet.
+        - It takes one more call than there are values, because the last call is the one that finds there is nothing left.
+      reveal: >-
+        A generator is a heap-allocated frame with a saved instruction pointer, which is why
+        resuming costs nothing and why it can only go forward. Exhaustion is permanent because
+        the frame is released, and that is the difference between an iterator and an iterable:
+        the iterable can hand out a new position, the iterator is one.
+
+    - id: how-much-the-merge-holds
+      kind: numeric
+      prompt: >-
+        Eight sorted streams of a million records each are merged with a min-heap. What is the
+        largest number of entries the heap ever holds?
+      context:
+        as: code
+        lang: python
+        source: |
+          def merge_sorted_streams(*streams):
+              heap = []
+              for idx, stream in enumerate(streams):
+                  it = iter(stream)
+                  heap.append((next(it), idx, it))
+              heapq.heapify(heap)
+
+              while heap:
+                  val, idx, it = heapq.heappop(heap)
+                  yield val
+                  heapq.heappush(heap, (next(it), idx, it))
+      answer: 8
+      tolerance: 0
+      scaleHint: >-
+        An answer in the millions is the length of the data. The heap holds a position in each
+        stream rather than the contents of any of them.
+      hints:
+        - Read the loop and count what is in the heap after one full pass. One entry comes out and one goes back.
+        - The heap holds the current head of each stream and nothing behind it.
+        - Nothing in the loop can make the heap grow, so its largest size is the size it started at.
+      reveal: >-
+        The heap is a position in each stream, so its size is the number of streams and has
+        nothing to do with their length. Concatenating and sorting would be O(N log N) time and
+        O(N) memory, and this is O(log K) per item and O(K) memory, which is what makes merging
+        eight hundred gigabyte logs on a laptop an ordinary thing to do.
+
+    - id: the-handle-that-closed
+      kind: spot
+      prompt: >-
+        This raises ValueError for an I/O operation on a closed file, and none of the stages is
+        wrong. Click the line that causes it.
+      lang: python
+      source: |
+        def read_ips(path):
+            with open(path) as handle:
+                pipeline = extract_ip(filter_errors(parse_lines(handle)))
+                return pipeline
+
+
+        for ip in read_ips("system.log"):
+            print(ip)
+      targets: [3]
+      decoys:
+        '1': Opening the file in a with block is right, and closing the handle when the block ends is exactly what a with block is for.
+        '2': Composing the three stages is correct and costs nothing. Building a pipeline executes none of it.
+        '6': Iterating the result is the only way to get anything out of a generator, and it is where the work is supposed to happen.
+      hints:
+        - Building the pipeline reads nothing. Work out when the first read actually happens and where the code is standing at that moment.
+        - The with block ends before the caller has asked for a single item, and ending it closes the handle.
+        - Handing a lazy pipeline out of the scope that owns its source is the whole of the problem.
+      reveal: >-
+        Laziness moves the work to the consumer, and in doing so it moves the work out of every
+        context manager the producer was standing inside. The generator still holds the handle
+        and asks it for a line the moment the for loop starts. Either consume the pipeline
+        inside the with block, or make read_ips itself a generator and yield from the pipeline,
+        which keeps its own frame suspended inside the block for as long as anything is pulling.
 ---
 
 Programs frequently process sequences of data that exceed available physical memory, such as multi-gigabyte log files, real-time sensor streams, or financial order feeds.

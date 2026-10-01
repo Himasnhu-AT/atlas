@@ -7,6 +7,210 @@ estimatedMinutes: 60
 exercise:
   id: react-loop
   timeboxMinutes: 30
+interactive:
+  type: state-machine
+  props:
+    initialState: "THINK"
+    goal: "Simulate a tool failure and observe how the state machine transitions to recovery."
+    states:
+      THINK:
+        label: "1. Model Reasoning (Thought)"
+        description: "Model analyzes conversation history and generates the next tool invocation."
+        transitions:
+          "Emit Tool Call": "ACT"
+          "Emit Final Answer": "DONE"
+      ACT:
+        label: "2. Tool Execution (Action)"
+        description: "Application runtime executes the requested tool with validated arguments."
+        transitions:
+          "Tool Result Returned": "OBSERVE"
+          "Tool Execution Error": "RECOVER"
+      OBSERVE:
+        label: "3. Context Update (Observation)"
+        description: "Tool result appended to transcript as a tool message."
+        transitions:
+          "Next Iteration": "THINK"
+      RECOVER:
+        label: "4. Error Recovery"
+        description: "Catch exception and append error output for self-correction."
+        transitions:
+          "Feed Error to Model": "THINK"
+          "Max Iterations Exceeded": "FAIL"
+      DONE:
+        label: "Loop Terminated"
+        isTerminal: true
+      FAIL:
+        label: "Execution Limit Exceeded"
+        isTerminal: true
+        isError: true
+challenges:
+  goal: Keep the message list the provider will accept, and end the run in a way a caller can tell from an answer.
+
+  steps:
+    - id: what-the-loop-does-next
+      kind: assign
+      prompt: >-
+        One turn of the loop has just come back. Sort each outcome by what the next line of
+        your code does about it.
+      buckets:
+        - id: continue
+          label: Go round again
+          note: Append something to messages and make another model call.
+        - id: return
+          label: Return the content
+          note: The run is over and the answer is good.
+        - id: raise
+          label: Raise
+          note: The run is over and there is no answer, which the caller has to be told.
+      items:
+        - id: tool-calls
+          label: finish_reason is tool_calls
+          bucket: continue
+          because: The model asked for something. Run it, append the assistant turn and the results, and call again.
+        - id: stop
+          label: finish_reason is stop
+          bucket: return
+          because: The model finished a turn without asking for a tool. This is the natural exit, and it is a field rather than a phrase you look for in the text.
+        - id: length
+          label: finish_reason is length
+          bucket: raise
+          because: The generation was cut at the token ceiling, so the text is a fragment. Returning it hands the caller half an answer with no way to know it is half.
+        - id: budget
+          label: The step budget is spent
+          bucket: raise
+          because: Returning the last thing you happen to be holding is indistinguishable from a completed run. Raise, and attach the transcript so somebody can see which tools ran.
+        - id: tool-threw
+          label: The tool itself threw
+          bucket: continue
+          because: The model can often fix a bad argument if it is told what went wrong. Serialise the error as the tool result and let it try, under the same budget.
+      hints:
+        - Three of these end the run and two of the three end it badly.
+        - One of them is not about the model at all. It is about your own code failing.
+        - The one where a tool blew up is not the end of anything, as long as the budget still allows a turn.
+      reveal: >-
+        Two exits and one of them raises. A loop that returns partial text when the budget
+        runs out produces a value the caller cannot distinguish from an answer, and that is
+        how a silently truncated run reaches a customer.
+
+    - id: paired-by-position
+      kind: spot
+      prompt: >-
+        Both tools ran and both returned. The provider rejects this anyway. Click every
+        line that is wrong.
+      lang: python
+      source: |
+        messages = [
+            {"role": "user", "content": "Populations of Paris and Tokyo?"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_1_0", "function": {"name": "lookup_population", "arguments": "{'city': 'Paris'}"}},
+                {"id": "call_1_1", "function": {"name": "lookup_population", "arguments": "{'city': 'Tokyo'}"}}]},
+            {"role": "tool", "tool_call_id": "call_1_0", "content": "{'city': 'Tokyo', 'population': 13960000}"},
+            {"role": "tool", "tool_call_id": "call_1_1", "content": "{'city': 'Paris', 'population': 2102650}"},
+        ]
+      targets: [5, 6]
+      requireAll: true
+      decoys:
+        '0': The list itself is fine.
+        '1': The user turn is the question, and it stays first for the whole run.
+        '2': The assistant turn belongs here, before any tool result, with content of None. That part is right.
+        '3': The call for Paris is well formed and carries its own id.
+        '4': The call for Tokyo is well formed and carries a different id.
+        '7': Closing the list is fine.
+      hints:
+        - Read the city in each tool result, then read the city in the call whose id it claims to answer.
+        - The two tools finished in the opposite order from the one they were requested in, and somebody appended them in the order they arrived.
+        - Neither result is wrong on its own. What is wrong is which call each one says it belongs to.
+      reveal: >-
+        tool_call_id is the only pairing there is. Not position, not name, and here both
+        names are the same anyway. Pairing by index works right up until two calls run
+        concurrently and finish out of order, which is the case the ids exist for.
+
+    - id: what-a-step-costs
+      kind: numeric
+      prompt: >-
+        Providers keep no session, so every call resends the whole list. How many input
+        tokens does this run send in total?
+      context:
+        as: pairs
+        items:
+          - { k: model calls in the run, v: "6" }
+          - { k: the question, v: 300 tokens }
+          - { k: each assistant turn, v: 80 tokens }
+          - { k: each tool result, v: 400 tokens }
+          - { k: the run, v: the first five calls each ask for one tool, the sixth answers }
+      answer: 9000
+      unit: input tokens
+      tolerance: 0
+      scaleHint: That looks like one call rather than the run. Every call resends everything before it, so the six of them do not cost the same.
+      hints:
+        - The first call carries the question and nothing else.
+        - A round trip adds one assistant turn and one tool result, so every later call carries 480 more than the one before it.
+        - Six calls carrying 300, 780, 1260, 1740, 2220 and 2700.
+      reveal: >-
+        Six calls, and the last one costs nine times the first. Input grows linearly with the
+        turn, so the run costs grow with the square of its length. The biggest term is
+        usually the tool payload, which is why a tool that returns a whole document rather
+        than the paragraph you needed is charged again on every remaining step.
+
+    - id: the-two-exits
+      kind: blanks
+      prompt: Finish the loop. Three blanks, and each one is a place the run can go wrong quietly.
+      lang: python
+      template: |
+        for _ in range(max_steps):
+            choice = client.chat.completions.create(
+                model="mock", messages=messages, tools=tools
+            ).choices[0]
+
+            if choice.finish_reason == {{1}}:
+                raise TruncatedResponse(messages)
+            if choice.finish_reason != "tool_calls":
+                return choice.message.content or ""
+
+            messages.append(assistant_turn(choice))
+            for call in choice.message.tool_calls:
+                result = dispatch(registry, call.function.name, call.function.arguments)
+                messages.append(tool_result_turn({{2}}, to_tool_content(result)))
+
+        {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - '"length"'
+            - '"stop"'
+            - '"tool_calls"'
+            - '"content_filter"'
+          accept: ['"length"']
+          note: The branch below already handles the model finishing a turn. This one is for the generation being cut off mid sentence, which arrives as a reason rather than as a parse error.
+        - n: 2
+          as: select
+          options:
+            - call.id
+            - call.function.name
+            - str(len(messages))
+            - choice.index
+          accept: [call.id]
+          note: The name does not identify anything when the model calls the same tool twice, and a position breaks the moment two calls finish out of order.
+        - n: 3
+          as: select
+          options:
+            - raise MaxStepsExceeded(max_steps, messages)
+            - return messages[-1]["content"]
+            - return ""
+            - break
+          accept:
+            - raise MaxStepsExceeded(max_steps, messages)
+          note: Falling out of the loop means the budget was spent with no answer. Anything returned here reads to the caller exactly like a completed run.
+      hints:
+        - Two of the three blanks are about how the run ends, and both of those ends are failures.
+        - The middle blank is the field the provider matches a result back to its request on.
+        - Reaching the line after the loop means max_steps calls happened and none of them was an answer.
+      reveal: >-
+        The messages list is the entire runtime state of this agent, and the loop is thirty
+        lines around it. What makes it production code rather than a demo is that both bad
+        endings raise and both carry the transcript, so a run that failed looks like a
+        failure from the outside.
 ---
 
 The execution loop follows four steps. The model determines what action is required. It emits a tool call request.
@@ -19,6 +223,51 @@ Modern model providers support this loop directly through dedicated tool calling
 while structured schemas replace brittle text parsing.
 
 ## The loop in full
+
+```widget:state-machine
+initialState: "THINK"
+goal: "Trigger a tool failure and observe how the state machine transitions to recovery."
+states:
+  THINK:
+    label: "1. Model Reasoning"
+    description: "The model receives context and decides whether to emit a tool call or answer."
+    transitions:
+      "Emit Tool Call": "ACT"
+      "Emit Final Answer": "DONE"
+  ACT:
+    label: "2. Tool Execution"
+    description: "The runtime dispatches the tool call to the local tool handler."
+    transitions:
+      "Tool Success": "OBSERVE"
+      "Tool Exception": "RECOVER"
+  OBSERVE:
+    label: "3. Append Observation"
+    description: "Tool output is serialized into a 'tool' role message and appended to history."
+    transitions:
+      "Next Model Call": "THINK"
+  RECOVER:
+    label: "4. Error Recovery"
+    description: "Format the error into tool payload so model can self-correct on next turn."
+    transitions:
+      "Send Error to Model": "THINK"
+      "Abort Run": "ERROR"
+  DONE:
+    label: "Completed"
+    isTerminal: true
+  ERROR:
+    label: "Failed (Max Retries)"
+    isTerminal: true
+    isError: true
+faultInjections:
+  - id: "timeout"
+    label: "API Timeout"
+    targetState: "RECOVER"
+    action: "Network Timeout Exception"
+  - id: "rate-limit"
+    label: "Rate Limit 429"
+    targetState: "RECOVER"
+    action: "HTTP 429 Error"
+```
 
 ```python
 messages = [{"role": "user", "content": question}]

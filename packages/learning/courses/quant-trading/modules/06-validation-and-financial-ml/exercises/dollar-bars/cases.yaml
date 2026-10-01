@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestDollarBars.test_single_bar_aggregation:
+    condition: 'four ticks whose running dollar value only crosses the threshold on the last one'
+    hints:
+      - 'The bar closes on the tick that carried it over, and that tick is not split in half. The bar records 10,050 of dollar volume rather than exactly 10,000.'
+      - 'Open is the price of the first tick in the bar and close is the price of the tick that ended it. High and low span everything in between, so the 102 print is the high even though it closed nothing.'
+      - 'Carry the running dollar value, volume, high and low from the first tick of the bar, and emit once the running dollar value reaches or passes the threshold.'
+    concept: quant-validation.financial-data-structures
+
+  TestDollarBars.test_multiple_bars:
+    condition: 'ten ticks worth a thousand dollars each against a 2500 dollar threshold'
+    hints:
+      - 'The accumulator restarts after a bar is emitted, so the second bar begins at zero rather than carrying the 500 dollars that overshot the first threshold.'
+      - 'The tenth tick leaves a thousand dollars sitting in a bar that never reached the threshold, and an unfinished bar is not emitted. Three bars close here, not four.'
+      - 'Clear the running totals when a bar is emitted and return only the bars that crossed, leaving whatever is still accumulating out of the list entirely.'
+    concept: quant-validation.financial-data-structures

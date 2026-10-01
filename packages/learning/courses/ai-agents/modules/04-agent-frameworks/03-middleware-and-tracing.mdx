@@ -7,6 +7,195 @@ estimatedMinutes: 40
 exercise:
   id: run-tracing
   timeboxMinutes: 35
+challenges:
+  goal: Put listeners at the five places a run touches the outside world, and write a record per step that survives redaction.
+  readingOptional: true
+
+  steps:
+    - id: when-each-hook-fires
+      kind: order
+      prompt: >-
+        One question, one tool call, then an answer. Put the hook calls in the order the
+        loop makes them.
+      items:
+        - id: before-model-0
+          label: before_model, step 0
+        - id: after-model-0
+          label: after_model, step 0, finish_reason tool_calls
+        - id: before-tool
+          label: before_tool, lookup_order
+        - id: after-tool
+          label: after_tool, lookup_order, failed False
+        - id: before-model-1
+          label: before_model, step 1
+        - id: after-model-1
+          label: after_model, step 1, finish_reason stop
+      solution: [before-model-0, after-model-0, before-tool, after-tool, before-model-1, after-model-1]
+      because:
+        after-model-0: The model has to answer before anybody knows a tool was asked for, so this fires before any tool hook.
+        before-tool: The tool cannot run until the model has named it and the arguments have been parsed.
+        before-model-1: The result has to be appended before the second call goes out, which is why this comes after the tool finished rather than beside it.
+      hints:
+        - Nothing knows a tool is involved until the model has said so.
+        - A step is a model call. This run has two of them and one tool between.
+        - on_error is not in this list, which tells you something about when it fires.
+      reveal: >-
+        Five points, and they are the complete set of places data crosses the loop boundary.
+        Logging, metrics, caching, rate limits and approval gates all attach here, which is
+        why the list is worth fixing rather than growing. on_error is the sixth call and it
+        replaces after_model rather than following it, so a hook that counts model responses
+        does not count the failed one twice.
+
+    - id: one-bad-listener
+      kind: choice
+      prompt: >-
+        A Redactor in your hook list raised on one malformed message, and the run came back
+        with no trace at all. What is wrong with the dispatch?
+      options:
+        - id: one-try
+          label: One try block wraps the loop over hooks, so a hook that raises skips every hook after it.
+          correct: true
+          note: Wrap each hook call in its own try. Then a listener that fails is one listener that failed, rather than the end of your telemetry for the rest of the run.
+        - id: no-throwing
+          label: Hooks should be forbidden from raising in the first place.
+          note: You cannot enforce that on a listener somebody else wrote, and the ones most likely to raise are the ones touching a network. The dispatch has to assume they will.
+        - id: reorder
+          label: The Redactor is in the wrong position in the list.
+          note: Position does matter, and a redactor after a logger means the logger already wrote the raw text. It is not why every hook stopped.
+        - id: propagate
+          label: The exception should propagate so the run fails loudly.
+          note: Telemetry that can fail a run is worse than no telemetry. If something genuinely must stop the run, such as a hard spend cap, it belongs in the loop rather than in an optional listener.
+      hints:
+        - The Tracer did not throw, and the Tracer also produced nothing.
+        - Ask how many try blocks there are and what each one covers.
+        - The fix is about scope, not about order and not about the Redactor.
+      reveal: >-
+        Hooks in a list rather than a class hierarchy, each call isolated. Subclassing
+        forces every combination of concerns into a new type and gives you nothing inside
+        the loop, and the ordering that matters, such as redact before log, becomes a
+        method resolution puzzle rather than a line you can read.
+
+    - id: what-redaction-keeps
+      kind: assign
+      prompt: >-
+        redact runs over a step record before it is persisted. Sort these by what comes out
+        the other side.
+      buckets:
+        - id: masked
+          label: Replaced with a placeholder
+          note: Free text, which is where user data ends up.
+        - id: kept
+          label: Survives unchanged
+          note: Structure and numbers, which is what every metric is computed from.
+      items:
+        - id: message-content
+          label: The content string of each message
+          bucket: masked
+          because: The question, the answer and every tool payload are here, so this is the whole reason redaction exists.
+        - id: response-text
+          label: response_text on the record
+          bucket: masked
+          because: The model's own words, which quote the user often enough that masking them is not optional.
+        - id: tool-arguments
+          label: The arguments the model passed to each tool
+          bucket: masked
+          because: An order id is a customer, and an address is an address. Arguments are text the model wrote about a person.
+        - id: roles
+          label: The sequence of roles, user then assistant then tool
+          bucket: kept
+          because: Shape rather than content. Losing it would mean you could no longer tell a two step run from a five step one.
+        - id: call-ids
+          label: The tool_call_id on each tool message
+          bucket: kept
+          because: An opaque identifier the provider generated. It pairs a result to a request and says nothing about anybody.
+        - id: finish-reason
+          label: finish_reason
+          bucket: kept
+          because: One of a handful of enum values, and the field you count when you want to know how often runs are being truncated.
+        - id: tool-names
+          label: The names of the tools that were called
+          bucket: kept
+          because: Your own function names. Redacting them would take the tool frequency table with them.
+        - id: tokens-and-time
+          label: prompt_tokens, completion_tokens and elapsed_ms
+          bucket: kept
+          because: The numbers the cost and latency reports are made of. Nothing about a user survives in an integer.
+      hints:
+        - Everything the model or the user wrote goes in one bucket.
+        - Ask, of each field, whether a person could be identified from it on its own.
+        - The kept bucket should be exactly the fields your dashboards read.
+      reveal: >-
+        The invariant is that summarise of a redacted record equals summarise of the
+        original. Redaction touches text and summarise reads structure and numbers, so the
+        two never meet and your metrics do not change when you start persisting sanitised
+        traces. Deep copy the messages while you do it, or you will mask the live
+        conversation the loop is still using.
+
+    - id: the-record-for-this-step
+      kind: text-contract
+      prompt: >-
+        Your Tracer wrote this record for step 1. Correct it against what the step actually
+        did.
+      context:
+        as: log
+        lines:
+          - 'step 1 sent 3 messages: user, assistant, tool'
+          - 'model returned finish_reason=tool_calls'
+          - 'message.content was None'
+          - 'tool_calls: lookup_order(A-1174), lookup_order(A-1180)'
+          - 'usage: prompt_tokens=94 completion_tokens=12'
+          - 'clock: started 12.100, ended 12.350'
+      lang: json
+      initial: |
+        {
+          "index": 1,
+          "messages": [],
+          "response_text": "",
+          "finish_reason": "stop",
+          "tool_calls": ["lookup_order"],
+          "prompt_tokens": 94,
+          "completion_tokens": 12,
+          "elapsed_ms": null
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The snapshot is empty. Three messages went to the model on this step and a record you cannot replay is not a record.
+          check: { op: length, path: messages, min: 3 }
+        - message: The model emitted tool calls and no text, so response_text is null. An empty string is a different claim, that it replied with nothing.
+          check: { op: type, path: response_text, is: "null" }
+        - message: finish_reason says stop, and the model asked for tools. This field is what your truncation and completion rates are counted from.
+          check: { op: equals, path: finish_reason, value: tool_calls }
+        - message: The model called lookup_order twice and only one call is recorded. A set would have collapsed them, and the repetition is exactly what you want to see.
+          check: { op: length, path: tool_calls, min: 2, max: 2 }
+        - message: elapsed_ms is null. Sample the clock once at the start of the step and once at the end, and record the difference in whole milliseconds.
+          check: { op: type, path: elapsed_ms, is: integer }
+        - message: The two clock readings are a quarter of a second apart.
+          check: { op: equals, path: elapsed_ms, value: 250 }
+      hints:
+        - Five of the eight fields disagree with the log above them.
+        - Two of the wrong ones are wrong because somebody used a falsy value where the honest answer was null or a number.
+        - The same tool appears twice in the log for a reason.
+      reveal: >-
+        The unit is the step rather than the run or the tool call, because a step is what
+        you can compare across runs. Snapshot the messages with a deep copy, or the next
+        turn mutates the list this record is holding a reference to and every past record
+        quietly becomes a copy of the present one.
+      solution: |
+        {
+          "index": 1,
+          "messages": [
+            { "role": "user", "content": "where is order A-1174?" },
+            { "role": "assistant", "content": null },
+            { "role": "tool", "tool_call_id": "call_0_0", "content": "in transit" }
+          ],
+          "response_text": null,
+          "finish_reason": "tool_calls",
+          "tool_calls": ["lookup_order", "lookup_order"],
+          "prompt_tokens": 94,
+          "completion_tokens": 12,
+          "elapsed_ms": 250
+        }
 ---
 
 When an agent run fails during an intermediate step, reproducing the exact state is difficult: models

@@ -7,6 +7,213 @@ estimatedMinutes: 25
 exercise:
   id: analytical-greeks
   timeboxMinutes: 35
+challenges:
+  goal: Attribute a day's option P and L to the right sensitivity, and hedge a book to both delta and vega at once.
+
+  steps:
+    - id: how-much-stock-to-short
+      kind: numeric
+      prompt: >-
+        You are long 40 call contracts and want the book flat to a one dollar move in the
+        underlying. How many shares do you short?
+      unit: shares
+      context:
+        as: pairs
+        items:
+          - { k: Position, v: long 40 call contracts }
+          - { k: Contract multiplier, v: 100 shares }
+          - { k: Delta per option, v: '0.62' }
+      answer: 2480
+      tolerance: 0.5
+      scaleHint: >-
+        That is out by more than a factor of ten, which usually means the contract multiplier
+        was left out or applied twice.
+      hints:
+        - Delta is quoted per share of the underlying, and a contract covers a hundred of them.
+        - 40 contracts is 4,000 shares of exposure before the delta is applied.
+        - Multiply the three numbers together.
+      reveal: >-
+        This hedge is exact for a move of zero and approximate for anything else, because
+        delta itself moves as the stock does. Everything interesting about an option book
+        lives in that approximation error, and the rate at which the hedge goes stale has its
+        own name, which is the next thing here.
+
+    - id: which-greek-explains-it
+      kind: assign
+      prompt: >-
+        Each of these happened to a long option position. Sort them by which sensitivity
+        accounts for the money.
+      buckets:
+        - id: delta
+          label: Delta
+        - id: gamma
+          label: Gamma
+        - id: vega
+          label: Vega
+        - id: theta
+          label: Theta
+      items:
+        - id: one-dollar
+          label: The stock rose one dollar and the option gained 62 cents
+          bucket: delta
+          because: >-
+            A small move and a proportional response is the definition of delta. Nothing here
+            needed a second order term to explain it.
+        - id: big-move
+          label: The stock jumped five dollars and the option gained more than five times its delta
+          bucket: gamma
+          because: >-
+            Delta grew as the stock rose, so the average delta over the move was higher than
+            the delta at the start. That excess is gamma, and it is why a long option position
+            gains more than a linear hedge predicts.
+        - id: round-trip
+          label: The stock went from 100 to 105 and back, and the delta hedged book made money
+          bucket: gamma
+          because: >-
+            Rehedging a long gamma position sells stock as it rises and buys it back as it
+            falls. The path made the money and the endpoint contributed nothing, since the
+            stock finished where it started.
+        - id: quiet-day
+          label: Nothing moved all day and the position lost 340 dollars
+          bucket: theta
+          because: >-
+            One day less to expiry is one day less of possibility, and the option is priced
+            for possibility. This is the rent paid for holding gamma.
+        - id: post-earnings
+          label: Earnings came out, the stock finished flat, and the option lost 8 percent
+          bucket: vega
+          because: >-
+            The uncertainty the option was priced for has been resolved. Implied volatility
+            collapses the moment the announcement lands, whatever the stock does.
+        - id: vol-spike
+          label: The index fell and the position gained far more than its delta implied
+          bucket: vega
+          because: >-
+            Implied volatility rises when equity indices fall, so a long option position is
+            long a second thing that pays off in the same direction. Attributing all of this
+            to delta would overstate the hedge you need.
+      hints:
+        - Two of these involve no movement in the underlying at all, and they are not the same Greek.
+        - One item ends where it started, so whatever made the money was the path rather than the level.
+        - Ask what changed. If it was not the price and it was not the clock, it was the volatility.
+      reveal: >-
+        Attribution is what tells you whether a good day was skill or exposure. A book that
+        made money because implied volatility rose is not a book that predicted the move, and
+        the two are indistinguishable in the P and L until you decompose it. Every desk runs
+        this decomposition daily, and a residual that will not fit into any Greek is the first
+        sign that a position is not what the risk system thinks it is.
+
+    - id: correct-but-unusable
+      kind: spot
+      prompt: >-
+        Every number this returns is arithmetically correct and two of them are unusable on a
+        desk. Click both.
+      lang: python
+      source: |
+        def greeks(s, k, tau, r, sigma):
+            root = sigma * math.sqrt(tau)
+            d1 = (math.log(s / k) + (r + 0.5 * sigma ** 2) * tau) / root
+            d2 = d1 - root
+            delta = norm_cdf(d1)
+            gamma = norm_pdf(d1) / (s * root)
+            vega = s * norm_pdf(d1) * math.sqrt(tau)
+            decay = -s * norm_pdf(d1) * sigma / (2.0 * math.sqrt(tau))
+            carry = -r * k * math.exp(-r * tau) * norm_cdf(d2)
+            theta = decay + carry
+            return Greeks(delta, gamma, vega, theta)
+      targets: [6, 9]
+      requireAll: true
+      decoys:
+        '1': >-
+          Computing the standard deviation of log price once and reusing it is right, and
+          every line that uses it uses it correctly.
+        '2': >-
+          d1 is right. The half sigma squared term in the numerator is the convexity
+          correction and it belongs there.
+        '4': >-
+          Delta for a call is the first normal probability, and it is already denominated per
+          one dollar of spot, which is the convention.
+        '5': >-
+          Gamma is right and is already per one dollar of spot, matching delta. It needs no
+          rescaling.
+        '7': >-
+          The decay term is correct. It is the rate at which the option's remaining
+          possibility is being consumed.
+        '8': >-
+          The carry term is correct. It accounts for the interest on the strike that is no
+          longer being earned.
+        '10': >-
+          Packing the five figures into one typed object is right, and it is what makes the
+          unit mistakes above survive review.
+      hints:
+        - The mathematics is right on every line. The question is what units each number comes out in.
+        - Nobody quotes a sensitivity to a 100 point move in volatility, because volatility does not move by 100 points.
+        - Time decay is quoted per calendar day and this one is per year, which is a factor of 365.
+      reveal: >-
+        Both of these are pure convention and both cause real losses, because a risk system
+        that reports vega 100 times too large will size a hedge 100 times too small once
+        somebody divides in the wrong place to compensate. Market convention is vega per one
+        volatility point and theta per calendar day, and a Greeks function that does not say
+        which convention it uses in its own name or docstring is an accident waiting for a
+        new joiner.
+
+    - id: flatten-the-book
+      kind: tune
+      prompt: >-
+        You are long 40 of the one month 100 call. Hedge it with stock and with the three
+        month 110 call until the book is flat in both delta and vega.
+      context:
+        as: table
+        caption: Per contract, 100 share multiplier
+        columns: [instrument, delta per share, vega per contract]
+        rows:
+          - ['one month 100 call, long 40', 0.62, 19]
+          - ['three month 110 call, the hedge', 0.28, 24]
+      inputs:
+        - id: shares
+          label: Shares of the underlying
+          min: -4000
+          max: 0
+          step: 100
+          initial: 0
+        - id: hedge-calls
+          label: Contracts of the three month 110 call
+          min: -80
+          max: 0
+          step: 5
+          initial: 0
+      outputs:
+        - id: net-delta
+          label: Net delta
+          unit: shares
+          terms:
+            - { coef: 2480 }
+            - { coef: 1, of: [shares] }
+            - { coef: 28, of: [hedge-calls] }
+          target: { min: -50, max: 50 }
+          note: >-
+            Still directional. Remember that selling the hedge calls removes delta as well as
+            vega, so the stock leg has less work to do than it did before you touched them.
+        - id: net-vega
+          label: Net vega per volatility point
+          unit: dollars
+          terms:
+            - { coef: 760 }
+            - { coef: 24, of: [hedge-calls] }
+          target: { min: -100, max: 100 }
+          note: >-
+            Still exposed to a change in implied volatility. Stock has no vega at all, so
+            this figure can only be moved by the option leg.
+      hints:
+        - One of the two sliders moves both readings and the other moves only one. Start with the one that has no choice about it.
+        - Stock carries delta and no vega, so the option hedge has to be set first and the stock leg mops up whatever delta is left.
+        - Around 30 contracts sold takes the vega most of the way, and the delta that remains is a little over 1,600 shares.
+      reveal: >-
+        A hedge with two constraints needs two instruments, and this is the general shape of
+        every hedging problem on a derivatives desk. It is also incomplete: the book is now
+        flat in delta and vega and still long gamma at the front month and short it at the
+        back, so tomorrow's move changes the delta and the whole exercise starts again. What
+        you have bought is a day, not a hedge.
 ---
 
 To manage derivative portfolios, quant desks decompose price risk into partial derivatives known as **the Greeks**.

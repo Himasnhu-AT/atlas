@@ -1,0 +1,129 @@
+version: 1
+cases:
+  TestCountingWords.test_counts_words:
+    condition: 'a short line of ordinary text separated by single spaces'
+    hints:
+      - 'The plainest input still has to work: two words separated by one space is two.'
+      - 'Splitting the string gives you a list, and the length of that list is the count.'
+      - 'Call split on the content and return the length of what comes back.'
+    concept: ai-foundations.check-your-setup
+
+  TestCountingWords.test_an_empty_string_is_zero:
+    condition: 'an empty string, which has no words in it at all'
+    hints:
+      - 'Nothing is a legitimate amount of text, and it counts as zero rather than one.'
+      - 'Splitting an empty string with no argument gives an empty list, not a list holding one empty piece.'
+      - 'The same split that handles ordinary text already returns zero here, so no special case is needed.'
+    concept: ai-foundations.check-your-setup
+
+  TestCountingWords.test_none_is_zero:
+    condition: 'a content field of None, which is what a tool call turn carries'
+    hints:
+      - 'A message that only calls a tool has no text, and the provider sends None rather than an empty string.'
+      - 'Calling split on None raises, so the None has to become an empty string before anything reads it.'
+      - 'Substitute an empty string for a falsy content at the top, then count as normal.'
+    concept: ai-foundations.check-your-setup
+
+  TestCountingWords.test_collapses_runs_of_whitespace:
+    condition: 'text padded with double spaces and a newline in the middle'
+    hints:
+      - 'Real message text is not tidy. Runs of spaces and stray newlines are ordinary.'
+      - 'Splitting on a literal single space produces empty strings for every extra space, and each one gets counted.'
+      - 'Call split with no argument at all, which treats any run of whitespace as one separator and drops the empties.'
+    concept: ai-foundations.check-your-setup
+
+  TestCountingWords.test_summarise_counts_messages_and_words:
+    condition: 'a four turn conversation whose words are spread across every role'
+    hints:
+      - 'The word total covers the whole conversation, system turn included, not just the user turns.'
+      - 'Two different numbers are wanted: how many messages there are, and how many words they hold between them.'
+      - 'Sum the word count of every message content, and pair that with the length of the list.'
+    concept: ai-foundations.check-your-setup
+
+  TestCountingWords.test_summarise_handles_an_empty_conversation:
+    condition: 'a conversation with no messages in it yet'
+    hints:
+      - 'An empty list is where every conversation starts, so the line still has to be produced.'
+      - 'Summing over nothing gives zero, and the length of an empty list is zero.'
+      - 'The general path already produces the right numbers here, so avoid an early return that says something different.'
+    concept: ai-foundations.check-your-setup
+
+  TestCountingWords.test_summarise_does_not_pluralise:
+    condition: 'a single message, where good English would say "1 message"'
+    hints:
+      - 'The format is fixed, and it is not trying to read well. Grammar is not part of the contract.'
+      - 'Adding an s only when the count is not one makes the string unpredictable to anything parsing it.'
+      - 'Write the same words every time, whatever the numbers are.'
+    concept: ai-foundations.check-your-setup
+
+  TestReadingMessages.test_role_counts_counts_each_role:
+    condition: 'a conversation holding one system turn, two user turns and one assistant turn'
+    hints:
+      - 'Each message carries a role, and the same role appears on more than one message.'
+      - 'Build the mapping as you walk the list rather than looking for roles you decided on in advance.'
+      - 'Read the role off each message and add one to whatever that role has counted so far, starting from zero.'
+    concept: ai-foundations.check-your-setup
+
+  TestReadingMessages.test_role_counts_omits_roles_that_never_appear:
+    condition: 'a conversation with no tool turn in it, which must not show up as zero'
+    hints:
+      - 'Report the roles that are there, not the ones you expected to see.'
+      - 'Seeding the mapping with the four roles you know about puts a zero in for every one that never occurred.'
+      - 'Start from an empty mapping and let the messages decide which keys exist.'
+    concept: ai-foundations.check-your-setup
+
+  TestReadingMessages.test_role_counts_of_an_empty_conversation_is_empty:
+    condition: 'a message list with nothing in it to count'
+    hints:
+      - 'No messages means no roles, which is an empty mapping rather than a mapping of zeroes.'
+      - 'A loop over an empty list runs no times, so whatever you started with is what comes back.'
+      - 'Return the mapping you began with, which is empty, without adding anything to it first.'
+    concept: ai-foundations.check-your-setup
+
+  TestReadingMessages.test_last_user_message_takes_the_most_recent_one:
+    condition: 'two user turns, where the question being asked is the later one'
+    hints:
+      - 'The turn the agent has to answer is the one that just arrived, not the one that opened the conversation.'
+      - 'Scanning forwards finds the wrong one first, so the direction of the walk is the whole answer.'
+      - 'Walk the list backwards and return on the first user turn you meet.'
+    concept: ai-foundations.check-your-setup
+
+  TestReadingMessages.test_last_user_message_ignores_other_roles:
+    condition: 'an assistant turn sitting after the user turn you want'
+    hints:
+      - 'The last message in the list is not always the last user message.'
+      - 'Taking the final element outright picks up whatever role happens to be there.'
+      - 'Check the role of each message as you go and skip the ones that are not user turns.'
+    concept: ai-foundations.check-your-setup
+
+  TestReadingMessages.test_last_user_message_is_none_when_there_is_no_user_turn:
+    condition: 'a conversation holding only a system prompt, with nothing from the user yet'
+    hints:
+      - 'A conversation can genuinely have no user turn in it, and that is not a crash.'
+      - 'Falling off the end of the loop has to produce an answer of its own rather than an index error.'
+      - 'Return None after the loop, so the absence is reported rather than guessed at.'
+    concept: ai-foundations.check-your-setup
+
+  TestTheMockClient.test_returns_the_assistant_text:
+    condition: 'a response object whose reply text sits several attributes deep'
+    hints:
+      - 'The call does not hand back a string. It hands back an object that has one somewhere inside it.'
+      - 'The response holds a list of candidate replies, and each candidate holds a message.'
+      - 'Take the first choice, read its message, and return the content of that message.'
+    concept: ai-foundations.check-your-setup
+
+  TestTheMockClient.test_calls_the_model_once:
+    condition: 'a client that records how many times it was asked'
+    hints:
+      - 'Every call to a real provider is a bill and a wait, so one is the right number here.'
+      - 'A retry or a second call written to double check costs twice as much and proves nothing.'
+      - 'Make the request once, hold the result in a variable, and read from that variable.'
+    concept: ai-foundations.check-your-setup
+
+  TestTheMockClient.test_sends_a_single_user_message:
+    condition: 'a request that must carry one user message and nothing else'
+    hints:
+      - 'This is the smallest possible request. There is no system prompt and no history to send with it.'
+      - 'The messages argument is a list, and here it holds exactly one entry.'
+      - 'Pass a list of one mapping with the user role and the greeting as its content.'
+    concept: ai-foundations.check-your-setup

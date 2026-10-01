@@ -1,0 +1,241 @@
+version: 1
+cases:
+  TestSoftmaxAndTemperature.test_softmax_is_a_distribution_in_rank_order:
+    condition: 'six well separated logits whose probabilities must sum to one and stay in rank order'
+    hints:
+      - 'A distribution has to add up to exactly one, and a higher logit can never come out as a lower probability.'
+      - 'Exponentiating alone does not normalise. The weights have to be divided by something.'
+      - 'Divide each exponentiated weight by the sum of all of them, which preserves the ordering and fixes the total.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_softmax_is_shift_invariant:
+    condition: 'the same logits with seventeen added to every one of them'
+    hints:
+      - 'Only the gaps between logits matter. Adding a constant to all of them changes nothing.'
+      - 'A shared constant factors out of both the numerator and the denominator.'
+      - 'This falls out for free once the weights are divided by their own total, so no extra work is needed.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_softmax_survives_huge_logits:
+    condition: 'logits around a thousand, large enough to overflow the exponential'
+    hints:
+      - 'Real models produce logits that make a naive exponential overflow to infinity.'
+      - 'Shifting all the logits down by a constant leaves the answer unchanged, which is the property that rescues this.'
+      - 'Subtract the largest logit from every logit before exponentiating, so the biggest exponent is zero.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_softmax_turns_impossible_into_exactly_zero:
+    condition: 'a logit of negative infinity marking a token that must not be drawn'
+    hints:
+      - 'A banned token is expressed as a logit, not as a separate list of exclusions.'
+      - 'Exponentiating negative infinity gives exactly zero, so the ban survives the normalisation on its own.'
+      - 'Avoid clamping or filtering the logits before the exponential, which would turn the ban into a small non-zero share.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_temperature_one_leaves_the_logits_alone:
+    condition: 'a temperature of one, which is the neutral setting'
+    hints:
+      - 'One is the identity here. It is not a special case to branch on, it is what the arithmetic already does.'
+      - 'Dividing by one returns the same numbers, so the general path is correct.'
+      - 'The values must come back unchanged, so avoid rounding or reordering them on the way through.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_temperature_moves_mass_between_the_head_and_the_tail:
+    condition: 'a temperature of half and a temperature of two, pulling the distribution in opposite directions'
+    hints:
+      - 'Low temperature sharpens the distribution and high temperature flattens it.'
+      - 'Multiplying the logits by the temperature moves them the wrong way, and the leader would lose share as the temperature dropped.'
+      - 'Divide the logits by the temperature, so a small temperature magnifies every gap.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_temperature_zero_is_a_one_hot_on_the_argmax:
+    condition: 'a temperature of exactly zero, which the division cannot handle'
+    hints:
+      - 'Dividing by zero raises, but zero temperature has a well defined meaning: always take the most likely token.'
+      - 'The result has to be logits that a softmax turns into all the mass on one index, not probabilities.'
+      - 'Give the winning index a finite logit and every other index the impossible value, then the softmax produces the one-hot.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_temperature_zero_breaks_ties_toward_the_lower_index:
+    condition: 'two logits tied at the top under greedy decoding'
+    hints:
+      - 'Ties happen, and picking arbitrarily makes greedy decoding non-reproducible.'
+      - 'The convention is the earlier index, matching what argmax does everywhere else.'
+      - 'Find the position of the maximum with a search that returns the first match rather than the last.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSoftmaxAndTemperature.test_unusable_arguments_are_rejected:
+    condition: 'an empty logit list, and a negative temperature'
+    hints:
+      - 'An empty vocabulary has nothing to normalise, and a negative temperature reverses the ranking.'
+      - 'Both produce something rather than crashing, which is why they need explicit checks.'
+      - 'Guard the empty list and the negative temperature at the top of each function and raise ValueError.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_k_keeps_exactly_k_tokens_in_place:
+    condition: 'a filter of three over six tokens, where positions must still mean the same tokens'
+    hints:
+      - 'The index of a probability is the identity of the token. Returning a shorter sorted list loses that.'
+      - 'Exactly k tokens keep a non-zero share and the rest are zeroed where they stand.'
+      - 'Rank the indices, take the first k of them, and write zeroes into every other position of a full length list.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_k_renormalises:
+    condition: 'survivors that no longer add up to one after the rest were zeroed'
+    hints:
+      - 'Zeroing tokens throws away mass, and what is left is no longer a distribution.'
+      - 'The sampler expects the values to sum to one, and a short total biases every draw.'
+      - 'Divide each survivor by the total the survivors hold between them.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_k_of_one_is_greedy:
+    condition: 'a filter of one, which leaves nothing to sample between'
+    hints:
+      - 'Keeping a single token and renormalising gives it all the mass.'
+      - 'This is the same behaviour as zero temperature, reached by a different route.'
+      - 'No special case is wanted: the general path already produces the one-hot.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_k_breaks_ties_toward_the_lower_index:
+    condition: 'two tokens tied on the boundary of the cut, where only one can survive'
+    hints:
+      - 'Sorting by probability alone leaves the winner depending on the order the list arrived in.'
+      - 'Reversing a sort flips the tie break as well as the ranking, which sends the tie to the higher index.'
+      - 'Sort on a pair: probability descending and index ascending, so equal probabilities fall in index order.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_k_at_the_boundaries:
+    condition: 'a k of ninety nine over six tokens, and a k of zero'
+    hints:
+      - 'A k larger than the vocabulary is a request to keep everything, not an error.'
+      - 'A k of zero would leave nothing to sample from, which is an error.'
+      - 'Slicing past the end of a list already keeps everything, so only the zero case needs a raise.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_p_keeps_the_token_that_crosses_the_threshold:
+    condition: 'a threshold that falls partway through the second ranked token'
+    hints:
+      - 'The token that carries you past the threshold is the one that made the target reachable.'
+      - 'Dropping it leaves you covering less mass than was asked for.'
+      - 'Add the token to the kept set first and test the running total afterwards.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_p_kept_mass_is_at_least_p:
+    condition: 'four different thresholds, each of which must be met rather than approached'
+    hints:
+      - 'The nucleus is the smallest prefix that covers the threshold, so covering less than it is wrong at every value.'
+      - 'Stopping as soon as the running total would exceed the threshold undershoots on every input.'
+      - 'Accumulate until the running total reaches the threshold, counting the token that got you there.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_p_below_the_leader_still_keeps_the_leader:
+    condition: 'a threshold smaller than the share the top token already holds'
+    hints:
+      - 'The first token alone already covers the threshold, and the nucleus is never empty.'
+      - 'Testing the total before adding anything keeps zero tokens and leaves nothing to sample.'
+      - 'The same order of operations that keeps the crossing token handles this: add, then test.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_p_renormalises_and_p_of_one_keeps_everything:
+    condition: 'a threshold of one, which is the whole distribution, and a partial one that must still sum to one'
+    hints:
+      - 'Whatever survives the cut has to be rescaled back into a distribution.'
+      - 'A threshold of one is not a special case. The loop simply never breaks early.'
+      - 'Rescale the kept tokens by their own total, which is one already when everything survived.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_top_p_rejects_an_out_of_range_p:
+    condition: 'a threshold of zero, a negative one, and one above a hundred percent'
+    hints:
+      - 'Zero cannot be covered by any prefix, and a value above one can never be reached.'
+      - 'A negative threshold silently keeps a single token, which looks like it worked.'
+      - 'Require the threshold to be above zero and at most one, and raise ValueError otherwise.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestTruncation.test_the_filters_compose:
+    condition: 'a nucleus threshold applied to a distribution that top-k has already rescaled'
+    hints:
+      - 'The second filter sees the renormalised values, not the ones the model produced.'
+      - 'That is why each filter has to rescale on its way out rather than leaving it to the caller.'
+      - 'Both functions take a distribution and return a distribution, so they chain without any glue between them.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_a_one_hot_distribution_always_returns_its_token:
+    condition: 'a distribution where one token holds all the mass and the rest hold none'
+    hints:
+      - 'There is only one answer here, and fifty draws must all give it.'
+      - 'Walking the cumulative total, the first index whose running sum passes the draw is the one with the mass.'
+      - 'Compare the running total against the scaled draw strictly, so a leading zero never matches.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_a_zero_probability_token_is_never_drawn:
+    condition: 'a token of zero probability sitting between two that share the mass'
+    hints:
+      - 'A token the filters excluded must be unreachable, not merely unlikely.'
+      - 'A zero probability leaves the running total unchanged, so it can tie with the boundary before it.'
+      - 'Use a strict comparison against the threshold so a token that adds nothing can never be selected.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_the_same_seed_gives_the_same_draws:
+    condition: 'two runs from the same seed, which must produce identical sequences'
+    hints:
+      - 'Reproducibility is why the generator is passed in rather than created here.'
+      - 'Reaching for the module level random functions ignores the seeded generator entirely.'
+      - 'Take every random number from the generator argument and from nowhere else.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_sample_takes_exactly_one_number_from_the_generator:
+    condition: 'a generator that counts how many numbers were drawn from it'
+    hints:
+      - 'Rejection sampling, or drawing again when the first number misses, consumes an unpredictable amount of the stream.'
+      - 'That breaks reproducibility for everything downstream, and it has no upper bound on how long it runs.'
+      - 'Draw once, then walk the list accumulating until the running total passes that single number.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_draw_frequencies_track_the_distribution:
+    condition: 'four thousand draws whose observed frequencies must match the probabilities'
+    hints:
+      - 'Picking uniformly among the non-zero tokens passes several of the other tests and fails this one.'
+      - 'Each token has to occupy a slice of the interval proportional to its probability.'
+      - 'Accumulate the probabilities and return the index whose accumulated total first passes the draw.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_decode_step_at_temperature_zero_ignores_the_generator:
+    condition: 'twenty different seeds under greedy decoding, all of which must agree'
+    hints:
+      - 'Greedy decoding has no luck in it. The seed cannot change the answer.'
+      - 'Special casing the sampler here is not needed, because the distribution itself is already a one-hot.'
+      - 'Let the temperature stage collapse the distribution, and the sampler then has only one reachable token.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_decode_step_with_top_k_one_is_greedy:
+    condition: 'a hot temperature paired with a filter that keeps only one token'
+    hints:
+      - 'The temperature flattens the distribution, and then the filter throws all but one away.'
+      - 'The order matters: filtering before applying the temperature would pick from the unflattened ranking.'
+      - 'Apply the temperature and the softmax first, then the filters, then draw.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_decode_step_honours_the_nucleus:
+    condition: 'a nucleus threshold that covers only the first two tokens, over six hundred draws'
+    hints:
+      - 'Everything outside the nucleus has to be unreachable, not just rare.'
+      - 'Passing the threshold through without applying it lets the tail through occasionally, which six hundred draws will find.'
+      - 'Apply the nucleus filter when one was given, and sample from what it returns.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_decode_step_defaults_to_the_full_distribution:
+    condition: 'no filters at all, where every one of the six tokens must be reachable'
+    hints:
+      - 'The defaults are no truncation and a neutral temperature, which leaves the whole vocabulary in play.'
+      - 'A default of None means skip the filter, not apply it with some sensible number.'
+      - 'Only run each filter when its argument was actually supplied.'
+    concept: ai-llm-fundamentals.sampling
+
+  TestSamplingAndComposition.test_temperature_reaches_further_down_the_list:
+    condition: 'four hundred draws at a hot temperature against four hundred at a cold one'
+    hints:
+      - 'A high temperature is the tail getting a real share of the draws.'
+      - 'If the temperature is dropped or applied after the softmax, both settings behave the same.'
+      - 'Divide the logits by the temperature before the softmax, so the flattening reaches the probabilities.'
+    concept: ai-llm-fundamentals.sampling

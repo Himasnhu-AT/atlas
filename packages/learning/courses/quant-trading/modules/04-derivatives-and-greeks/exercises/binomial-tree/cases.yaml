@@ -1,0 +1,17 @@
+version: 1
+cases:
+  TestBinomialTree.test_european_convergence_to_black_scholes:
+    condition: 'a 200 step European call that has to land within five cents of Black-Scholes'
+    hints:
+      - 'A tree that will not converge usually has the wrong probability in it. It is neither one half nor anything drawn from the real world drift of the asset.'
+      - 'Cox-Ross-Rubinstein takes the up factor from sigma and the length of a step and the down factor as its reciprocal, which is what makes the lattice recombine and stay symmetric in log space.'
+      - 'Set the probability as the one step growth less d over u minus d, and discount at every backward step by one step of the rate rather than discounting once at the root.'
+    concept: quant-options.binomial-trees
+
+  TestBinomialTree.test_american_put_early_exercise_premium:
+    condition: 'a put struck at 100 with spot at 50 and rates at 10 percent, priced both ways'
+    hints:
+      - 'The American price has to beat the European one and also beat the 50 of intrinsic. Waiting a year to collect a strike is worth less than collecting it today, and the early exercise right removes that discount.'
+      - 'The difference between the two is one comparison inside the backward induction, and it runs at every node rather than only at expiry.'
+      - 'At each node take the larger of the discounted continuation value and the intrinsic value there, which means reconstructing the underlying price at that node rather than only carrying the value array.'
+    concept: quant-options.binomial-trees

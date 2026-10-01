@@ -4,6 +4,172 @@ title: The escalation contract
 summary: Evaluation metrics for support agents, trade-offs between deflection and resolution, and operational specifications for escalation boundaries.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Read the metric that flattered a failing agent, and write the escalation contract the rest of the module obeys.
+
+  steps:
+    - id: what-the-dashboard-hid
+      kind: numeric
+      prompt: >-
+        The triage agent shipped on Monday. By Friday the dashboard shows 82 percent
+        deflection and the support inbox is up 40 percent. Work out the resolution rate.
+      context:
+        as: table
+        caption: Sessions in the week
+        columns: [outcome, sessions]
+        rows:
+          - ["answered, and the customer confirmed it solved the problem", 480]
+          - ["answered, and the customer said nothing further", 200]
+          - ["answered, and the customer emailed support within seven days", 140]
+          - ["escalated to a human during the session", 180]
+      answer: 0.48
+      tolerance: 0.005
+      scaleHint: Out by a factor of ten or a hundred is a percentage that wanted to be a fraction, or the other way round.
+      hints:
+        - Deflection counts every session that did not open a ticket, which is three of these four rows.
+        - Only one row is evidence that anything was actually solved.
+        - The denominator is every session, including the ones that reached a human.
+      reveal: >-
+        Eighty-two percent deflected and forty-eight percent resolved describe the same
+        week. The 140 who emailed the next day were counted as successes on the day they
+        were failed, and the 200 who went quiet are the reason resolution needs a survey
+        rather than a log.
+
+    - id: too-early-or-too-long
+      kind: assign
+      prompt: >-
+        Seven moments from Friday's transcripts. Sort them by which of the two failure modes
+        they are, or whether the agent got it right.
+      buckets:
+        - id: too-early
+          label: Escalated when it could have answered
+        - id: too-long
+          label: Kept deflecting after it should have handed over
+        - id: right
+          label: The right call
+      items:
+        - id: invoice-instant
+          label: Customer says their invoice looks wrong. The agent escalates without retrieving, and KB-12 covers invoice line items.
+          bucket: too-early
+          because: A human now owns a question the knowledge base answers. This is what makes deflection fall without anything getting better.
+        - id: unfamiliar-phrasing
+          label: Customer asks a documented question in words the agent has not seen before. It escalates rather than answering.
+          bucket: too-early
+          because: The retrieval floor decided this, not the customer. A floor set high enough to avoid bad answers escalates every question phrased unusually.
+        - id: fourth-article
+          label: Customer asks for a person for the third time. The agent offers a fourth article.
+          bucket: too-long
+          because: Past the first refusal the customer has stopped reading. Each further suggestion costs a call and buys a worse mood.
+        - id: named-dispute
+          label: Customer opens with a billing dispute and asks for it to be escalated. The agent offers two articles first.
+          bucket: too-long
+          because: Some categories should be configured with no pushback at all. A dispute is one of them, and answering it with documentation reads as stalling.
+        - id: nothing-retrieved
+          label: Retrieval returns nothing above the floor. The agent routes to the queue without calling the model.
+          bucket: right
+          because: No context means nothing to ground an answer in, so the call would produce confident invented policy. Skipping it saves the tokens and the apology.
+        - id: one-pushback
+          label: Customer asks for a person. The agent offers one article about the password reset they raised two turns ago, then hands over when asked again.
+          bucket: right
+          because: One attempt, aimed at what they were actually asking about, then out of the way. The retrieval used the earlier turn rather than the words I want a human.
+        - id: policy-refusal
+          label: Customer asks for a refund the policy does not allow. The agent explains why, with a citation, and does not escalate.
+          bucket: right
+          because: A grounded no is an answer. Escalating every unwelcome answer would put a human on the end of every policy the customer dislikes.
+      hints:
+        - Two of these were decided by a retrieval threshold rather than by anything the customer said.
+        - Two ignored an explicit request, and one of them ignored it three times.
+        - Refusing something is not the same as failing to help.
+      reveal: >-
+        Both failure modes look like caution. Escalating early looks like humility and
+        deflecting hard looks like thoroughness, and each one is measured by a different
+        metric that the other one improves. That is why the rubric has to penalise both.
+
+    - id: one-number-for-the-review
+      kind: choice
+      prompt: >-
+        The exec review wants one number on the slide. Which of these do you put there?
+      options:
+        - id: deflection
+          label: Deflection rate
+          note: It rises when the agent gets better and it rises when the agent gets so unhelpful that people give up. One direction, two causes, and you cannot tell them apart from this number.
+        - id: resolution
+          label: Resolution rate
+          correct: true
+          note: It costs a follow-up survey or a transcript read, and it is the only one here that falls when the agent is failing. Everything else on this list can be gamed by escalating more or less.
+        - id: time-to-human
+          label: Median time to a human
+          note: Worth watching, and an agent that escalates everything on the first message scores perfectly on it. It measures the queue rather than the agent.
+        - id: escalation-quality
+          label: Escalation quality
+          note: This one matters and it is about the sessions that escalated. It says nothing about the eight hundred that did not, which is where this week's problem was.
+      hints:
+        - Two of these get better when the agent escalates more, and one gets better when it escalates less.
+        - Ask which number would have gone down on Friday.
+        - The expensive one to measure is the one that cannot be gamed.
+      reveal: >-
+        Every cheap metric here is a proxy that moves for two reasons. Resolution is the one
+        that costs something to collect, which is exactly why it is the one worth putting on
+        the slide, with the others underneath it as diagnosis rather than as score.
+
+    - id: write-the-contract
+      kind: text-contract
+      prompt: >-
+        This is the config the triage session reads. Turn it into the contract the rest of
+        the module is built against.
+      context:
+        as: pairs
+        items:
+          - { k: max_pushbacks, v: a whole number }
+          - { k: require_citations, v: true or false }
+          - { k: on_zero_retrieval, v: "escalate, answer_anyway or ask_again" }
+          - { k: after_escalation, v: freeze or keep_answering }
+          - { k: handoff_payload, v: "any of summary, attempted, article_ids" }
+      lang: json
+      initial: |
+        {
+          "max_pushbacks": 3,
+          "require_citations": false,
+          "on_zero_retrieval": "answer_anyway",
+          "after_escalation": "keep_answering",
+          "handoff_payload": []
+        }
+      rules:
+        - message: This no longer parses. Check the commas between the five entries.
+          check: { op: parses, as: json }
+        - message: Three pushbacks is a customer asking for a person four times before anyone listens. One attempt, then hand over.
+          check: { op: equals, path: max_pushbacks, value: 1 }
+        - message: Without this, a reply with no citation is a reply, and there is no deterministic way to tell an answer from an invention.
+          check: { op: equals, path: require_citations, value: true }
+        - message: Nothing retrieved means there is nothing to ground on. Calling the model here buys confident policy that does not exist, so the session goes to the queue before the call rather than after it.
+          check: { op: equals, path: on_zero_retrieval, value: escalate }
+        - message: Once a ticket exists, more automated replies append to a conversation a human now owns. The session stops making calls.
+          check: { op: equals, path: after_escalation, value: freeze }
+        - message: An empty handoff makes the human start from nothing, so the customer repeats themselves. Three things go across.
+          check: { op: length, path: handoff_payload, min: 3, max: 3 }
+        - message: The summary comes first, because it is what the human reads before deciding whether to open the transcript.
+          check: { op: equals, path: handoff_payload.0, value: summary }
+        - message: Then what the agent already tried, so the human does not send the same article again.
+          check: { op: equals, path: handoff_payload.1, value: attempted }
+        - message: And the articles already referenced, so the human can see what the customer has been shown.
+          check: { op: equals, path: handoff_payload.2, value: article_ids }
+      hints:
+        - Two of these five values are about not spending a model call, and they sit at opposite ends of the session.
+        - The empty list is the field that decides whether escalating is a handoff or an abandonment.
+        - Read the pushback number as the number of times a customer has to ask twice.
+      reveal: >-
+        Every line here is a rule the harness in the last lesson checks, which is the point
+        of writing it as config rather than as prose in a prompt. A contract the model can
+        be talked out of is not a contract, and none of these five are things the model
+        decides.
+      solution: |
+        {
+          "max_pushbacks": 1,
+          "require_citations": true,
+          "on_zero_retrieval": "escalate",
+          "after_escalation": "freeze",
+          "handoff_payload": ["summary", "attempted", "article_ids"]
+        }
 ---
 
 Support triage agents are widely deployed across production systems, but naive implementations

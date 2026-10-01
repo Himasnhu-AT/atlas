@@ -7,6 +7,170 @@ estimatedMinutes: 25
 exercise:
   id: vtable-dispatch-engine
   timeboxMinutes: 30
+challenges:
+  goal: Follow a virtual call through the vptr, and name the two ways a polymorphic object stops being polymorphic.
+
+  steps:
+    - id: what-virtual-costs-per-object
+      kind: numeric
+      prompt: >-
+        What does sizeof report for this class on a 64-bit machine?
+      context:
+        as: code
+        lang: cpp
+        source: |
+          class Shape {
+          public:
+              virtual void render();
+              virtual ~Shape();
+
+          private:
+              int    id_;    /* 4 bytes */
+              double area_;  /* 8 bytes */
+          };
+      answer: 24
+      unit: bytes
+      tolerance: 0
+      scaleHint: >-
+        An answer in the hundreds is counting bits. Every quantity here is in bytes and so is
+        the answer.
+      hints:
+        - The class declares no pointer field, and the object still contains one.
+        - Whether there are one or two virtual functions makes no difference. One pointer per object reaches a table shared by every object of the class.
+        - The hidden pointer goes at offset zero, so the two declared fields lay out after it exactly as they would in a plain struct.
+      reveal: >-
+        Twelve bytes of declared data inside a twenty-four byte object. Eight of the extra
+        twelve are the vptr and four are the padding it does not change, and every instance
+        carries the pointer so the machine can find out at runtime what it already is. For a
+        class wrapping a single int this is a doubling, which is why small value types stay
+        non-virtual.
+
+    - id: three-keywords-three-jobs
+      kind: blanks
+      prompt: >-
+        Fill in the three keywords that make this hierarchy dispatch and destroy correctly.
+        Each one does a different job.
+      lang: cpp
+      template: |
+        class Shape {
+        public:
+            {{1}} void render() { /* base */ }
+            {{2}} ~Shape() = default;
+        };
+
+        class Circle : public Shape {
+        public:
+            void render() {{3}} { /* circle */ }
+        };
+
+        Shape *s = new Circle();
+        s->render();
+        delete s;
+      blanks:
+        - n: 1
+          as: select
+          options: ["virtual", "static", "inline", "explicit"]
+          accept: ["virtual"]
+          note: Without this the call compiles to a direct jump chosen from the static type of s, and the Circle version is never reached.
+        - n: 2
+          as: select
+          options: ["virtual", "static", "explicit", "constexpr"]
+          accept: ["virtual"]
+          note: delete through a base pointer picks the destructor the same way any non-virtual call picks anything, from the type of the pointer. This is what makes it look at the object instead.
+        - n: 3
+          as: select
+          options: ["override", "const", "noexcept", "static"]
+          accept: ["override"]
+          note: This one generates no code at all. It asks the compiler to check that the function really is replacing a base one, which catches a signature that has drifted apart from it.
+      hints:
+        - Two of the three change what the machine does at runtime and one only changes what the compiler will let through.
+        - The base class needs the same keyword twice, on two members that are called in very different ways.
+        - A derived class does not repeat the keyword that made the function virtual. It inherits that and asserts what it is doing with it.
+      reveal: >-
+        The first keyword buys a vtable slot, the second buys one for the destructor, and the
+        third buys nothing but catches the mistake where a derived function differs from the
+        base by a const or an argument type and quietly becomes a new function nobody calls.
+
+    - id: the-copy-that-forgets
+      kind: choice
+      prompt: >-
+        Circle overrides render and this code copies a Circle into a Shape by value. What does
+        shape.render() call?
+      context:
+        as: code
+        lang: cpp
+        source: |
+          Circle circle;
+          Shape shape = circle;
+          shape.render();
+      options:
+        - id: circle-render
+          label: Circle::render, because the object it was copied from was a Circle.
+          note: The object named shape is not a Circle and never was one. It was built by Shape's copy constructor out of the Shape part of circle, and a Shape constructor writes Shape's vtable address into the vptr.
+        - id: shape-render
+          label: Shape::render, because shape is a Shape and its vptr points at Shape's vtable.
+          correct: true
+          note: Copying by value constructs a new object of the destination type. The Circle fields are not copied and the vptr is written by Shape's own constructor, so there is nothing of the Circle left to dispatch to.
+        - id: undefined
+          label: Undefined behaviour, because the Circle part of the object was cut off.
+          note: Slicing is fully defined, and that is what makes it dangerous. Nothing is corrupted and nothing warns. The answer is quietly the base implementation, every time.
+        - id: compile-error
+          label: It will not compile, because a Circle does not fit in a Shape.
+          note: It compiles. A Circle is a Shape, so Shape's copy constructor accepts one, and the bytes that do not fit are not copied.
+      hints:
+        - Ask what type the object called shape actually is, and what its own constructor did to its vptr.
+        - Dispatch reads the vptr out of the object in front of it, and copying by value produced a different object.
+        - Nothing here goes wrong loudly, which is the part worth remembering.
+      reveal: >-
+        Polymorphism survives through a pointer or a reference and not through a copy, because
+        those keep naming the original object while a copy builds a new one whose constructor
+        sets its own vptr. This is why polymorphic base classes are usually abstract or delete
+        their copy operations. Making the slice impossible is easier than remembering not to.
+
+    - id: the-destructor-nobody-calls
+      kind: spot
+      prompt: >-
+        Every call in this program dispatches correctly and it still leaks four hundred bytes
+        on every go. Click the line that causes it.
+      lang: cpp
+      source: |
+        class Base {
+        public:
+            virtual void run() = 0;
+            ~Base() = default;
+        };
+
+        class Derived : public Base {
+            int *buffer;
+
+        public:
+            Derived() : buffer(new int[100]) {}
+            ~Derived() { delete[] buffer; }
+            void run() override {}
+        };
+
+        void go() {
+            Base *b = new Derived();
+            b->run();
+            delete b;
+        }
+      targets: [3]
+      decoys:
+        '2': A pure virtual function makes Base abstract and gives run a vtable slot. The call through it resolves exactly as intended.
+        '11': Freeing the buffer in the destructor is right, and this destructor is correct. It is never called.
+        '16': Constructing a Derived and holding it through a Base pointer is the entire point of a polymorphic hierarchy.
+        '17': This call does dispatch to Derived::run, which is the evidence that the vtable exists and the object knows what it is.
+      hints:
+        - run reaches the Derived version, so the vtable is there and the object knows its own type. Something else in Base is not being looked up the same way.
+        - delete resolves the destructor the way any non-virtual call resolves, from the static type of the pointer it is given.
+        - One member of Base has a vtable slot and one does not, and the one that does not is the one the last line calls.
+      reveal: >-
+        A virtual destructor is not decoration that comes along with virtual functions. It is
+        the one virtual function delete needs. Without it the destructor call binds to Base,
+        Derived's destructor never runs, and the buffer is stranded even though every other call
+        in the program dispatched correctly. Nothing is corrupted, so sanitizers report a leak
+        and never a fault, and the rule is that any class deleted through a base pointer needs
+        one.
 ---
 
 In C++, function calls default to static binding: the compiler determines the exact function target at compile time based on the static type of the variable or pointer. When classes form an inheritance hierarchy and a base pointer references a derived instance, runtime polymorphism requires dynamic binding. The program must resolve the target method implementation at runtime according to the actual runtime type of the instance.

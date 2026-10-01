@@ -1,0 +1,177 @@
+version: 1
+cases:
+  TestRetrieve.test_puts_the_matching_article_first:
+    condition: 'a password question against a corpus holding a password article'
+    hints:
+      - 'The best article has to come first, because the caller reads the top hit as the answer.'
+      - 'Comparing raw text works on this corpus and fails on any paraphrase.'
+      - 'Embed the question and each article and compare them with the cosine similarity.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestRetrieve.test_scores_descend:
+    condition: 'four articles returned in order of how well they match'
+    hints:
+      - 'A higher similarity means closer, so the sort runs downwards.'
+      - 'Leaving them in corpus order makes the top hit meaningless.'
+      - 'Sort on the negated score so the largest comes first.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestRetrieve.test_honours_k:
+    condition: 'a request for a single article from a corpus of four'
+    hints:
+      - 'Every extra article in the prompt is tokens spent and another thing to get confused by.'
+      - 'Returning everything pushes the truncation onto every caller.'
+      - 'Slice the sorted results to the requested count.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestRetrieve.test_drops_everything_below_the_floor:
+    condition: 'a question about conference sponsorship, which the corpus knows nothing about'
+    hints:
+      - 'There is always a least bad article, and returning it is how an unanswerable question becomes a confident wrong answer.'
+      - 'An empty result is the honest answer and the caller can act on it.'
+      - 'Discard any article scoring below the floor before slicing.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestRetrieve.test_a_higher_floor_keeps_less:
+    condition: 'the same question retrieved at a loose floor and a strict one'
+    hints:
+      - 'The floor is a filter, not a suggestion.'
+      - 'Applying it after the slice makes it look like it did nothing on a small count.'
+      - 'Compare each score against the supplied floor rather than a constant.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestRetrieve.test_breaks_ties_on_article_id:
+    condition: 'two articles with identical text, declared with the later id first'
+    hints:
+      - 'Identical scores must order by id ascending, not by corpus order.'
+      - 'Sorting on the score alone leaves ties in whatever order the corpus happened to be in.'
+      - 'Add the article id as the second sort key.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestRetrieve.test_does_not_mutate_the_corpus:
+    condition: 'a corpus that must read the same after retrieval as before it'
+    hints:
+      - 'Retrieval reads the corpus, it does not edit it.'
+      - 'Normalising an article in place rewrites the body that the context block later quotes.'
+      - 'Build the normalised text as a local value rather than assigning it back.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestBuildMessages.test_opens_with_the_system_prompt:
+    condition: 'a prompt whose first message has to be the grounding rule'
+    hints:
+      - 'The instruction to cite every sentence is what makes the citations appear at all.'
+      - 'Folding it into the context message makes it read as material rather than as a rule.'
+      - 'Put the system prompt in its own message at the front.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestBuildMessages.test_ends_with_the_question_alone:
+    condition: 'a question that must be the last message with nothing else in it'
+    hints:
+      - 'Placed above the retrieved articles the question competes with everything you just pasted.'
+      - 'The last turn is what the model answers.'
+      - 'Append the question as its own final message, unmodified.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestBuildMessages.test_carries_every_hit_with_its_bracket_id:
+    condition: 'a context block whose articles must each be labelled and quoted in full'
+    hints:
+      - 'The id is what the model writes back as a citation, so it has to be visible beside the text.'
+      - 'The body is what the model answers from, so a title alone gives it nothing to cite.'
+      - 'Render one block per hit carrying the bracketed id, the title and the body.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestBuildMessages.test_is_three_messages:
+    condition: 'a prompt of exactly a system message, a context message and a question'
+    hints:
+      - 'System, context, question. Nothing else.'
+      - 'A message per article makes the boundary between rule and material harder to see.'
+      - 'Join the article blocks into one context message.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestParseCitations.test_keeps_first_appearance_order_without_duplicates:
+    condition: 'a reply citing one article twice and another once in between'
+    hints:
+      - 'The order is the order a reader meets them, which is where they appeared first.'
+      - 'The same article cited twice is one article.'
+      - 'Walk the markers in order and skip any you have already recorded.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestParseCitations.test_separates_ids_that_were_never_retrieved:
+    condition: 'a reply citing an article that was never in the context'
+    hints:
+      - 'A model will invent a plausible looking id, and the invented one has to be visible.'
+      - 'Merging it with the real citations means the caller cannot tell them apart.'
+      - 'Split the markers into the ones that were retrieved and the ones that were not.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestParseCitations.test_a_reply_with_no_markers:
+    condition: 'a friendly reply containing no citation at all'
+    hints:
+      - 'This is the ungrounded case, and it has to be distinguishable from a cited one.'
+      - 'Returning None for either list makes every caller guard the iteration.'
+      - 'Return two empty lists.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestParseCitations.test_ignores_brackets_that_are_not_citations:
+    condition: 'a reply containing a bracketed word alongside a real citation'
+    hints:
+      - 'Brackets appear in ordinary prose, and a bracketed word is not a citation marker.'
+      - 'Matching anything between brackets reports invented citations that were never claimed.'
+      - 'Match only the shape an article id actually has.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestAnswer.test_returns_the_model_text_and_its_citations:
+    condition: 'a grounded reply citing exactly one retrieved article'
+    hints:
+      - 'The caller needs the text, the citations, the invented ones, and how the turn ended.'
+      - 'One question is one model call, whatever the citations turn out to be.'
+      - 'Parse the reply once and build the record from what the parse returned.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestAnswer.test_sends_the_retrieved_context_to_the_model:
+    condition: 'a request that has to carry the retrieved articles and their ids'
+    hints:
+      - 'The retrieval is pointless if what was retrieved does not reach the request.'
+      - 'The context must carry the ids, or the model has nothing to cite with.'
+      - 'Build the messages from the hits and send that list.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestAnswer.test_out_of_scope_never_calls_the_model:
+    condition: 'a question with nothing above the retrieval floor'
+    hints:
+      - 'Retrieval was empty, so the answer could not be grounded whatever the model said.'
+      - 'Calling anyway pays for a paragraph that has to be thrown away.'
+      - 'Return the out of scope route before the call when there are no hits.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestAnswer.test_out_of_scope_names_the_human_queue:
+    condition: 'an out of scope reply that must not read as a dead end'
+    hints:
+      - 'Out of scope is a route to somebody, not a dead end.'
+      - 'Saying only that the agent cannot help leaves the customer with nowhere to go.'
+      - 'Name the human queue in the fixed refusal text.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestAnswer.test_an_invented_citation_is_dropped:
+    condition: 'a reply citing one real article and one that was never retrieved'
+    hints:
+      - 'The real citation is still good, so the whole reply is not discarded.'
+      - 'The invented one must not appear in the list a reader is invited to follow.'
+      - 'Keep the retrieved ids in the citation list and the invented ones in the dropped list.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestAnswer.test_a_reply_that_cites_nothing_is_unsupported:
+    condition: 'a plausible sounding reply grounded in nothing'
+    hints:
+      - 'An answer with no citation is a failure, not an answer.'
+      - 'The text is still kept, because a human needs to see what the agent nearly sent.'
+      - 'Route on whether anything was cited, while returning the text unchanged.'
+    concept: ai-support-triage.grounded-answers-and-scope
+
+  TestAnswer.test_an_empty_reply_does_not_crash:
+    condition: 'a model turn that finished with no content at all'
+    hints:
+      - 'A finished turn can carry no text, and the content arrives as None.'
+      - 'Searching None for citation markers raises.'
+      - 'Substitute an empty string for missing content before parsing.'
+    concept: ai-support-triage.grounded-answers-and-scope

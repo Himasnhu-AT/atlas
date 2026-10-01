@@ -7,6 +7,197 @@ estimatedMinutes: 45
 exercise:
   id: resilient-agent
   timeboxMinutes: 35
+challenges:
+  goal: Route each kind of failure to the one place that can do something about it, and end a stuck run legibly.
+
+  steps:
+    - id: where-each-failure-goes
+      kind: assign
+      prompt: >-
+        Something went wrong on this turn. Sort each one by where your runtime deals with
+        it.
+      buckets:
+        - id: observation
+          label: Back to the model as a tool result
+          note: The model made a decision, the decision did not work, and it can make a different one next turn.
+        - id: retry
+          label: Retried around the model, outside the transcript
+          note: Nothing the model did caused it and nothing the model does can fix it, so it never enters the conversation.
+        - id: raise
+          label: Raised straight away
+          note: The same request will fail the same way however many times you send it.
+      items:
+        - id: unknown-tool
+          label: The model asked for lookup_pop, which does not exist.
+          bucket: observation
+          because: It guessed a name. Tell it the name was wrong and list the ones that are real, and it will usually pick correctly next turn.
+        - id: bad-arguments
+          label: The arguments failed schema validation.
+          bucket: observation
+          because: A generation problem with a generation fix. Say which argument and what was wrong with it.
+        - id: tool-raised
+          label: lookup_population raised LookupError for Atlantis.
+          bucket: observation
+          because: The tool worked and the argument did not. Say so, and say what arguments would have worked.
+        - id: five-oh-three
+          label: The provider returned 503.
+          bucket: retry
+          because: Infrastructure. Putting it in the transcript spends tokens and invites the model to rewrite a tool call that was already correct.
+        - id: rate-limited
+          label: The provider returned 429.
+          bucket: retry
+          because: Transient by definition. Back off and send the identical request, which is safe because a model call has no side effects.
+        - id: four-hundred
+          label: The provider returned 400.
+          bucket: raise
+          because: The request is malformed. Sending it again unchanged produces the same 400, and the fault is in your code.
+        - id: unauthorised
+          label: The provider returned 401.
+          bucket: raise
+          because: A credential does not become valid by waiting. Retrying here only delays the moment somebody finds out.
+      hints:
+        - Ask who made the mistake. Three of these are the model's, and it can only correct what it can see.
+        - Two of the status codes will give the same answer forever and two of them might not.
+        - The transcript is expensive and it is what the model reasons over, so anything in it that the model cannot act on is worse than useless.
+      reveal: >-
+        Crashing on the first error throws away every turn that worked and every result in
+        the batch that succeeded. Feeding infrastructure errors to the model is the opposite
+        mistake: it pays for tokens that push the model to change a call that was fine.
+
+    - id: write-the-observation
+      kind: text-contract
+      prompt: >-
+        This is what your dispatcher currently puts in the tool message. Rewrite it into
+        something the model can act on.
+      context:
+        as: pairs
+        items:
+          - { k: the call, v: lookup_population with city set to Atlantis }
+          - { k: what happened, v: LookupError, there is no row for Atlantis }
+          - { k: keys the tool does have, v: lagos, paris, tokyo }
+          - { k: who reads this, v: the model, and later whoever reads the telemetry }
+      lang: text
+      initial: |
+        Traceback (most recent call last):
+          File "/srv/agent/tools.py", line 74, in lookup_population
+            return CITIES[city.lower()]
+          File "/srv/agent/db.py", line 12, in __getitem__
+            self.conn = connect("postgres://agent:hunter2@db-prod-3.internal:5432/cities")
+        LookupError: 'Atlantis'
+      rules:
+        - message: The traceback is a description of your call stack. The model cannot edit your call stack.
+          check: { op: notContains, text: Traceback }
+        - message: That line carries an internal hostname and a password. Transcripts end up in logs and sometimes in front of a user.
+          check: { op: notContains, text: "postgres://" }
+        - message: Still long enough to be resent on every remaining turn of the run. Two hundred characters is plenty.
+          check: { op: length, max: 200 }
+        - message: Keep the exception type. LookupError tells the model another argument might work, and ConnectionError would tell it to stop trying.
+          check: { op: contains, text: LookupError }
+        - message: The model has no way to guess what the tool does know about. Name the keys that are on file.
+          check: { op: contains, text: lagos }
+        - message: Name all three, not the first one. A partial list sends the model back for another turn to discover the rest.
+          check: { op: contains, text: tokyo }
+      hints:
+        - Everything between the first line and the last is about your filesystem.
+        - Two things have to survive the cut, and one of them is not in the original at all.
+        - What failed, why, and what would have worked instead, in one line.
+      reveal: >-
+        The tool message is the model's entire view of what went wrong. A raw exception
+        string is too thin to act on and a traceback is too fat to afford, and neither says
+        what a working call would look like. Say what failed, name the type, and offer the
+        valid alternatives.
+      solution: |
+        error: LookupError: no population on file for Atlantis. On file: lagos, paris, tokyo.
+
+    - id: retry-the-provider
+      kind: blanks
+      prompt: Finish the wrapper that sits between your loop and the provider.
+      lang: python
+      template: |
+        RETRYABLE = {{1}}
+
+        for attempt in range(attempts):
+            try:
+                return client.chat.completions.create(model=model, messages=messages, tools=tools)
+            except APIError as error:
+                if error.status_code not in RETRYABLE:
+                    raise
+                if attempt == attempts - 1:
+                    {{2}}
+                sleep(base_delay * {{3}} + random())
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - '{429, 500, 502, 503}'
+            - '{400, 401, 429}'
+            - '{400, 404, 422}'
+            - '{401, 403}'
+          accept:
+            - '{429, 500, 502, 503}'
+          note: Retry the codes that mean the provider is busy or broken. A 4xx that is not 429 is your request being wrong, and it will be wrong again in two seconds.
+        - n: 2
+          as: select
+          options:
+            - raise
+            - return None
+            - break
+            - continue
+          accept:
+            - raise
+          note: The last attempt has failed and there is no response to return. Swallowing it here hands the loop a None it will dereference somewhere less obvious.
+        - n: 3
+          as: select
+          options:
+            - 2**attempt
+            - attempt
+            - "1"
+            - attempts - attempt
+          accept:
+            - 2**attempt
+          note: Doubling backs off fast enough to let a struggling provider recover. A constant or a linear delay keeps the pressure roughly where it was.
+      hints:
+        - Two of the four status sets contain a code that will never succeed on a second try.
+        - Ask what the caller receives when every attempt has failed, and whether they can tell that from a quiet run.
+        - The random() on the end is jitter. It is there so that a thousand clients do not all wake up at the same instant, which tells you what the term next to it is doing.
+      reveal: >-
+        Retrying a model call is safe because the request has no side effects, and that is
+        exactly what makes retrying a tool call unsafe. A payment or a write needs an
+        idempotency key before it can be sent twice, which is a decision about the tool
+        rather than about the loop.
+
+    - id: how-a-stuck-run-ends
+      kind: choice
+      prompt: >-
+        The model has called lookup_population with city set to Atlantis three turns
+        running and got the same error each time. The budget still has five calls in it.
+      options:
+        - id: keep-going
+          label: Let it run until the step budget is gone.
+          note: Five more calls of the same wrong call, and the run ends saying max_steps. That reason sends whoever debugs it looking for a task that was too big, when the truth is one argument that never existed.
+        - id: crash
+          label: Raise, so the caller definitely notices.
+          note: The caller notices and gets nothing to act on. A stuck run is a normal outcome at the application boundary, and an exception is a poor way to carry an answer, a step count and a transcript.
+        - id: drop-the-errors
+          label: Take the failing tool results out of the transcript so the model stops fixating.
+          note: It made that call before it saw any error, so removing the errors takes away the only reason it might make a different one. Now it repeats the call with less information than before.
+        - id: structured-stop
+          label: Stop the run and return it with ok false, reason repeated_failure and the messages.
+          correct: true
+          note: The reason names the actual fault, which is a tool description or a validation rule sending the model to the same dead end. The transcript is what lets somebody see which one.
+        - id: bump-budget
+          label: Raise the step budget so it has room to find its way out.
+          note: A budget is not what is stopping it. The call is deterministic and so is the failure, so more turns buy more identical turns.
+      hints:
+        - The budget is not the thing that has run out.
+        - Three distinct tools failing once each is exploration. One signature failing three times is a loop.
+        - Whoever reads the result needs to know which of the several ways a run can end this one was.
+      reveal: >-
+        Track failures by signature, the tool name with its arguments sorted, and stop after
+        three. Then end the run as data rather than as an exception: an answer, a flag, a
+        reason from a closed set, the step count and the transcript. A caller can branch on
+        that, and max_steps against repeated_failure sends two different people to two
+        different bugs.
 ---
 
 A basic agent loop crashes on the first encountered error. While failing fast simplifies initial debugging,

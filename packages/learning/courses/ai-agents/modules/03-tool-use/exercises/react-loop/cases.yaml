@@ -1,0 +1,233 @@
+version: 1
+cases:
+  TestTools.test_calculator_evaluates:
+    condition: 'an arithmetic expression with brackets that has to come back as a string'
+    hints:
+      - 'This tool ships with the scaffold, so a failure here means it was edited rather than that your loop is wrong.'
+      - 'The result travels back to the model as text, so a number has to be converted.'
+      - 'Leave the provided calculator alone and start from the loop instead.'
+    concept: ai-tool-use.the-react-loop
+
+  TestTools.test_calculator_refuses_anything_that_is_not_arithmetic:
+    condition: 'an expression containing a dunder import rather than arithmetic'
+    hints:
+      - 'This tool ships with the scaffold, so a failure here means it was edited.'
+      - 'Model output handed to a bare eval is a way to run arbitrary code on your machine.'
+      - 'The character allowlist in front of the evaluation is what makes this safe, and it stays.'
+    concept: ai-tool-use.the-react-loop
+
+  TestTools.test_population_lookup_returns_a_dict:
+    condition: 'a city that is in the lookup table'
+    hints:
+      - 'This tool ships with the scaffold, so a failure here means it was edited.'
+      - 'A tool may return any Python value. Turning it into text is the loop''s job, not the tool''s.'
+      - 'Leave it returning a mapping and handle the serialisation elsewhere.'
+    concept: ai-tool-use.the-react-loop
+
+  TestTools.test_population_miss_is_still_a_result:
+    condition: 'a city the table does not know about'
+    hints:
+      - 'This tool ships with the scaffold, so a failure here means it was edited.'
+      - 'Not finding something is an answer the model can act on, not an error.'
+      - 'Keep the miss as an ordinary return value carrying a flag rather than raising.'
+    concept: ai-tool-use.the-react-loop
+
+  TestToolContent.test_a_string_passes_through:
+    condition: 'a tool that already returned text'
+    hints:
+      - 'Text is already what goes on the wire, so there is nothing to encode.'
+      - 'Running it through a JSON encoder wraps it in quotes the model then has to see through.'
+      - 'Return a string unchanged before any other conversion is attempted.'
+    concept: ai-tool-use.the-react-loop
+
+  TestToolContent.test_a_dict_becomes_json:
+    condition: 'a mapping whose keys arrive in an order that is not alphabetical'
+    hints:
+      - 'Python''s own representation of a dict is not JSON, and the model reads JSON far better.'
+      - 'The same result has to serialise identically on every run, or the transcript is not diffable and the prompt is not cacheable.'
+      - 'Encode it as JSON with the keys sorted.'
+    concept: ai-tool-use.the-react-loop
+
+  TestToolContent.test_a_list_becomes_json:
+    condition: 'a tool that returned a list of strings'
+    hints:
+      - 'A list needs the same treatment as a mapping, not the string conversion.'
+      - 'Python''s representation uses single quotes, which is not valid JSON.'
+      - 'Handle lists in the same branch as mappings.'
+    concept: ai-tool-use.the-react-loop
+
+  TestToolContent.test_booleans_serialize_the_way_the_model_reads_them:
+    condition: 'a mapping holding a Python True'
+    hints:
+      - 'Python writes True with a capital letter and JSON writes true without one.'
+      - 'A model reading a capitalised True has to guess whether it is a boolean or a word.'
+      - 'Let the JSON encoder produce the value rather than converting the mapping with a string call.'
+    concept: ai-tool-use.the-react-loop
+
+  TestToolContent.test_anything_else_becomes_a_string:
+    condition: 'a tool that returned a bare integer'
+    hints:
+      - 'Not every tool returns text or a container.'
+      - 'A number passed to the JSON encoder works, but so does the simpler conversion, and other types do not encode at all.'
+      - 'Fall back to a plain string conversion for everything the earlier branches did not catch.'
+    concept: ai-tool-use.the-react-loop
+
+  TestMessageBuilders.test_assistant_turn_shape:
+    condition: 'a model turn requesting one tool, which has to be recorded as a message'
+    hints:
+      - 'The request the model made is itself a message in the conversation, not something to hold on the side.'
+      - 'The provider expects a specific nesting: each call carries an id, a kind, and a function block.'
+      - 'Build the assistant turn with a tool calls list holding one entry per requested call.'
+    concept: ai-tool-use.the-react-loop
+
+  TestMessageBuilders.test_assistant_turn_keeps_the_call_id:
+    condition: 'a call whose id has to survive into the message that records it'
+    hints:
+      - 'The id is what pairs a result with the call that asked for it.'
+      - 'Generating your own id here means no tool result can ever match.'
+      - 'Copy the id off the call object exactly as it arrived.'
+    concept: ai-tool-use.the-react-loop
+
+  TestMessageBuilders.test_assistant_turn_keeps_the_raw_argument_string:
+    condition: 'an argument string the model produced that must not be re-encoded'
+    hints:
+      - 'The arguments arrive as text, not as a parsed object, and this message is a record of what the model actually sent.'
+      - 'Parsing and re-encoding changes whitespace and key order, so the transcript no longer matches the turn.'
+      - 'Store the argument string as it arrived.'
+    concept: ai-tool-use.the-react-loop
+
+  TestMessageBuilders.test_tool_result_turn_shape:
+    condition: 'a result that has to be tagged with the id of the call it answers'
+    hints:
+      - 'A tool message is not a user message. It has its own role and its own id field.'
+      - 'Without the id the provider cannot tell which of several calls this answers.'
+      - 'Build a mapping with the tool role, the call id, and the content.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_an_answer_with_no_tools_costs_one_call:
+    condition: 'a question the model answers directly without reaching for a tool'
+    hints:
+      - 'Not every question needs a tool, and a loop that always calls one wastes a round trip.'
+      - 'The exit condition is the finish reason, not whether the content looks like an answer.'
+      - 'Return the content as soon as the turn is anything other than a request for tools.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_one_tool_then_an_answer:
+    condition: 'a tool call followed by a reply that uses its result'
+    hints:
+      - 'This is the shape of the loop: call, act, observe, call again.'
+      - 'The second call is what turns the observation into an answer, so it cannot be skipped.'
+      - 'After appending the result, go round the loop again rather than returning.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_the_assistant_turn_comes_before_the_result:
+    condition: 'a transcript where a tool message must not appear before the request it answers'
+    hints:
+      - 'A tool message that answers no assistant request is a malformed conversation and the provider rejects it outright.'
+      - 'The order in the list is the order the provider reads them in.'
+      - 'Append the assistant turn as soon as the calls are known, before running any of them.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_the_result_carries_the_id_of_the_call_it_answers:
+    condition: 'a result whose id has to match the id on the assistant turn'
+    hints:
+      - 'The pairing is by id, not by position in the list.'
+      - 'A result tagged with an id nobody asked for is rejected the same way an unanswered call is.'
+      - 'Take the id from the call object you are answering and put it on the result message.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_the_result_content_is_the_serialized_tool_output:
+    condition: 'a tool returning a mapping that has to reach the model as JSON text'
+    hints:
+      - 'The tool returned a Python object and the wire carries text.'
+      - 'A plain string conversion produces something the model has to guess at.'
+      - 'Run the return value through the serialiser before putting it in the message.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_a_second_tool_call_reads_the_first_result:
+    condition: 'two separate turns, where the second tool call comes after seeing the first result'
+    hints:
+      - 'The loop does not know in advance how many rounds a question needs.'
+      - 'Each round appends to the same conversation, so the model sees everything it has learned so far.'
+      - 'Keep looping while the model asks for tools rather than running a fixed number of rounds.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_every_call_in_one_turn_gets_a_result:
+    condition: 'one assistant turn requesting two tools at once'
+    hints:
+      - 'A turn can request several tools, and the provider rejects the next request if any of them is unanswered.'
+      - 'Handling only the first call leaves the rest dangling.'
+      - 'Loop over every call on the turn and append a result message for each.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_the_tools_go_out_on_every_call:
+    condition: 'a second request that still has to carry the tool definitions'
+    hints:
+      - 'The API is stateless, and it forgets your tools between calls just as it forgets your messages.'
+      - 'Sending them only on the first call leaves the model with nothing to request on the second.'
+      - 'Pass the tool list on every request inside the loop.'
+    concept: ai-tool-use.the-react-loop
+
+  TestRunAgent.test_every_step_resends_the_whole_conversation:
+    condition: 'a second request whose messages must begin with everything the first one sent'
+    hints:
+      - 'Nothing is remembered, so the whole transcript goes out again each round.'
+      - 'Building a fresh message list per step throws away the observations the loop just gathered.'
+      - 'Append to one list and pass that same list on every call.'
+    concept: ai-tool-use.the-react-loop
+
+  TestStopping.test_the_budget_raises:
+    condition: 'a model that keeps asking for the same tool and never answers'
+    hints:
+      - 'An agent that loops forever costs money for as long as nobody notices.'
+      - 'Returning a best effort answer here hides the fact that the run never finished.'
+      - 'Raise MaxStepsExceeded once the loop runs out of budget.'
+    concept: ai-tool-use.the-react-loop
+
+  TestStopping.test_the_budget_counts_model_calls:
+    condition: 'a budget of three against a model that requests a tool every turn'
+    hints:
+      - 'The budget is there to bound the bill, and the bill is model calls.'
+      - 'Counting rounds or tool calls instead makes the limit mean something different depending on the run.'
+      - 'Make the loop run exactly the budgeted number of times with one model call in each pass.'
+    concept: ai-tool-use.the-react-loop
+
+  TestStopping.test_the_failure_carries_the_transcript:
+    condition: 'an exhausted budget where the caller needs to know what the agent was looping on'
+    hints:
+      - 'Knowing the agent looped tells you nothing. Knowing which tool it kept calling tells you everything.'
+      - 'The transcript is gone the moment the function returns, so it has to travel on the exception.'
+      - 'Attach the step count and the accumulated messages to the raised exception.'
+    concept: ai-tool-use.the-react-loop
+
+  TestStopping.test_a_budget_of_one_allows_exactly_one_call:
+    condition: 'a budget of one against a turn that asks for a tool'
+    hints:
+      - 'A budget of one still makes a call. What is missing is the round trip that would use the result.'
+      - 'An off by one here either wastes a call or refuses to make the first one.'
+      - 'Run the loop the budgeted number of times and raise after it, not inside the first pass.'
+    concept: ai-tool-use.the-react-loop
+
+  TestStopping.test_a_budget_below_one_is_a_caller_bug:
+    condition: 'a budget of zero, which cannot produce an answer'
+    hints:
+      - 'A loop that runs no times would fall straight through to the failure, which reads as an agent that gave up.'
+      - 'This is the caller misconfiguring the run, not the agent failing at it.'
+      - 'Check the budget before the first call and raise ValueError.'
+    concept: ai-tool-use.the-react-loop
+
+  TestStopping.test_a_truncated_reply_is_not_an_answer:
+    condition: 'a reply cut off at the output limit partway through a number'
+    hints:
+      - 'The fragment reads like an answer and nothing in the text says it was cut.'
+      - 'Returning it hands a half finished sentence to whatever called the agent.'
+      - 'Check the finish reason for the cap before deciding the turn was a final answer, and raise TruncatedAnswer.'
+    concept: ai-tool-use.the-react-loop
+
+  TestStopping.test_a_tool_error_ends_the_run_for_now:
+    condition: 'a model asking for a tool that is not in the registry'
+    hints:
+      - 'The model invented a tool name, which is ordinary rather than exceptional.'
+      - 'For this version the failure travels out rather than being fed back, and the next exercise changes that.'
+      - 'Let the dispatch error propagate out of the loop instead of catching it.'
+    concept: ai-tool-use.the-react-loop

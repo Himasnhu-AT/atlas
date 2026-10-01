@@ -1,0 +1,25 @@
+version: 1
+cases:
+  TestTripleBarrier.test_profit_take_hit:
+    condition: 'an entry at 100 that reaches 103 two bars later, through a 102 upper barrier'
+    hints:
+      - 'Both barriers are set from the entry price when the label is made and then stay put. They do not trail the price as it walks up.'
+      - 'The label belongs to the bar where the position was opened, not to the bar where the barrier was touched.'
+      - 'Scan forward from the next bar up to the holding limit and return +1 on the first price at or above entry times one plus the profit take fraction.'
+    concept: quant-validation.triple-barrier-labeling
+
+  TestTripleBarrier.test_stop_loss_hit:
+    condition: 'an entry at 100 that drops to 97 and then rallies to 105 inside the same window'
+    hints:
+      - 'The rally to 105 comes after the stop was already touched, so it plays no part in the label. Whichever barrier is reached first ends the scan.'
+      - 'Both horizontal barriers are live at once, so every forward bar is checked against the upper and the lower before the scan moves on.'
+      - 'Stop the forward scan and return -1 the moment a price is at or below entry times one minus the stop fraction, without reading any later bar.'
+    concept: quant-validation.triple-barrier-labeling
+
+  TestTripleBarrier.test_vertical_timeout:
+    condition: 'an entry whose price stays inside the two percent band for the whole holding period'
+    hints:
+      - 'Nothing was hit, and that is a label in its own right rather than a missing value. A trade that went nowhere is information about the strategy.'
+      - 'The vertical barrier is a count of bars rather than a price, so it fires when the forward scan runs out of steps, and it also fires when the series itself runs out.'
+      - 'Start the label at 0 and only overwrite it when a horizontal barrier is touched, so a scan that finishes without a hit leaves the zero standing.'
+    concept: quant-validation.triple-barrier-labeling

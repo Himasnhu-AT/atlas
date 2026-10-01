@@ -7,6 +7,181 @@ estimatedMinutes: 35
 exercise:
   id: declarative-agent
   timeboxMinutes: 30
+challenges:
+  goal: Write an agent as data where data is the right shape, and say what you gave up when it is not.
+
+  steps:
+    - id: load-the-spec
+      kind: text-contract
+      prompt: >-
+        This spec comes off disk and your loader rejects it. Fix it so it loads, using the
+        registry and the bounds beside it.
+      context:
+        as: pairs
+        items:
+          - { k: tools in the registry, v: lookup, escalate, refund }
+          - { k: max_steps, v: a whole number from 1 to 12 }
+          - { k: name, v: how this agent is referred to in a log line and in a diff }
+          - { k: the loader, v: rejects any key it does not recognise }
+      lang: json
+      initial: |
+        {
+          "name": "",
+          "system": "Work out what the customer needs.",
+          "tools": ["lookup", "lookup", "eskalate"],
+          "maxSteps": 4,
+          "temperature": 0.2
+        }
+      rules:
+        - message: Syntax first. This no longer parses as JSON.
+          check: { op: parses, as: json }
+        - message: The name is empty. It is what a diff line and a trace refer to, so an unnamed agent is one you cannot talk about.
+          check: { op: length, path: name, min: 1 }
+        - message: temperature is not a key this loader knows. A dict accepts anything you type, which is exactly why unknown keys have to be an error rather than a shrug.
+          check: { op: absent, path: temperature }
+        - message: maxSteps is the same problem wearing camel case. Python would have told you at the call site, and a dictionary will not.
+          check: { op: absent, path: maxSteps }
+        - message: There is no max_steps now. A budget with no value is a run with no bound.
+          check: { op: exists, path: max_steps }
+        - message: max_steps has to be a whole number. A boolean passes an int check in Python, so the loader has to reject one explicitly.
+          check: { op: type, path: max_steps, is: integer }
+        - message: max_steps is outside the allowed range of 1 to 12.
+          check: { op: range, path: max_steps, min: 1, max: 12 }
+        - message: lookup is listed twice. Duplicates in the tool list mean a duplicated schema on every model call, paid for on every turn.
+          check: { op: length, path: tools, min: 2, max: 2 }
+        - message: eskalate is not in the registry. The closest name it holds is escalate.
+          check: { op: equals, path: tools, value: [lookup, escalate] }
+      hints:
+        - Five things are wrong and two of them are keys rather than values.
+        - Compare each key against what the loader accepts, then each value against the bounds.
+        - One tool name is a typo and one is a repeat.
+      reveal: >-
+        All of this is caught before a single model call is made. That is the whole argument
+        for the spec: a config error costs you a startup failure with a function name in it,
+        rather than a run that dies on step three having already spent money. The price is
+        that validation moved from the Python call site into your loader, so the loader has
+        to be strict about types and about keys it has never heard of.
+      solution: |
+        {
+          "name": "triage",
+          "system": "Work out what the customer needs.",
+          "tools": ["lookup", "escalate"],
+          "max_steps": 4
+        }
+
+    - id: data-or-code
+      kind: assign
+      prompt: >-
+        You are deciding what goes in the spec file and what stays in Python. Sort these.
+      buckets:
+        - id: spec
+          label: The spec
+          note: A static property. It has one value for the life of the configuration.
+        - id: code
+          label: Python
+          note: It depends on something only known at runtime, or it is control flow.
+      items:
+        - id: system-prompt
+          label: The system prompt
+          bucket: spec
+          because: A string that does not change between runs, and the single thing you most want to see in a pull request diff.
+        - id: tool-list
+          label: The list of tool names this agent may use
+          bucket: spec
+          because: A whitelist is data, and putting it in the spec is what lets build_agent hand the agent a registry containing nothing else.
+        - id: budget
+          label: max_steps
+          bucket: spec
+          because: A number with bounds you can check at load time.
+        - id: model-name
+          label: Which model to call
+          bucket: spec
+          because: Another static string, and one you want to be able to vary in an evaluation loop without editing code.
+        - id: tier-tools
+          label: Which tools to offer, based on the customer's subscription tier
+          bucket: code
+          because: The answer is not known until a request arrives. Expressing it in the file means inventing a condition syntax, and the file becomes a language with no debugger and no type checker.
+        - id: fallback-model
+          label: Retry twice, then fall back to a cheaper model
+          bucket: code
+          because: Control flow. A config format that can express this has grown branching, and you will be reading a stack trace through it at some point.
+        - id: loop-until
+          label: Loop until the invoice balances
+          bucket: code
+          because: A loop with a condition over application state. Python already has one and it is easier to read.
+        - id: reshape-result
+          label: Trim a tool result down before it is appended
+          bucket: code
+          because: A transformation over a value produced mid run. Nothing static can describe it, and a hook is a better home than a config key.
+      hints:
+        - Ask, for each one, whether you could write the value down before the process starts.
+        - Four of these depend on something that arrives with the request.
+        - If expressing it in the file would need an if, it is not a file.
+      reveal: >-
+        Static properties as data, decisions as code. Config formats that acquire an
+        expression language, or a dotted path to a handler somebody imports at load time,
+        have become programming languages with no editor support and no way to set a
+        breakpoint. Keep the boundary at the point where a value stops being knowable in
+        advance.
+
+    - id: tier-based-tools
+      kind: choice
+      prompt: >-
+        Free customers must not reach the refund tool. The spec is a JSON file. How do you
+        implement it?
+      options:
+        - id: build-subset
+          label: Read the spec, then build the registry subset in Python from the tier before constructing the agent.
+          correct: true
+          note: The spec stays a static whitelist and the tier decision stays where tiers are already known. The agent still receives a registry holding nothing it is not allowed to call.
+        - id: condition-syntax
+          label: Add a when field to the tool list so the file can express the condition.
+          note: You have started a language. The second requirement adds an operator, the third adds nesting, and none of it has a type checker, a debugger, or a way to unit test a branch.
+        - id: handler-string
+          label: Put a dotted import path in the file and have the loader import and call it.
+          note: The same problem with worse failure modes. A typo becomes an ImportError at load time, the call site is invisible to your editor, and anything that can write config can now name code to run.
+        - id: prompt-it
+          label: Give the agent every tool and tell it in the system prompt not to refund free customers.
+          note: A prompt is guidance, not a permission boundary. Anything that reaches the model's context can argue with it, and the tool is still on the list to be called.
+      hints:
+        - The tier is known when the request arrives, which is before the agent is constructed.
+        - Two of these turn the config file into something that runs.
+        - The registry the agent receives is a value you build, not a fixed property of the spec.
+      reveal: >-
+        The tool list in the spec is a boundary because build_agent hands over a registry
+        containing exactly those tools and no others. Narrowing that list in Python before
+        construction keeps the boundary real, and keeps the file readable by somebody who
+        does not know Python.
+
+    - id: worth-adopting
+      kind: choice
+      prompt: >-
+        A library gives you a registry, retries, streaming, state channels and tracing. You
+        need four of the five. Which fact argues hardest against adopting it?
+      options:
+        - id: only-four
+          label: You only need four of its five features.
+          note: Four of five is most of it, and that argues for adoption rather than against. The version of this argument that bites is needing one of five and taking the whole dependency for it.
+        - id: opaque-traces
+          label: Its own failures surface as a KeyError several frames inside its executor, with no mention of your node.
+          correct: true
+          note: This is the cost you pay on every incident for as long as you use it. The other three are one-time or under your control, and this one is neither.
+        - id: nobody-knows-it
+          label: Nobody on the team has used it before.
+          note: Real, and the cheapest of the four to pay. Onboarding is paid once per person and is mostly a function of how many concepts the library asks you to hold.
+        - id: everywhere
+          label: Adopting it would put its types in every module.
+          note: That is a choice rather than a property. Call it from your own loop and the coupling stays in a couple of files, which is also what makes leaving possible later.
+      hints:
+        - Three of the four are costs you pay once, or costs you get to decide the size of.
+        - Ask which one you would still be paying in eighteen months, at three in the morning.
+        - One of the four is not a fact about the library at all.
+      reveal: >-
+        Four questions rather than a mood: how much of it you need, what its failures look
+        like, how much of your code it would touch, and how many concepts it asks a new
+        engineer to hold. Having built the registry, the hooks, the tracer and the spec
+        parser yourself, you can now open a library and see which of those it is, which is
+        the only way to answer the first question honestly.
 ---
 
 Many agent frameworks transition from procedural Python definitions to declarative data structures:

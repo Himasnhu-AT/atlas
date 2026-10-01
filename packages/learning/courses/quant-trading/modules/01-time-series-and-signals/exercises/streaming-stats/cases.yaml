@@ -1,0 +1,25 @@
+version: 1
+cases:
+  TestStreamingStats.test_ema_warmup_and_smoothing:
+    condition: 'the first three prices into an EMA of window three, then a fourth at 40'
+    hints:
+      - 'Seeding the average with the very first price lets that one observation set the level for everything after it, so the warmup reports a running arithmetic mean instead.'
+      - 'The changeover is counted, not timed. Observation three still reports the mean of all three; observation four is the first smoothed value.'
+      - 'Keep a count and a running sum. While the count has not passed the window, return the sum over the count. After that, blend the new price at alpha against the previous value at one minus alpha, with alpha of 2 / (window + 1).'
+    concept: quant-time-series.streaming-statistics
+
+  TestStreamingStats.test_rolling_variance:
+    condition: 'five prices filling a window of five, checked against the sample variance'
+    hints:
+      - 'The divisor is n minus one, not n. This is the sample estimator, and the population version comes out smaller on the same five prices.'
+      - 'Annualising happens in variance space rather than volatility space: multiply the variance by the factor, then take one square root.'
+      - 'Carry a running sum and a running sum of squares so the mean and the dispersion both fall out of two accumulators instead of a second pass over the window.'
+    concept: quant-time-series.streaming-statistics
+
+  TestStreamingStats.test_rolling_variance_window_slide:
+    condition: 'a window of three that has been handed four identical prices'
+    hints:
+      - 'The window has a fixed length. The fourth value does not extend it, it evicts the oldest one, and the accumulators have to forget that value too.'
+      - 'Four identical prices have no dispersion at all, so the answer is exactly 0.0. The sum of squares form can land a hair below zero here through rounding.'
+      - 'Subtract the evicted value from both the running sum and the running sum of squares, and floor the variance at zero before any square root is taken.'
+    concept: quant-time-series.streaming-statistics

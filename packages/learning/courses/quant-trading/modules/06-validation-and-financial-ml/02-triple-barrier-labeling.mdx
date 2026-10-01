@@ -7,6 +7,209 @@ estimatedMinutes: 25
 exercise:
   id: triple-barrier
   timeboxMinutes: 30
+challenges:
+  goal: Label a trade by the path it took rather than by where it ended, and see which labels a fixed horizon gets backwards.
+
+  steps:
+    - id: label-the-paths
+      kind: assign
+      prompt: >-
+        Entry is at 100, the profit take sits at 102, the stop sits at 98, and the position
+        expires after ten bars. Sort each path by the label the triple barrier gives it.
+      buckets:
+        - id: up
+          label: Plus one
+          note: The upper barrier was touched before the lower one and before the clock ran out.
+        - id: down
+          label: Minus one
+          note: The lower barrier was touched first. The position was closed there whatever happened next.
+        - id: flat
+          label: Zero
+          note: Ten bars passed with neither horizontal barrier touched, so the position was closed at market.
+      items:
+        - id: steady-rise
+          label: Climbs through 102.4 on bar 4, then slides back to 99 by bar 10
+          bucket: up
+          because: The upper barrier was touched on bar 4 and the trade ended there. What the price did afterwards belongs to a position you no longer had.
+        - id: dip-then-rally
+          label: Drops to 97.6 on bar 2, then rallies all the way to 104 by bar 8
+          bucket: down
+          because: Down through 98 on bar 2 closes it at minus one. A fixed ten bar horizon reads the 104 close and calls this a winner, which is the single most common way a backtest invents profit.
+        - id: chop
+          label: Oscillates between 99.2 and 101.4 for all ten bars and closes at 100.9
+          bucket: flat
+          because: Neither barrier was reached, so the vertical one decided it. This is the label most paths get, and a labeller that never produces it is set too tight.
+        - id: exact-touch
+          label: Falls to exactly 98.00 on bar 6 and closes the session at 101
+          bucket: down
+          because: A touch is a touch. The barrier is a price a real stop order would have been filled at, so the label has to agree with the order.
+        - id: late-breakout
+          label: Reaches 101.9 on bar 9 and does not clear 102 until bar 11
+          bucket: flat
+          because: Bar 11 is past the vertical barrier and the position was already closed. A labeller that looks one bar too far turns this into a plus one and teaches the model to predict its own bug.
+        - id: gap-up
+          label: Gaps straight to 103 on bar 1 and stays there
+          bucket: up
+          because: The barrier was crossed rather than touched, so the fill is worse than 102. The label is still plus one, and the difference between the barrier and the fill is a cost the labels do not carry.
+      hints:
+        - Work along each path in time order and stop at the first barrier it reaches.
+        - Two of these six end far away from where their label says, and those two are the point.
+        - One path clears the upper barrier on bar 11, and the position was closed on bar 10.
+      reveal: >-
+        Fixed horizon labelling asks where the price ended. The triple barrier asks what
+        happened on the way, which is the same question a risk system asks. Where the two
+        disagree, the fixed horizon label is describing a position that would have been
+        closed before the horizon arrived, and a model trained on it learns to hold through
+        drawdowns it will never be allowed to hold through.
+
+    - id: first-touch-wins
+      kind: blanks
+      prompt: >-
+        Fill in the labeller. It has to stop at the first barrier it reaches and never look
+        past the vertical one.
+      lang: python
+      template: |
+        def label(prices: list[float], t: int, pt: float, sl: float, h: int) -> int:
+            upper = prices[t] * (1 + pt)
+            lower = prices[t] * {{1}}
+            for k in range(t + 1, {{2}}):
+                if prices[k] >= upper:
+                    return 1
+                if prices[k] <= lower:
+                    return -1
+            return {{3}}
+      blanks:
+        - n: 1
+          as: select
+          options: ['(1 - sl)', '(1 + sl)', '(1 - pt)', '-sl']
+          accept: ['(1 - sl)']
+          note: The stop is below the entry, and its distance is set by sl rather than by pt. Those are two separate widths for a reason.
+        - n: 2
+          as: select
+          options:
+            - 'min(t + h + 1, len(prices))'
+            - 'len(prices)'
+            - 't + h'
+            - 'min(t + h, len(prices))'
+          accept: ['min(t + h + 1, len(prices))']
+          note: Two failures live here. Running to the end of the series reads bars the position no longer existed for, and stopping at t plus h drops the last bar the position was actually held through.
+        - n: 3
+          as: select
+          options: ['0', '1', '-1', 'None']
+          accept: ['0']
+          note: Falling out of the loop means the clock ran out with neither barrier touched. That is its own outcome and it needs its own label.
+      hints:
+        - The two horizontal barriers are set by two different parameters, and only one of them is already in the code.
+        - The range end has to do two things at once, and one of them is about the end of the price series.
+        - The last return is the outcome the loop did not find.
+      reveal: >-
+        The look-ahead here is one character wide. Write len(prices) instead of the clamped
+        vertical barrier and every label quietly consults the entire future of the series,
+        the accuracy on the training set climbs, and nothing about the model is real. This
+        is why the vertical barrier is a barrier rather than a convention.
+
+    - id: how-wide-is-a-barrier
+      kind: choice
+      prompt: >-
+        Your profit take and stop are both fixed at 2 percent and applied to every name in
+        the universe. What does that break?
+      options:
+        - id: nothing
+          label: Nothing, since symmetric barriers are the neutral choice
+          note: Symmetric in percent is not symmetric in probability. A name that moves 6 percent a day touches a barrier on the first bar, and one that moves 0.3 percent will not touch either inside a month.
+        - id: scale-by-vol
+          label: Set both barriers as a multiple of each name's recent daily volatility
+          correct: true
+          note: This makes the barriers equally hard to reach across the universe, so a plus one means the same thing whichever name produced it. Labels that do not mean the same thing cannot be pooled into one training set.
+        - id: widen-all
+          label: Widen both barriers to 5 percent so the quiet names can reach them
+          note: The quiet names still will not, and the volatile ones now touch even sooner in relative terms. Moving a fixed threshold changes which names are mislabelled, not the fact that the threshold is fixed.
+        - id: shorten-h
+          label: Shorten the vertical barrier so more paths expire at zero
+          note: More zeros is the wrong direction. A label set dominated by timeouts trains a model to predict that nothing happens, which is accurate and worth nothing.
+      hints:
+        - Apply the same 2 percent to a utility and to a small cap miner and ask how often each one touches.
+        - The label has to mean the same thing in every name, or the rows cannot go in the same training set.
+        - The fix is a multiplier on something you measure per name, not a different constant.
+      reveal: >-
+        Barriers are usually set as a multiple of a rolling daily volatility estimate, and
+        the vertical barrier gets the same treatment by being counted in event time rather
+        than in clock time. The ratio between the two horizontal barriers is a separate
+        decision, and it is not a modelling detail: it is the payoff you are asking the model
+        to predict, and a two to one profit take needs to be right far less often than a one
+        to one.
+
+    - id: drive-it-to-zero
+      kind: machine
+      prompt: >-
+        The barriers sit three ticks above and three ticks below the entry, and the position
+        expires after five bars. Move the price so this trade earns a zero label.
+      initial: open
+      vars: { price: 0, bars: 0 }
+      states:
+        open:
+          label: Position open
+          note: Price is inside both barriers and the clock is still running.
+        profit-take:
+          label: Upper barrier touched, label plus one
+          terminal: true
+        stop-loss:
+          label: Lower barrier touched, label minus one
+          terminal: true
+          error: true
+        timeout:
+          label: Vertical barrier reached, label zero
+          terminal: true
+      transitions:
+        - from: open
+          on: tick up
+          to: open
+          when: [{ var: price, cmp: lt, value: 2 }, { var: bars, cmp: lt, value: 4 }]
+          effects: [{ var: price, op: inc, value: 1 }, { var: bars, op: inc, value: 1 }]
+          note: Still inside the upper barrier and still inside the clock.
+        - from: open
+          on: tick up
+          to: profit-take
+          when: [{ var: price, cmp: gte, value: 2 }]
+          effects: [{ var: price, op: inc, value: 1 }, { var: bars, op: inc, value: 1 }]
+          note: From two ticks up, one more reaches the barrier and closes the trade at plus one.
+        - from: open
+          on: tick up
+          to: timeout
+          when: [{ var: price, cmp: lt, value: 2 }, { var: bars, cmp: gte, value: 4 }]
+          effects: [{ var: price, op: inc, value: 1 }, { var: bars, op: inc, value: 1 }]
+          note: The fifth bar ends the position wherever the price is, provided it is inside both barriers.
+        - from: open
+          on: tick down
+          to: open
+          when: [{ var: price, cmp: gt, value: -2 }, { var: bars, cmp: lt, value: 4 }]
+          effects: [{ var: price, op: dec, value: 1 }, { var: bars, op: inc, value: 1 }]
+          note: Still inside the lower barrier and still inside the clock.
+        - from: open
+          on: tick down
+          to: stop-loss
+          when: [{ var: price, cmp: lte, value: -2 }]
+          effects: [{ var: price, op: dec, value: 1 }, { var: bars, op: inc, value: 1 }]
+          note: From two ticks down, one more reaches the stop and closes the trade at minus one.
+        - from: open
+          on: tick down
+          to: timeout
+          when: [{ var: price, cmp: gt, value: -2 }, { var: bars, cmp: gte, value: 4 }]
+          effects: [{ var: price, op: dec, value: 1 }, { var: bars, op: inc, value: 1 }]
+          note: The fifth bar ends the position wherever the price is, provided it is inside both barriers.
+      mode: drive
+      win:
+        state: timeout
+        maxSteps: 8
+      hints:
+        - Every move costs one bar, and there are only five of them.
+        - Three ticks in either direction ends the trade, so the price has to stay within two of where it started.
+        - Alternate, and the fifth move expires the position whichever way it goes.
+      reveal: >-
+        The path that ended at zero and the path that stopped out both finish near the entry
+        price, and a fixed horizon label cannot tell them apart. That is the whole argument
+        for path dependent labelling, and it is also why the barriers have to be the ones
+        your risk system actually enforces rather than round numbers chosen for the study.
 ---
 
 Standard supervised machine learning in finance labels observations using fixed-time horizon returns: $y_t = \text{sign}(P_{t+h} - P_t)$.

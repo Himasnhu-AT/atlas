@@ -1,0 +1,137 @@
+version: 1
+cases:
+  TestClaim.test_claims_an_unclaimed_partition:
+    condition: 'a day nothing has started work on yet'
+    hints:
+      - 'The claim is what makes the run visible while it is happening, not only after it finishes.'
+      - 'The row is written before the work starts, carrying a status that says it is in progress.'
+      - 'Insert a row keyed by the partition with a running status and the start time, and report that the claim was taken.'
+    concept: de-pipelines.the-partial-run
+
+  TestClaim.test_a_second_claim_is_refused:
+    condition: 'a day another process already holds'
+    hints:
+      - 'Two copies of the same backfill running at once is a real hazard, and reading before writing leaves a window between the two.'
+      - 'The database can decide this in one statement, because the partition is a key.'
+      - 'Let the insert conflict on the key and do nothing, then read the affected row count to tell whether you took the claim.'
+    concept: de-pipelines.the-partial-run
+
+  TestClaim.test_different_partitions_are_independent:
+    condition: 'two different days claimed one after the other'
+    hints:
+      - 'The whole point of partitions is that they do not block each other. A global lock would make the backfill serial.'
+      - 'The claim is per partition because the key is the partition.'
+      - 'Key the run log by partition so a claim on one day says nothing about another.'
+    concept: de-pipelines.the-partial-run
+
+  TestFinish.test_marks_success:
+    condition: 'a partition that finished cleanly having written seven rows'
+    hints:
+      - 'Done, seven rows and a finish time is the record that lets somebody answer questions about last night without re-running anything.'
+      - 'The error column has to end up empty, not merely unmentioned.'
+      - 'Set the status to done, store the row count and the finish time, and write the error back as null.'
+    concept: de-pipelines.the-partial-run
+
+  TestFinish.test_marks_failure_with_the_reason:
+    condition: 'a partition that died with "source unreachable"'
+    hints:
+      - 'A status of failed with no reason means somebody has to reproduce the failure to find out what it was.'
+      - 'Whether it succeeded is decided by whether an error was passed, not by a separate flag.'
+      - 'Set the status from the presence of the error and store the error text in its own column.'
+    concept: de-pipelines.the-partial-run
+
+  TestPartitionsToRun.test_everything_is_outstanding_at_first:
+    condition: 'a run log with no rows in it yet'
+    hints:
+      - 'Nothing has been done, so everything asked for is outstanding.'
+      - 'The finished set is empty, so nothing is filtered out.'
+      - 'Return every wanted partition when the query of completed ones comes back empty.'
+    concept: de-pipelines.the-partial-run
+
+  TestPartitionsToRun.test_a_done_partition_is_skipped:
+    condition: 'a day already recorded as finished by an earlier run'
+    hints:
+      - 'A resume that redoes finished days is a resume that takes as long as the original, which is the reason nobody uses it.'
+      - 'Only the completed status counts as work already done.'
+      - 'Collect the partitions whose status is done and drop them from the wanted list.'
+    concept: de-pipelines.the-partial-run
+
+  TestPartitionsToRun.test_an_interrupted_partition_is_still_outstanding:
+    condition: 'a day left claimed and unfinished when the process was killed'
+    hints:
+      - 'It may have written some rows and may not have finished, which is exactly why the write has to be idempotent.'
+      - 'Treating a claimed row as work done would leave a half-loaded day in the table with nothing to fix it.'
+      - 'Filter on the done status alone, so a running row stays outstanding.'
+    concept: de-pipelines.the-partial-run
+
+  TestPartitionsToRun.test_a_failed_partition_is_retried:
+    condition: 'a day recorded as failed after the source was unreachable'
+    hints:
+      - 'Most failures are transient, and a failed day that never gets retried is a permanent hole from a temporary outage.'
+      - 'Failed is not done, so no extra rule is needed.'
+      - 'Keep the filter on the done status and let failed rows fall through as outstanding.'
+    concept: de-pipelines.the-partial-run
+
+  TestPartitionsToRun.test_keeps_the_given_order:
+    condition: 'days that have to be attempted oldest first, as the caller listed them'
+    hints:
+      - 'Backfills run oldest to newest so a partial run leaves a contiguous stretch loaded, not a scatter.'
+      - 'The order comes from the caller''s list, not from what the database returns.'
+      - 'Walk the wanted list and keep what is not finished, rather than building the result from the query.'
+    concept: de-pipelines.the-partial-run
+
+  TestRunRange.test_runs_everything_and_reports:
+    condition: 'four days that all succeed on a first run'
+    hints:
+      - 'The report is the deliverable. Four keys: what finished, what failed, what was already done, and whether it gave up.'
+      - 'The happy path still has to fill in the empty lists and the flag.'
+      - 'Return all four keys unconditionally, with the accumulators as they ended up.'
+    concept: de-pipelines.the-partial-run
+
+  TestRunRange.test_carries_on_past_one_failure:
+    condition: 'one day out of four that raises while the other three would succeed'
+    hints:
+      - 'One bad day should not hide the fact that the others were fine. Stopping on the first failure means one flaky source blocks a month of loading.'
+      - 'The failure is a status to record, not an exception to propagate.'
+      - 'Catch the error, record it against the partition with its message, and move on to the next one.'
+    concept: de-pipelines.the-partial-run
+
+  TestRunRange.test_stops_after_enough_consecutive_failures:
+    condition: 'every day failing in a row against a limit of two'
+    hints:
+      - 'When the source is down, attempting the remaining twenty-eight days achieves nothing except twenty-eight more error rows.'
+      - 'The count is of failures in a row, and it decides when to stop rather than what to report.'
+      - 'Increment a counter on each failure, and break out of the loop with the flag set once it reaches the limit.'
+    concept: de-pipelines.the-partial-run
+
+  TestRunRange.test_a_success_resets_the_failure_run:
+    condition: 'two failures separated by a day that worked, against a limit of two'
+    hints:
+      - 'The failures were not consecutive, so the source is not down and there is no reason to stop.'
+      - 'A counter that only ever goes up would stop here, which means one flaky day per week eventually halts every run.'
+      - 'Set the counter back to zero after a partition succeeds.'
+    concept: de-pipelines.the-partial-run
+
+  TestRunRange.test_a_resume_skips_what_was_done_and_says_so:
+    condition: 'a second run over a wider range after the first two days already finished'
+    hints:
+      - 'A resume that silently does less is indistinguishable from one that silently did nothing.'
+      - 'Skipped is what was asked for and not outstanding, and it belongs in the report beside what ran.'
+      - 'Work out the outstanding partitions first, and report everything the caller asked for that is not in that list as skipped.'
+    concept: de-pipelines.the-partial-run
+
+  TestRunRange.test_resuming_after_an_interruption_redoes_that_partition:
+    condition: 'a day left claimed by a crashed process, which the new run has to take over'
+    hints:
+      - 'The claim already exists, so the claim attempt fails, and treating that as somebody else holding it would leave the day half loaded forever.'
+      - 'The partition was already decided to be outstanding, so a refused claim here means a stale row rather than a live competitor.'
+      - 'When the claim is refused for an outstanding partition, reset that row back to running, clear its error and finish time, and do the work.'
+    concept: de-pipelines.the-partial-run
+
+  TestRunRange.test_running_it_again_after_success_does_nothing:
+    condition: 'the whole range run again after every day already finished'
+    hints:
+      - 'Re-running a finished backfill is a mistake somebody makes at 3am, and it should cost nothing.'
+      - 'Nothing is outstanding, so the loop never runs and every day is reported as skipped.'
+      - 'Let the outstanding calculation empty the loop rather than adding a guard, and report the whole range as skipped.'
+    concept: de-pipelines.the-partial-run

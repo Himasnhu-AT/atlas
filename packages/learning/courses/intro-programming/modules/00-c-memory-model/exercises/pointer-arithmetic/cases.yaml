@@ -1,0 +1,153 @@
+version: 1
+cases:
+  TestPointerBasics.test_init_and_properties:
+    condition: 'a pointer built partway into a buffer, which has to report that same buffer back'
+    hints:
+      - 'A pointer holds an address into memory somebody else owns. Copying the bytes would make later writes through it invisible.'
+      - 'Keep the bytearray that came in, not a copy of it, and expose it and the offset through the properties.'
+      - 'Store the buffer and the offset as given, and read the byte at that offset when dereferenced.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestPointerBasics.test_init_bounds:
+    condition: 'an offset of zero, an offset equal to the buffer length, and offsets past either end'
+    hints:
+      - 'One past the last byte is a legal address in C. You may hold it, you just may not read through it.'
+      - 'The valid range for an offset runs from 0 up to and including the length.'
+      - 'Raise IndexError below 0 and above len(buffer), while accepting len(buffer) itself.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestPointerBasics.test_write_and_deref:
+    condition: 'a byte written through the pointer, which has to land in the caller''s buffer'
+    hints:
+      - 'A write through a pointer changes the memory behind it, not some private copy held inside the pointer.'
+      - 'Index into the stored bytearray and assign at the current offset.'
+      - 'Put the value into the buffer at the offset, cut down to a single byte first.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestPointerBasics.test_deref_past_end:
+    condition: 'a pointer sitting one past the last byte, both read from and written through'
+    hints:
+      - 'Holding the one past the end address is legal, but there is no byte there to touch.'
+      - 'Reading and writing need the same bounds check. It is easy to guard only the read.'
+      - 'Raise IndexError from both operations once the offset has reached the buffer length.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestPointerBasics.test_pointer_arithmetic:
+    condition: 'a pointer advanced six bytes, then walked one byte back from there'
+    hints:
+      - 'Adding to a pointer yields a new address. The original still points where it did.'
+      - 'A negative displacement is ordinary pointer arithmetic, not an error to reject.'
+      - 'Return a new Pointer at the current offset plus the displacement and leave this one untouched.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestPointerBasics.test_pointer_arithmetic_overflow:
+    condition: 'arithmetic that lands past the end of the buffer, and arithmetic that lands before its start'
+    hints:
+      - 'What matters is where the displacement lands, not how large the displacement is.'
+      - 'Either direction can escape the buffer, so one check on the upper end is not enough.'
+      - 'Work out the resulting offset first and raise IndexError when it falls outside 0 through the length.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestPointerBasics.test_pointer_diff:
+    condition: 'two pointers into one buffer, subtracted in both orders'
+    hints:
+      - 'The difference is signed. Subtracting a higher address from a lower one gives a negative count.'
+      - 'The result counts the bytes lying between the two addresses.'
+      - 'Return this offset minus the other offset, with no absolute value taken.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestPointerBasics.test_pointer_diff_different_buffers:
+    condition: 'two pointers into separate buffers that happen to be the same size'
+    hints:
+      - 'Two allocations can carry equal offsets while sitting at unrelated addresses, so subtracting them produces a meaningless number.'
+      - 'Equal lengths and equal contents do not make two buffers the same allocation.'
+      - 'Compare the buffers by identity rather than equality and raise ValueError when they are not the same object.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestMemcpy.test_basic_copy:
+    condition: 'a block copied from the start of one buffer into the middle of another'
+    hints:
+      - 'The destination offset is where the copy begins, not where the destination buffer begins.'
+      - 'Both ends move: read from the source offset onward, write from the destination offset onward.'
+      - 'Take count bytes out of the source starting at its offset and assign them into the destination starting at its offset.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestMemcpy.test_overlapping_copy_forward:
+    condition: 'a source range and a destination range that overlap inside one buffer'
+    hints:
+      - 'Copying byte by byte forward overwrites source bytes before they have been read, so the tail comes out repeating.'
+      - 'Every byte to be written has to be settled before any of them is written.'
+      - 'Read the whole source range into a snapshot first, then assign that snapshot into the destination range.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestMemcpy.test_negative_count:
+    condition: 'a byte count below zero'
+    hints:
+      - 'A negative length slices into nothing, so the copy quietly does no work at all.'
+      - 'This is the caller getting it wrong, and it deserves an error rather than a silent no-op.'
+      - 'Raise ValueError for a negative count before any bounds arithmetic runs.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestMemcpy.test_buffer_bounds_violation:
+    condition: 'a count that runs off the end of the source buffer from where its pointer sits'
+    hints:
+      - 'Four bytes are asked for but only three remain after the source offset. That the buffer is five bytes long is not the question.'
+      - 'The offset plus the count has to be checked against each buffer separately.'
+      - 'Raise IndexError when either offset plus count exceeds the length of its own buffer.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestStrlenAndStrcmp.test_strlen_basic:
+    condition: 'a terminated string with further bytes after the terminator, measured from two offsets'
+    hints:
+      - 'The length runs to the first zero byte, not to the end of the buffer.'
+      - 'Starting partway in gives a shorter string. Everything is relative to the pointer, not to index zero.'
+      - 'Count bytes forward from the offset, stop at the first zero, and do not count the terminator itself.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestStrlenAndStrcmp.test_strlen_empty_string:
+    condition: 'a terminator sitting at the very first byte the pointer addresses'
+    hints:
+      - 'An empty string is a real string. It is one zero byte and nothing else.'
+      - 'The terminator has to be tested before the counter is advanced, or the empty case comes out as 1.'
+      - 'Answer 0 when the byte at the offset is already zero.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestStrlenAndStrcmp.test_strlen_unterminated:
+    condition: 'bytes that run to the end of the buffer with no zero among them'
+    hints:
+      - 'Falling off the end of the buffer is not the same thing as finding the end of the string.'
+      - 'In C this is where the walk carries on into memory the program does not own. Here the buffer simply runs out.'
+      - 'Raise IndexError once the scan reaches the buffer length without having seen a zero byte.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestStrlenAndStrcmp.test_strcmp_equal:
+    condition: 'two identical strings packed back to back in one buffer'
+    hints:
+      - 'Equal strings have to answer exactly 0, not merely something falsy.'
+      - 'The comparison walks both strings in step and stops early only on a difference.'
+      - 'Return 0 when both walks reach their terminators without ever differing.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestStrlenAndStrcmp.test_strcmp_less_greater:
+    condition: 'two strings that agree until their final character, compared both ways round'
+    hints:
+      - 'The ordering comes from the first byte where the two differ, not from their lengths.'
+      - 'Comparing them the other way round has to produce the opposite sign.'
+      - 'Return the differing byte of the first string minus the differing byte of the second.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestStrlenAndStrcmp.test_strcmp_prefix:
+    condition: 'one string that is a prefix of the other, so it runs out first'
+    hints:
+      - 'cat and cats agree on every byte cat has. What separates them is what comes after.'
+      - 'The terminator takes part in the comparison, and a zero byte sorts below any real character.'
+      - 'Carry on past the shorter string''s length so its 0 meets the next character of the longer one.'
+    concept: intro-c-memory.memory-addresses-and-pointers
+
+  TestStrlenAndStrcmp.test_strcmp_unterminated_raises:
+    condition: 'an unterminated string compared against a properly terminated one'
+    hints:
+      - 'Without a terminator the string has no length, so there is nothing to compare.'
+      - 'This is the failure strlen already reports, so it does not need detecting a second time.'
+      - 'Measure both strings up front and let the IndexError from the unterminated one travel out.'
+    concept: intro-c-memory.memory-addresses-and-pointers

@@ -1,0 +1,265 @@
+version: 1
+cases:
+  TestParsing.test_normalise_lowercases_and_splits:
+    condition: 'a request carrying capitals, a comma and an exclamation mark'
+    hints:
+      - 'Keywords are written in lower case and users type however they like.'
+      - 'Punctuation stuck to a word stops it matching the same word in a keyword list.'
+      - 'Fold the case and pull out runs of word characters as a set.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestParsing.test_normalise_of_empty_is_empty:
+    condition: 'an empty request with no words to extract'
+    hints:
+      - 'An empty message reaches the router like any other.'
+      - 'Calling a string method on None raises before anything is matched.'
+      - 'Substitute an empty string for a missing request and let the pattern find nothing.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestParsing.test_parses_a_plain_object:
+    condition: 'a clean JSON object carrying a route name and a confidence'
+    hints:
+      - 'The classifier is asked for two things, and both have to come back out.'
+      - 'The confidence is what the threshold is compared against, so it cannot be dropped.'
+      - 'Parse the reply and return the label and the number as a pair.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestParsing.test_parses_through_a_code_fence:
+    condition: 'a well formed object wrapped in triple backticks with a language tag'
+    hints:
+      - 'Models wrap JSON in a fence whatever the prompt says.'
+      - 'Falling back on a classification that was actually correct costs a routing mistake for a formatting one.'
+      - 'Strip the opening fence line and the closing fence before parsing.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestParsing.test_rejects_non_json:
+    condition: 'a reply written as a sentence rather than an object'
+    hints:
+      - 'A classifier that answers in prose has not given you a label you can act on.'
+      - 'Searching the sentence for a route name guesses at an answer nobody gave.'
+      - 'Raise MalformedReply when the reply does not parse.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestParsing.test_rejects_a_missing_confidence:
+    condition: 'an object naming a route but leaving the confidence out'
+    hints:
+      - 'Without the number there is nothing to compare against the threshold.'
+      - 'Defaulting it to one accepts every reply that forgot to include it.'
+      - 'Require the field to be present and numeric, and raise MalformedReply otherwise.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestParsing.test_rejects_a_confidence_out_of_range:
+    condition: 'a confidence of forty two where the range is zero to one'
+    hints:
+      - 'A number outside the range clears any threshold you set.'
+      - 'Clamping it silently accepts a reply the model clearly did not understand.'
+      - 'Check the bounds and raise MalformedReply when the value falls outside them.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestParsing.test_rejects_no_content:
+    condition: 'a reply whose content came back as None'
+    hints:
+      - 'A turn can finish with no text at all, and the parser is handed whatever arrived.'
+      - 'Calling a string method on None raises something that says nothing about routing.'
+      - 'Check the type first and raise MalformedReply.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRuleRoute.test_routes_on_one_keyword:
+    condition: 'a request containing a single keyword from one route'
+    hints:
+      - 'The rule pass is free, so it should decide whatever it can.'
+      - 'The decision carries how it was reached, so a reader can tell a rule from a model call.'
+      - 'Return a decision naming the route, the rule reason, and the keywords that matched.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRuleRoute.test_confidence_is_the_fraction_of_keywords_matched:
+    condition: 'a request matching two of one route''s four keywords'
+    hints:
+      - 'A raw count is not comparable across routes with different numbers of keywords.'
+      - 'The confidence has to sit in the same range as the model''s, or the two cannot be read together.'
+      - 'Divide the matched count by the number of keywords the winning route declares.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRuleRoute.test_matched_keeps_the_routes_own_order:
+    condition: 'keywords appearing in the request in a different order from the route''s list'
+    hints:
+      - 'The matched list is read by a person deciding whether the rules are any good.'
+      - 'Ordering by where the words fell in the request makes two identical routings look different.'
+      - 'Walk the route''s keyword list in its own order and collect the ones that matched.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRuleRoute.test_a_multi_word_keyword_needs_every_word:
+    condition: 'a keyword of two words where only the first appears in the request'
+    hints:
+      - 'A phrase keyword means the phrase, not any of its words.'
+      - 'Matching on the first word alone routes a session question to billing.'
+      - 'Split the keyword and require every word to be present.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRuleRoute.test_no_match_returns_none:
+    condition: 'a request that fires no keyword on any route'
+    hints:
+      - 'No rule fired, so the rule pass has no opinion.'
+      - 'Returning the fallback here skips the model call that might have classified it correctly.'
+      - 'Return None so the caller knows to try the next pass.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRuleRoute.test_a_tie_returns_none:
+    condition: 'a request matching one keyword each on two different routes'
+    hints:
+      - 'Breaking the tie on list order turns an ambiguity into a confident mistake.'
+      - 'The answer would then depend on how somebody happened to declare the routes.'
+      - 'Return None when more than one route shares the best score.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRuleRoute.test_makes_no_model_call:
+    condition: 'a request the rules can settle on their own'
+    hints:
+      - 'The rule pass is free, so use it.'
+      - 'Calling the model anyway and comparing pays for a classification you already had.'
+      - 'Return the rule decision from the router without reaching the model.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_the_catalogue_reaches_the_system_message:
+    condition: 'a classifier prompt that has to list every route and what it covers'
+    hints:
+      - 'A model asked to pick a label needs to know which labels exist and what they mean.'
+      - 'Names without descriptions leave it guessing what belongs where.'
+      - 'Render each route''s name and description into the system message.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_the_request_goes_last_and_alone:
+    condition: 'a user message that must carry the request and nothing else'
+    hints:
+      - 'Mixing the request into the instructions makes it compete with them.'
+      - 'Adding a preamble around it changes what is being classified.'
+      - 'Put the request into its own user message as it arrived.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_accepts_a_confident_label:
+    condition: 'a known route returned with a confidence above the floor'
+    hints:
+      - 'This is the case the model call exists for, so it has to be believed.'
+      - 'The reason distinguishes it from a rule decision in the logs afterwards.'
+      - 'Return the label with the model reason and the reported confidence.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_an_unknown_label_falls_back:
+    condition: 'a confident reply naming a route that was never offered'
+    hints:
+      - 'A label you never offered is not a route, however confident it sounds.'
+      - 'Dispatching on it would fail to find a handler at all.'
+      - 'Check the label against the route names and fall back with a reason naming the problem.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_a_low_confidence_label_falls_back_and_keeps_the_number:
+    condition: 'a plausible route returned below the confidence floor'
+    hints:
+      - 'A guess dispatched confidently is worse than a request sent to the general handler.'
+      - 'The reported number is what tells you where to put the floor, so it must survive the fallback.'
+      - 'Return the fallback route while keeping the confidence that was reported.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_a_malformed_reply_falls_back:
+    condition: 'a reply that never parsed into a label and a number'
+    hints:
+      - 'There is no confidence to report, because the number never parsed.'
+      - 'Reporting a low confidence here is not a measurement, it is the absence of one.'
+      - 'Catch the parse failure, return the fallback with zero, and let the reason carry what happened.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_the_threshold_is_inclusive_at_its_own_value:
+    condition: 'a confidence sitting exactly on the floor'
+    hints:
+      - 'The floor is a minimum, not a gap.'
+      - 'A strict comparison rejects the boundary and makes the threshold mean something slightly different.'
+      - 'Fall back only when the confidence is below the threshold.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_costs_exactly_one_call:
+    condition: 'a classification that must cost one call'
+    hints:
+      - 'Routing runs on every request, so its cost multiplies through the whole system.'
+      - 'Asking twice and comparing pays double for a decision the fallback already guards.'
+      - 'Make one call and read the label off it.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestModelRoute.test_decide_falls_through_to_the_model_on_a_tie:
+    condition: 'a request the rules declined to settle, which must reach the model'
+    hints:
+      - 'The rule pass returning nothing is the signal to go on, not a decision.'
+      - 'Treating it as a fallback skips the classifier that could resolve the ambiguity.'
+      - 'Call the model whenever the rule pass returned no decision.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRouterConstruction.test_rejects_no_routes:
+    condition: 'a router built with an empty route list'
+    hints:
+      - 'A router with no routes cannot route anything, and the failure would appear on the first request.'
+      - 'Failing at construction is better than failing under load.'
+      - 'Validate the route list in the constructor and raise ValueError.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRouterConstruction.test_rejects_duplicate_names:
+    condition: 'the same route registered twice under one name'
+    hints:
+      - 'The name is what the classifier emits, so two routes with one name is a coin toss.'
+      - 'A lookup built from the list silently keeps whichever came last.'
+      - 'Find the repeated names and raise ValueError naming them.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestRouterConstruction.test_rejects_a_fallback_that_is_not_a_route:
+    condition: 'a fallback naming a route that does not exist'
+    hints:
+      - 'The fallback is dispatched to like any other route, so it needs a handler.'
+      - 'A misspelled fallback works perfectly until the first request the model cannot classify.'
+      - 'Check the fallback against the route names in the constructor and raise ValueError.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestDispatch.test_runs_the_chosen_handler:
+    condition: 'a routed request whose specialist has to actually be called'
+    hints:
+      - 'Deciding is half the job. The result comes from the handler.'
+      - 'The handler is looked up by the decided route name.'
+      - 'Call the chosen route''s handler and return its output alongside the decision.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestDispatch.test_the_handler_receives_the_history:
+    condition: 'a follow up asking to refund the second one, which needs the earlier turns'
+    hints:
+      - 'A specialist given only the last message cannot resolve a reference to something said earlier.'
+      - 'Passing the request alone throws away the context the router was reading.'
+      - 'Put the history onto the handoff the handler receives.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestDispatch.test_history_defaults_to_empty:
+    condition: 'a first message with no earlier turns behind it'
+    hints:
+      - 'The first request in a conversation has no history, and that is not a missing argument.'
+      - 'A default of None reaches the handler as something it cannot iterate.'
+      - 'Default to an empty sequence rather than leaving the field unset.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestDispatch.test_the_handoff_carries_the_reason:
+    condition: 'a low confidence fallback whose handler should know it was one'
+    hints:
+      - 'A specialist handling a fallback is in a different situation from one that was chosen deliberately.'
+      - 'Without the reason it cannot hedge or ask a clarifying question.'
+      - 'Copy the decision reason onto the handoff.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestDispatch.test_a_fallback_still_runs_a_handler:
+    condition: 'a malformed classification that still has to reach somebody'
+    hints:
+      - 'Every request reaches some handler; routing to nothing is not an option.'
+      - 'Returning early on a fallback leaves the user with silence.'
+      - 'Dispatch to the fallback route''s handler like any other.'
+    concept: ai-multi-agent-and-production.routing-and-specialists
+
+  TestDispatch.test_the_decision_is_the_one_the_handoff_was_built_from:
+    condition: 'a result whose decision and handoff must agree with each other'
+    hints:
+      - 'Deciding twice, once for the handoff and once for the result, can produce two different answers.'
+      - 'The request on the handoff also has to be the one that was routed.'
+      - 'Decide once, build the handoff from that decision, and return both.'
+    concept: ai-multi-agent-and-production.routing-and-specialists

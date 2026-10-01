@@ -7,6 +7,213 @@ estimatedMinutes: 35
 exercise:
   id: intent-router
   timeboxMinutes: 40
+challenges:
+  goal: Decide whether a split is paid for, describe routes a classifier can hit, and dispose of the labels it gets wrong.
+
+  steps:
+    - id: is-the-split-paid-for
+      kind: choice
+      prompt: >-
+        One support agent, one prompt, twenty-two tools, and a rising rate of confident
+        wrong answers. Which of these justifies splitting it into specialists?
+      options:
+        - id: readability
+          label: Three short prompts are easier to read than one long one.
+          note: True, and not a reason. The split buys a routing call, a new failure mode and compound reliability of roughly 0.9 from two components at 0.95. Readability does not pay for that.
+        - id: tool-count
+          label: Twenty-two tools is more than one agent should carry.
+          note: There is no count that holds across models. Twenty-two well separated tools cause less confusion than six that overlap, and the number on its own predicts nothing.
+        - id: measured-contention
+          label: Two eval cases fail because the confirm-before-refund rule loses to the resolve-in-one-turn rule, and because lookup_order gets called instead of get_order.
+          correct: true
+          note: Two named defects, both measurable before and after. That is a split you can tell afterwards whether you should have done, which is the only kind worth making.
+        - id: parallelism
+          label: Specialists can run in parallel, which cuts latency.
+          note: A router sends one request to one specialist, so nothing here runs in parallel. Fanning work out is the orchestrator pattern, and it solves a different problem.
+      hints:
+        - Three of these are properties of the design. One is a measurement of the current system.
+        - The split adds a component that can be wrong. What is the evidence it removes more error than it adds?
+        - Routing picks one specialist per request.
+      reveal: >-
+        A router at 95 percent in front of a specialist at 95 percent lands near 90, and a
+        misrouted request fails confidently because the wrong specialist has the wrong
+        tools. Splitting has to beat that, and only a measurement can say whether it does.
+
+    - id: describe-the-routes
+      kind: text-contract
+      prompt: >-
+        These route descriptions are what the classifier matches an incoming message
+        against. Rewrite them so there is something to match.
+      context:
+        as: log
+        lines:
+          - 'my card was charged twice'
+          - 'the app stopped working after the update'
+          - 'hi, are you there?'
+      lang: json
+      initial: |
+        {
+          "routes": {
+            "billing": "billing",
+            "tech": "tech stuff",
+            "general": "other"
+          }
+        }
+      rules:
+        - message: This no longer parses. Check the commas between the three route entries.
+          check: { op: parses, as: json }
+        - message: The billing description is the route's own name. A classifier matching a message against the word billing has nothing to work with, so write the words a user would type.
+          check: { op: length, path: routes.billing, min: 40 }
+        - message: Refunds are the single most common billing intent and the description does not mention them.
+          check: { op: contains, path: routes.billing, text: refund }
+        - message: Nothing in the billing description covers a card being charged.
+          check: { op: contains, path: routes.billing, text: charge }
+        - message: The technical description needs the same treatment. Name the things that go wrong rather than the department that owns them.
+          check: { op: length, path: routes.tech, min: 40 }
+        - message: A crash is what users report and the description should say so.
+          check: { op: contains, path: routes.tech, text: crash }
+        - message: Errors belong in the technical route too.
+          check: { op: contains, path: routes.tech, text: error }
+        - message: Refunds appear in both descriptions now. A word in two routes turns every message containing it into a coin flip.
+          check: { op: notContains, path: routes.tech, text: refund }
+        - message: The fallback is described as a topic, so the classifier will compete it against the other two on subject matter. Say that it takes what the others do not.
+          check: { op: contains, path: routes.general, text: does not }
+      hints:
+        - Read each description as though it were the only thing you knew about the route, then read the three messages above it.
+        - Two routes need concrete nouns. The third needs to describe a position rather than a subject.
+        - Any word that would fit in two descriptions should be in neither.
+      reveal: >-
+        The description is the classifier's entire training signal for that route, written
+        once and read on every request. The fallback is the one that has to be phrased
+        differently, because it is defined by exclusion and every topical word you give it
+        starts stealing traffic from a real route.
+      solution: |
+        {
+          "routes": {
+            "billing": "invoices, refunds, card charges, failed payments and plan changes",
+            "tech": "crashes, errors, slow performance and anything that stopped working",
+            "general": "anything that does not clearly belong to another route, including greetings and requests too vague to place"
+          }
+        }
+
+    - id: the-label-you-did-not-define
+      kind: spot
+      prompt: >-
+        The classifier came back with the route name refunds, which is not one of the three
+        routes. Click the line where that becomes a problem.
+      lang: python
+      source: |
+        decision = json.loads(strip_fence(reply))
+        route = decision["route"]
+        if decision["confidence"] < CONFIDENCE_FLOOR:
+            route = "general"
+        return ROUTES[route].handler(handoff)
+      targets: [4]
+      decoys:
+        "0": Stripping the fence before parsing is right, and it is cheaper than a retry that asks the model to try again without markdown.
+        "1": Reading the field is fine. The value in it is the problem, and nothing here is in a position to know that.
+        "2": The threshold is doing its job. This request came back at 0.93, so confidence was never going to catch it.
+        "3": The fallback assignment is correct as far as it goes. It only ever fires on low confidence, and a confidently invented label never reaches it.
+      hints:
+        - The label is well formed, the JSON parsed, and the confidence is high. Every check above passed.
+        - Ask what happens when a dictionary is indexed with a key nobody put in it.
+        - The confidence floor and the route registry catch different mistakes, and only one of them is being consulted.
+      reveal: >-
+        A model asked for one of three labels will sometimes return a fourth, and it will
+        return it confidently, because nothing in the decoding stopped it. Membership in
+        the registry is a separate check from the confidence floor, and it belongs on the
+        line before the dispatch rather than in the traceback.
+
+    - id: route-it-end-to-end
+      kind: machine
+      prompt: >-
+        A user writes that their card was charged twice after the app crashed. Get it to
+        the billing specialist with the transcript intact, using at most two model calls.
+      initial: arrived
+      vars: { confidence: 0, calls: 0 }
+      states:
+        arrived:
+          label: Request received
+          note: Nothing has looked at it yet.
+        rules-tied:
+          label: Keyword rules tied
+          note: The billing keywords and the technical keywords score the same, so the rule layer returns nothing rather than picking whichever was listed first.
+        labelled:
+          label: Classifier returned a label
+        general:
+          label: Fallback handler has asked a clarifying question
+          note: One question, in the user's own conversation, about which of the two things they want dealt with.
+        specialist:
+          label: Billing specialist has the request and the transcript
+        misrouted:
+          label: Dispatched below the confidence floor
+          note: The specialist is now working a request it has the wrong tools for, and it will answer confidently.
+          terminal: true
+          error: true
+        stranded:
+          label: Specialist has the last turn and nothing else
+          note: The user said the second one, and the invoice numbers were two turns back. The specialist cannot resolve the reference and has no way to know it is missing.
+          terminal: true
+          error: true
+        resolved:
+          label: Answered by the right specialist
+          terminal: true
+      transitions:
+        - from: arrived
+          on: score keywords
+          to: rules-tied
+          note: Free, deterministic, and right often enough to be worth running first. Not this time.
+        - from: rules-tied
+          on: classify
+          to: labelled
+          effects:
+            - { var: calls, op: inc, value: 1 }
+            - { var: confidence, op: set, value: 55 }
+          note: One lightweight call. It returns billing at 0.55, because the message is genuinely about two things.
+        - from: labelled
+          on: dispatch
+          to: misrouted
+          when: [{ var: confidence, cmp: lt, value: 60 }]
+          note: The floor exists for exactly this number. Dispatching under it spends the specialist call and produces an answer to half the question.
+        - from: labelled
+          on: send to fallback
+          to: general
+          when: [{ var: confidence, cmp: lt, value: 60 }]
+          note: The fallback is the only handler allowed to not know. It asks rather than guesses.
+        - from: general
+          on: read the reply
+          to: labelled
+          effects:
+            - { var: calls, op: inc, value: 1 }
+            - { var: confidence, op: set, value: 92 }
+          note: The user says the duplicate charge is the urgent part. Classified again, this time at 0.92.
+        - from: labelled
+          on: dispatch
+          to: specialist
+          when: [{ var: confidence, cmp: gte, value: 60 }]
+          note: The whole conversation goes across, not the turn that triggered the routing.
+        - from: labelled
+          on: dispatch the last turn only
+          to: stranded
+          when: [{ var: confidence, cmp: gte, value: 60 }]
+          note: Cheaper in tokens and it drops every reference the user made earlier.
+        - from: specialist
+          on: answer
+          to: resolved
+      mode: drive
+      win:
+        state: resolved
+        maxSteps: 8
+        requires: [{ var: calls, cmp: lte, value: 2 }]
+      hints:
+        - The first classification comes back below the floor. There are two things you can do with a number below a threshold and only one of them is honest.
+        - The fallback route is not a failure state. It is the handler whose job is the requests nobody can place.
+        - When the dispatch finally happens, ask what the specialist needs in order to resolve a phrase like the second one.
+      reveal: >-
+        A confidence floor is only worth having if something different happens below it,
+        and the something is a handler that can ask. Two calls got this to the right
+        specialist with the reference intact; one call would have got it to a specialist
+        that answers the wrong half of the question with no sign anything went wrong.
 ---
 
 As an agent grows, its system prompt accumulates edge-case instructions and its tool registry expands. Eventually, contradictory instructions collide and tool selection accuracy drops.

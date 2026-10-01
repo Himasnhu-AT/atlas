@@ -4,6 +4,151 @@ title: Marking its own homework
 summary: Asking a model to check its own answer usually produces agreement, because the thing that caused the error is still in the context. Independence is the property that makes a second look worth anything.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Tell how much independence a check really has, and write one that can catch the error.
+
+  steps:
+    - id: how-you-ask
+      kind: choice
+      prompt: >-
+        The draft is written and you have one more call to spend on it. The call has to
+        come back with a verdict on that draft. Which review prompt do you send?
+      options:
+        - id: is-it-correct
+          label: Here is my answer. Is it correct?
+          note: This is the framing that agrees with almost anything. The answer is in the context, the question invites assent, and a yes costs the model nothing.
+        - id: whats-wrong
+          label: What is wrong with this answer?
+          note: The opposite bias rather than none. Asked what is wrong, the model finds something, and correct drafts come back edited into worse ones.
+        - id: rubric-with-exit
+          label: Check this against each rubric item. Return the items it fails, and an empty list if it fails none.
+          correct: true
+          note: It names what to look for, and it makes a clean report a legal answer. Both matter, because a critique prompt with no way to say nothing found will always find something.
+        - id: confidence-score
+          label: Rate your confidence in this answer from 1 to 10.
+          note: A number produced from the same context that produced the answer. It checks nothing, it is reliably high, and it looks like evidence in a log.
+      hints:
+        - Two of these are opposite biases and neither of them is neutral.
+        - A useful critique prompt has to permit the outcome where there is nothing to report.
+        - One option asks for findings against named criteria. The others ask for a mood.
+      reveal: >-
+        Wording moves the verdict more than the draft does. That is worth knowing, and it
+        is also the ceiling on this whole approach: you are tuning a check that still
+        reads the reasoning that caused the error.
+
+    - id: what-it-shares
+      kind: assign
+      prompt: >-
+        Sort each check by how much it shares with the run that produced the answer.
+        Everything the check can see, it can inherit.
+      buckets:
+        - id: same-context
+          label: Reads the original transcript
+        - id: fresh-context
+          label: Runs the model again with the reasoning left out
+        - id: outside-model
+          label: Does not ask the model at all
+      items:
+        - id: reread
+          label: Re-read the transcript and ask whether the conclusion follows
+          bucket: same-context
+          because: The misread number is still in the transcript, and the second pass reads it the same way the first one did.
+        - id: rate-confidence
+          label: Ask the model how confident it is in what it wrote
+          bucket: same-context
+          because: A confidence score is generated from the same context as the answer. It moves with fluency, not with truth.
+        - id: critique-the-critique
+          label: Ask the model whether its own critique was fair
+          bucket: same-context
+          because: Another turn on the same thread. Stacking passes over one context does not create a second opinion.
+        - id: resample
+          label: Ask the same question five more times at temperature 0.6 and compare
+          bucket: fresh-context
+          because: Each sample starts from the prompt with none of the earlier drafts in it, so the runs can disagree.
+        - id: claim-question
+          label: Pull one claim out of the draft and ask it as a standalone question
+          bucket: fresh-context
+          because: The claim goes in, the argument that produced it does not. Independence here is a fact about what you left out of the prompt.
+        - id: run-the-sql
+          label: Run the generated SQL against the database
+          bucket: outside-model
+          because: The database does not care how confident the query was. It either returns rows or raises.
+        - id: validate-schema
+          label: Validate the payload against the JSON schema
+          bucket: outside-model
+          because: A schema check has no context to inherit, which is why it is the cheapest verification you own.
+      hints:
+        - Ask what the check can see. Anything in front of it can be copied into its verdict.
+        - Two of these do not involve the model, and they are the only ones that cannot repeat the error.
+        - Re-running the model counts as fresh only when the earlier draft is not in the new prompt.
+      reveal: >-
+        Independence is not a property of the check, it is a property of what the check
+        is shown. The same model on the same question is a real second opinion when the
+        first opinion is absent, and worthless when it is present.
+
+    - id: find-the-leak
+      kind: spot
+      prompt: >-
+        This function costs two calls and catches almost nothing. Click the two lines
+        that make the second call agree with the first.
+      lang: python
+      source: |
+        def answer_with_check(question):
+            draft = model(f"{question}\nWork through it step by step.")
+            verdict = model(
+                f"Question: {question}\n"
+                f"My working: {draft.reasoning}\n"
+                f"My answer: {draft.text}\n"
+                "Is that right? Reply yes or no."
+            )
+            return draft.text if verdict.lower().startswith("yes") else escalate(draft)
+      targets: [4, 6]
+      decoys:
+        "3": The question has to be there. A checker with no question in front of it has nothing to check against.
+        "5": A verdict has to name what it is a verdict on, so the answer belongs in the prompt. What does not belong is the road that led to it.
+        "8": Routing on the verdict is fine. The problem is upstream, in what the verdict was formed from.
+      hints:
+        - One line hands over the thinking, and one line asks a question that has an easy answer.
+        - If the first pass misread a number, which line puts that misreading back in front of the checker?
+        - Reply yes or no is a coin with a heavy side.
+      reveal: >-
+        Drop the working line and the yes-or-no line and you have a check that has to
+        re-derive the answer before it can disagree. That is the entire difference between
+        two calls that cost twice as much and two calls that catch something.
+
+    - id: make-it-standalone
+      kind: text-contract
+      prompt: >-
+        This is the prompt a verifier is about to receive. Cut it down to a question that
+        could be answered by somebody who has never seen the draft.
+      lang: text
+      initial: |
+        Here is the draft I wrote: "Sonar Systems shipped its first product in March 2019."
+        I got that from the press release, which is dated March 2019, so the ship date
+        must be March 2019 as well. Is that right? Reply yes or no.
+      rules:
+        - message: The draft claim is still quoted in the prompt. A checker that is shown the answer is being asked to agree with it.
+          check: { op: notContains, text: shipped its first product in March 2019 }
+        - message: The reasoning that produced the claim is still here. That inference is exactly what you want checked, so it cannot be an assumption in the checking prompt.
+          check: { op: notContains, text: press release }
+        - message: A yes or no question about somebody else's answer is answered by agreeing. Ask for the fact instead.
+          check: { op: notMatches, pattern: "is that right|reply yes or no|is this correct", flags: i }
+        - message: The question has to name what it is about. Somebody who has not seen the draft cannot guess which company you mean.
+          check: { op: contains, text: Sonar Systems }
+        - message: What is left has to be a question. End it with a question mark and nothing after it.
+          check: { op: matches, pattern: "\\?\\s*$" }
+        - message: Still too long to be a standalone question. Anything past the question is context the checker did not need.
+          check: { op: length, max: 120 }
+      hints:
+        - Everything the draft asserted and everything it assumed has to come out. What survives is the thing you do not know yet.
+        - You are not asking whether March 2019 is right. You are asking when it shipped.
+        - One line, naming the company, ending in a question mark.
+      reveal: >-
+        The checking prompt is defined by its omissions. Nothing about the draft is in it,
+        so a disagreement between the two answers is real information rather than the same
+        run repeated with a different tone of voice.
+      solution: |
+        When did Sonar Systems ship its first product?
 ---
 
 A common intuition in agent design is to ask the model to review its own output before returning a response. Generating a draft and subsequently prompting the model to verify accuracy adds an extra API call.

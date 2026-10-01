@@ -7,6 +7,221 @@ estimatedMinutes: 55
 exercise:
   id: handoff-runner
   timeboxMinutes: 25
+challenges:
+  goal: Build the transfer tool the model sees, dispatch it without breaking the history, and stop two desks passing a ticket back.
+
+  steps:
+    - id: the-transfer-tool
+      kind: text-contract
+      prompt: >-
+        This is the synthetic tool the triage agent should be offered for its Refund Desk
+        target. Fix it so a provider will accept it and a model will call it at the right
+        moment.
+      lang: json
+      initial: |
+        {
+          "type": "function",
+          "function": {
+            "name": "transfer_to_Refund Desk",
+            "description": "handoff",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "reason": { "type": "string" },
+                "history": { "type": "string" }
+              },
+              "required": ["reason", "history"]
+            }
+          }
+        }
+      rules:
+        - message: This no longer parses. Check the braces around the parameters object.
+          check: { op: parses, as: json }
+        - message: An agent is called Refund Desk and a tool name cannot have a space or a capital in it. Normalise the name rather than renaming the agent.
+          check: { op: equals, path: function.name, value: transfer_to_refund_desk }
+        - message: The description is the only thing the model routes on. One word tells it nothing about when this transfer is the right move.
+          check: { op: length, path: function.description, min: 40 }
+        - message: Say what the target handles, in the target's own words. The description carries the other agent's instructions across to the model choosing between them.
+          check: { op: contains, path: function.description, text: refund }
+        - message: The transfer takes no arguments. The whole conversation is already going across, and asking the model to restate the reason is one more thing for it to get wrong.
+          check:
+            op: equals
+            path: function.parameters.properties
+            value: {}
+        - message: Nothing is required, because nothing is a parameter.
+          check: { op: length, path: function.parameters.required, min: 0, max: 0 }
+      hints:
+        - Two of these fields are wrong because of what they contain, and one is wrong because it contains anything at all.
+        - Ask what the receiving agent would do with a reason string that the conversation does not already say.
+        - The description is not documentation. It is the routing signal.
+      reveal: >-
+        A handoff is a tool with an empty schema and a good description, which is a strange
+        object until you notice that its only job is to be chosen. Everything the target
+        needs is in the history already, so parameters here are extra surface with nothing
+        behind it.
+      solution: |
+        {
+          "type": "function",
+          "function": {
+            "name": "transfer_to_refund_desk",
+            "description": "Hand off to the Refund Desk, which handles refund requests, refund status and refund policy questions.",
+            "parameters": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          }
+        }
+
+    - id: dispatch-in-order
+      kind: order
+      prompt: >-
+        The model just called transfer_to_billing. Put what the runtime does next in order.
+      items:
+        - { id: append-assistant, label: Append the assistant message that contains the call }
+        - { id: check-target, label: Look the tool name up in the active agent's own handoff table }
+        - { id: append-tool, label: Append a tool result against that call id }
+        - { id: reassign, label: Point current_agent at the target }
+        - { id: rebuild, label: Build the next request from the new agent's instructions and tools }
+      solution: [append-assistant, check-target, append-tool, reassign, rebuild]
+      because:
+        check-target: An agent can only transfer to a target it declared. A name that is not in its table is a routing failure with a name attached, rather than an unknown tool the loop shrugs at.
+        append-tool: Every tool call in the history needs a matching result. Skip this and the next request is rejected by the provider before the model reads a word of it.
+        reassign: The reassignment comes once the history is consistent, because the history is shared between the two agents and the variable is not.
+        rebuild: The new instructions go on the request rather than into the history, which is what stops the previous agent's instructions travelling with the conversation.
+      hints:
+        - The response arrives with the call in it, so one of these has already been decided before the runtime does anything.
+        - There is a check that belongs before any of the appending, and it is about permission rather than correctness.
+        - One step exists only because providers refuse histories with unanswered calls.
+      reveal: >-
+        Nothing here is a message to another process. A handoff is a variable being pointed
+        somewhere else, plus two lines of bookkeeping in the transcript that make the
+        provider willing to look at it.
+
+    - id: what-crosses
+      kind: assign
+      prompt: >-
+        Triage has just handed off to Billing. From Billing's point of view, sort what the
+        run now contains.
+      buckets:
+        - id: carried
+          label: Still there
+        - id: swapped
+          label: Replaced with Billing's own
+        - id: gone
+          label: Not available
+      items:
+        - id: user-message
+          label: The customer's original message
+          bucket: carried
+          because: The history is shared, which is the reason a transfer needs no arguments. Billing reads the same conversation Triage read.
+        - id: earlier-tool-result
+          label: The result Triage got back from lookup_plan
+          bucket: carried
+          because: Tool results are messages, so they travel like every other message. Billing can read the plan without spending a call to find it.
+        - id: transfer-call
+          label: The assistant message containing the transfer call, and its tool result
+          bucket: carried
+          because: The transfer is in the transcript, which is what makes a trace of a multi-agent run readable as a sequence rather than a mystery.
+        - id: triage-instructions
+          label: Triage's system instructions
+          bucket: swapped
+          because: Instructions are prepended per request from whichever agent is active. Storing them in the history instead is how one agent's rules start binding another agent.
+        - id: tool-schemas
+          label: The list of tool schemas sent with the request
+          bucket: swapped
+          because: The model is offered exactly what the active agent declared. This is a structural boundary rather than an instruction, which is why it holds under a prompt that argues with it.
+        - id: lookup-plan-tool
+          label: lookup_plan itself, which only Triage declared
+          bucket: gone
+          because: The result of the earlier call is in the history and the tool is not on the list. Billing can read what it returned and cannot call it again, which is worth knowing before you rely on it.
+        - id: triage-handoffs
+          label: Triage's handoff targets
+          bucket: gone
+          because: Billing can only transfer where Billing declared. Handing back is possible only if somebody wired it, which is both a safety property and the setup for a loop.
+      hints:
+        - Everything in the message list is shared. Ask what is not in the message list.
+        - Two things are rebuilt from the active agent on every single request.
+        - A tool result can outlive access to the tool that produced it.
+      reveal: >-
+        Shared history, private instructions, scoped tools. That combination is what makes
+        a handoff cheap to reason about, and the awkward case is the middle one: an agent
+        can read the output of a tool it is not allowed to call.
+
+    - id: run-the-handoff
+      kind: machine
+      prompt: >-
+        A customer wants a refund for a duplicate charge. Triage can reach Billing, Billing
+        can reach the Refund Desk, and the turn limit is three.
+      initial: at-triage
+      vars: { turns: 0 }
+      states:
+        at-triage:
+          label: Triage has the conversation
+          note: Its instructions say refunds are not its to give, and it declares one handoff target.
+        at-billing:
+          label: Billing has the conversation
+          note: It can see the whole thread and it declares the Refund Desk as a target.
+        at-refunds:
+          label: The Refund Desk has the conversation
+          note: It also declares Billing, which is convenient and is how the loop becomes possible.
+        answered:
+          label: Answered by the desk that owns it
+          terminal: true
+        broken-history:
+          label: Provider rejected the request
+          note: A tool call in the history has no matching result, so the request fails before the model reads any of it.
+          terminal: true
+          error: true
+        wrong-desk:
+          label: Answered by an agent whose instructions forbid it
+          note: The model complies with the instructions it was given, so the customer gets a polite refusal from the desk that was supposed to pass them on.
+          terminal: true
+          error: true
+      transitions:
+        - from: at-triage
+          on: transfer to billing
+          to: at-billing
+          effects: [{ var: turns, op: inc, value: 1 }]
+          note: A full turn whose only product is a variable pointing somewhere else. That is the price of the pattern and it is why two similar agents should be one.
+        - from: at-triage
+          on: reassign without a tool result
+          to: broken-history
+          note: The variable moves and the transcript does not. Loud, immediate, and easier to debug than most of what goes wrong here.
+        - from: at-triage
+          on: answer it here
+          to: wrong-desk
+          note: Triage has no refund tool and plenty of language. It will produce something.
+        - from: at-billing
+          on: transfer to the refund desk
+          to: at-refunds
+          effects: [{ var: turns, op: inc, value: 1 }]
+        - from: at-billing
+          on: answer it here
+          to: wrong-desk
+          note: Billing was routed to correctly and still cannot give a refund. Being the right first hop is not the same as being the right desk.
+        - from: at-refunds
+          on: answer the customer
+          to: answered
+          effects: [{ var: turns, op: inc, value: 1 }]
+        - from: at-refunds
+          on: transfer back to billing
+          to: at-billing
+          effects: [{ var: turns, op: inc, value: 1 }]
+          note: Legal, because the Refund Desk declares Billing. Two agents that each declare the other will do this for as long as the limit allows.
+      mode: drive
+      win:
+        state: answered
+        maxSteps: 8
+        requires: [{ var: turns, cmp: lte, value: 3 }]
+      hints:
+        - Every hop is a turn, and the answer is a turn as well. Three of those is the whole budget.
+        - Two of the endings here are failures and only one of them raises anything.
+        - The desk that can end this is two hops away, and there is no way to get there in one.
+      reveal: >-
+        Two handoffs and an answer is exactly the budget, which is the honest cost of the
+        pattern rather than a puzzle. The turn limit is not a safety net for this run, it is
+        the only thing standing between you and two agents that each declare the other.
 ---
 
 In modern agent runtimes, multi-agent systems do not require complex inter-process messaging.

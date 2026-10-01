@@ -7,6 +7,131 @@ estimatedMinutes: 30
 exercise:
   id: conversation-loop
   timeboxMinutes: 25
+challenges:
+  goal: Own the message list across a turn, and trim it without leaving a tool result stranded.
+
+  steps:
+    - id: one-turn-of-send
+      kind: order
+      prompt: >-
+        Put one call to send in order. Two of these could sit on either side of the model
+        call and only one placement is safe for each.
+      items:
+        - { id: append-user, label: Append the user's message to the list you own }
+        - { id: trim, label: Apply the window to the list }
+        - { id: call, label: Send the whole list to the model }
+        - { id: count, label: Add this call's usage to the running token total }
+        - { id: check, label: Read finish_reason }
+        - { id: append-assistant, label: Append the reply as an assistant message }
+      solution: [append-user, trim, call, count, check, append-assistant]
+      because:
+        trim: Trimming before the new question is appended can leave the window full and push that question straight back out of it. Append first and the newest turn is always inside.
+        count: A truncated turn was generated and billed like any other. Count before deciding whether to reject it, or every truncation goes unbilled in your own numbers.
+        append-assistant: Last, and only for a turn that finished. A fragment appended here becomes the thing every later turn reads as something the assistant meant to say.
+      hints:
+        - The window has to contain the question being answered, which fixes where it goes relative to the append.
+        - One of these has to happen even when the turn is about to be thrown away.
+        - Only one step is conditional, and it is the last one.
+      reveal: >-
+        Both of the orderings that matter here pass every happy path test. Trim before
+        appending and the window is right until the day the conversation is exactly full.
+        Count after the truncation check and the token total is right until the day a reply
+        is cut off. Neither bug appears while you are writing it.
+
+    - id: what-to-do-with-a-fragment
+      kind: choice
+      prompt: finish_reason came back as length. What goes into the history?
+      context:
+        as: log
+        lines:
+          - 'finish_reason: length'
+          - 'content: "The refund window is thirty days from deliv"'
+          - 'usage: prompt_tokens 812, completion_tokens 64'
+      options:
+        - id: nothing
+          label: Nothing. Raise, and leave the user's question as the last message.
+          correct: true
+          note: The question is still unanswered and the history is still a valid request, so a retry sends exactly the call that should have worked the first time.
+        - id: store
+          label: Append the partial text as the assistant turn.
+          note: Every later turn now builds on half a sentence, and the model reads it as something it chose to say rather than as something that was cut off.
+        - id: store-marked
+          label: Append it with a note saying it was truncated.
+          note: The note is ordinary prose sitting in a content field. Nothing obliges the model to treat it differently from the fragment beside it.
+        - id: drop-both
+          label: Drop the user's question too and start the turn clean.
+          note: The question was never the problem. Dropping it loses the thing you were trying to answer and the user has to type it again.
+      hints:
+        - Ask what the next request would look like under each option.
+        - Two of these leave a fragment where a finished answer should be.
+        - Something in that log does belong in your accounting even though none of it belongs in the history.
+      reveal: >-
+        Those 64 completion tokens were generated and billed, so they belong in your token
+        total. The text was not an answer, so it does not belong in the history. Both are
+        true at once, which is why the count has to happen before the check rather than after
+        it.
+
+    - id: trim-without-orphaning
+      kind: text-contract
+      prompt: >-
+        This request no longer fits. Cut it to a three turn window, keeping the system
+        message and leaving a request the provider will still accept.
+      context:
+        as: pairs
+        items:
+          - { k: keep_last, v: "3 messages, not counting the system message" }
+          - { k: pin, v: the system message stays at index 0 }
+          - { k: hard rule, v: every tool result needs the assistant turn that asked for it }
+      lang: json
+      initial: |
+        {
+          "messages": [
+            {"role": "system", "content": "You are a support agent."},
+            {"role": "user", "content": "Where is order 5512?"},
+            {"role": "assistant", "content": null,
+             "tool_calls": [{"id": "call_1", "type": "function",
+                             "function": {"name": "lookup_order", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call_1", "content": "in transit"},
+            {"role": "assistant", "content": "It is in transit."},
+            {"role": "user", "content": "And 5513?"}
+          ]
+        }
+      rules:
+        - message: That no longer parses. Check the brackets and commas left behind by whatever you removed.
+          check: { op: parses, as: json }
+        - message: Six messages is what you started with. The window keeps three ordinary turns behind the system message.
+          check: { op: length, path: messages, max: 5 }
+        - message: Too few now. Cutting to exactly three plus the system message strands the tool result, so the window has to open by one to reach back over it.
+          check: { op: length, path: messages, min: 5 }
+        - message: The system message is pinned at the front. Moving or dropping it changes what the agent is, and it invalidates the prompt cache.
+          check: { op: equals, path: messages.0.role, value: system }
+        - message: A tool result cannot be the first message after the system prompt. There is nothing left for it to answer, and the provider rejects the request outright.
+          check: { op: oneOf, path: messages.1.role, values: [assistant, user] }
+        - message: The window has to reach back to the assistant turn that made call_1, not to some other one.
+          check: { op: equals, path: messages.1.tool_calls.0.id, value: call_1 }
+        - message: The newest question has to survive. It is the thing being answered.
+          check: { op: equals, path: messages.4.content, value: And 5513? }
+      hints:
+        - Start by cutting to the last three ordinary turns and look at what ends up directly after the system message.
+        - A tool result with no assistant turn in front of it is not a request the provider will accept.
+        - Move the boundary backwards until the message it lands on is the one that asked for the tool.
+      reveal: >-
+        The window is a target rather than a hard cap, and this is why. Honouring keep_last
+        exactly would split a tool exchange, so the boundary walks backwards over any run of
+        tool results until it lands on the assistant turn that requested them. One message
+        over budget is fine. A malformed request is not.
+      solution: |
+        {
+          "messages": [
+            {"role": "system", "content": "You are a support agent."},
+            {"role": "assistant", "content": null,
+             "tool_calls": [{"id": "call_1", "type": "function",
+                             "function": {"name": "lookup_order", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call_1", "content": "in transit"},
+            {"role": "assistant", "content": "It is in transit."},
+            {"role": "user", "content": "And 5513?"}
+          ]
+        }
 ---
 
 A chat completions API is stateless. The provider retains no session objects across requests. Multi-turn dialogue is maintained by passing a growing array of message objects on every call:

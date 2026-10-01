@@ -1,0 +1,65 @@
+version: 1
+cases:
+  TestMinHeapPriorityQueue.test_empty_heap_state:
+    condition: 'a queue holding nothing, then peeked at and popped from'
+    hints:
+      - 'There is no minimum of nothing, so neither operation has anything to hand back.'
+      - 'Reading slot 0 of an empty array is the failure to head off, and the error it produces says nothing useful about the queue.'
+      - 'Raise IndexError from both peek and pop while the array is empty.'
+    concept: intro-cpp-generics.priority-queues-and-heaps
+
+  TestMinHeapPriorityQueue.test_single_element:
+    condition: 'the only element in the queue, peeked at and then taken out'
+    hints:
+      - 'With one element the root is also the last slot, so moving the last element up to the root would move it onto itself.'
+      - 'Peek hands the element back and leaves it. Pop hands it back and removes it.'
+      - 'Settle the single element case by taking the last slot off directly, with nothing to sift afterwards.'
+    concept: intro-cpp-generics.priority-queues-and-heaps
+
+  TestMinHeapPriorityQueue.test_priority_ordering_multiple_pushes:
+    condition: 'six elements pushed out of order, then drained in ascending priority'
+    hints:
+      - 'The array is never sorted. Only the root is guaranteed, and the root is the only slot anybody reads.'
+      - 'A new element goes on the end and climbs while it is smaller than the parent above it.'
+      - 'After appending, compare against the parent at (i - 1) // 2 and swap upward until that parent is no larger.'
+    concept: intro-cpp-generics.priority-queues-and-heaps
+
+  TestMinHeapPriorityQueue.test_negative_and_duplicate_priorities:
+    condition: 'negative priorities alongside zero, with two elements sharing one priority'
+    hints:
+      - 'Nothing in the heap assumes priorities are positive. Less than is the only comparison it ever makes.'
+      - 'Two equal priorities may come out in either order, so the comparison has to be strict rather than treating equal as smaller.'
+      - 'Compare priorities with a strict less than, and stop climbing or sinking the moment the comparison fails.'
+    concept: intro-cpp-generics.priority-queues-and-heaps
+
+  TestMinHeapPriorityQueue.test_uncomparable_payload_objects:
+    condition: 'two dicts sharing a priority, which cannot be ordered against each other'
+    hints:
+      - 'Comparing whole entries falls through to the payload when the priorities tie, and two dicts have no ordering to fall through to.'
+      - 'The payload is cargo. Nothing about the ordering should ever look at it.'
+      - 'Compare the priority component of each entry rather than the entries themselves.'
+    concept: intro-cpp-generics.priority-queues-and-heaps
+
+  TestMinHeapPriorityQueue.test_heapify_linear_build:
+    condition: 'seven unordered pairs made into a heap in one pass rather than pushed one at a time'
+    hints:
+      - 'Pushing the elements one by one costs n log n. Building from the whole array can be done in linear time.'
+      - 'Leaves are already valid heaps on their own, so only the internal nodes need any work.'
+      - 'Adopt the array as it stands and sift down from the last internal node back to the root.'
+    concept: intro-cpp-generics.priority-queues-and-heaps
+
+  TestMinHeapPriorityQueue.test_heapify_empty:
+    condition: 'a build from an empty list of pairs'
+    hints:
+      - 'There are no internal nodes here, so the pass over them has to do nothing rather than reach for a negative index.'
+      - 'The index of the last internal node comes out negative for an empty array.'
+      - 'Adopt the empty list as the array and let the downward pass run zero times.'
+    concept: intro-cpp-generics.priority-queues-and-heaps
+
+  TestMinHeapPriorityQueue.test_interleaved_push_and_pop:
+    condition: 'pushes arriving between pops, so elements join a heap already in use'
+    hints:
+      - 'The heap is not filled and then drained. An element pushed after a pop still has to find its place.'
+      - 'Once the root is taken, the last element moves to the top and has to sink until both its children are larger.'
+      - 'Sift down from the root after every pop and sift up from the end after every push, so the invariant holds between operations rather than only at the end.'
+    concept: intro-cpp-generics.priority-queues-and-heaps

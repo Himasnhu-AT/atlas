@@ -7,6 +7,164 @@ estimatedMinutes: 20
 exercise:
   id: bit-manipulation
   timeboxMinutes: 20
+challenges:
+  goal: Read one byte as a number and as a set of flags, then write the mask that pulls a field out of it.
+
+  steps:
+    - id: bitwise-idioms
+      kind: assign
+      prompt: >-
+        Each of these appears in driver code somewhere. Sort them by what they do to the
+        bits they name.
+      buckets:
+        - id: set
+          label: Sets bits to 1
+          note: The result has those bits on, whatever they were before.
+        - id: clear
+          label: Sets bits to 0
+          note: The result has those bits off, whatever they were before.
+        - id: toggle
+          label: Flips bits
+          note: The result depends on what the bit was, which is what makes it reversible.
+        - id: test
+          label: Reads bits without changing anything
+          note: The operand is untouched. What comes back is a question answered, not a new value.
+      items:
+        - id: or-shift
+          label: "x | (1U << k)"
+          bucket: set
+          because: OR with a 1 forces that position to 1 and leaves every other position alone.
+        - id: or-mask
+          label: "x |= 0x20"
+          bucket: set
+          because: 0x20 is bit 5 on its own, so this turns bit 5 on and touches nothing else.
+        - id: and-not
+          label: "x & ~(1U << k)"
+          bucket: clear
+          because: The complement is all ones except position k, so AND keeps everything but that.
+        - id: and-mask
+          label: "x &= 0xF0"
+          bucket: clear
+          because: The low nibble of the mask is zero, so ANDing with it drops the low four bits.
+        - id: xor-shift
+          label: "x ^ (1U << k)"
+          bucket: toggle
+          because: XOR with 1 inverts, so a set bit clears and a clear bit sets.
+        - id: xor-ff
+          label: "x ^= 0xFF"
+          bucket: toggle
+          because: Every position in the mask is 1, so all eight bits invert.
+        - id: and-test
+          label: "x & (1U << k)"
+          bucket: test
+          because: Nothing is assigned. The result is zero or the weight of bit k, used as a truth value.
+        - id: shift-test
+          label: "(x >> k) & 1U"
+          bucket: test
+          because: This brings bit k down to position 0 and reads it, which answers the same question as one.
+      hints:
+        - Look for the assignment. Three of these produce a value the caller inspects and never store it back.
+        - AND can only turn bits off and OR can only turn them on. XOR is the one whose result depends on what was already there.
+        - A mask of 0xF0 has zeros in the low half, and ANDing against a zero always gives zero.
+      reveal: >-
+        Every flag operation is one of four shapes, and the operator tells you which. That is
+        why register code reads as noise until you stop reading the numbers and start reading
+        the operator: OR sets, AND with a complement clears, XOR flips, AND alone asks.
+
+    - id: byte-as-signed
+      kind: numeric
+      prompt: >-
+        A sensor writes the byte 0xB4 into a register. The driver reads that register through
+        an int8_t. What value does it see?
+      context:
+        as: prose
+        text: >-
+          0xB4 is 10110100 in binary. Eight bits, and the register itself has no opinion about
+          whether it holds a signed or an unsigned quantity. The type at the read site decides.
+      answer: -76
+      tolerance: 0
+      scaleHint: >-
+        Out by roughly a factor of ten means the wrong width was used. This is one byte, so the
+        value it wraps around by is 256, not 1000 and not 65536.
+      hints:
+        - Read as a uint8_t the same bits are 180. The question is what changes when the top bit stops meaning plus 128.
+        - In two's complement the most significant bit carries a negative weight, so bit 7 here is worth -128 rather than +128.
+        - Take the unsigned reading and subtract 256, because the top bit went from counting up to counting down.
+      reveal: >-
+        180 and -76 are the same eight bits. Nothing in memory distinguishes them, which is why
+        a protocol that says "one byte of temperature" and forgets to say signed produces a bug
+        that only shows up below freezing.
+
+    - id: the-precedence-trap
+      kind: spot
+      prompt: >-
+        This compiles without a warning on most settings and is_ready lies. Click the line that
+        is wrong.
+      lang: c
+      source: |
+        #include <stdint.h>
+
+        #define FLAG_READY (1U << 2)
+        #define FLAG_ERROR (1U << 5)
+
+        int is_ready(uint8_t flags) {
+            return flags & FLAG_READY != 0;
+        }
+
+        uint8_t clear_error(uint8_t flags) {
+            return flags & ~FLAG_ERROR;
+        }
+      targets: [6]
+      decoys:
+        '2': 1U shifted left twice is bit 2, which is what a READY flag at position 2 should be.
+        '3': Bit 5 for an ERROR flag is fine. Nothing here conflicts with the READY bit.
+        '10': ANDing with the complement is the correct way to clear a flag. The promotion to int is harmless because the result is truncated back to a byte on return.
+      hints:
+        - The bug is not in either mask. Both flags name the bit their comment implies.
+        - In C, a comparison binds tighter than a bitwise AND, so the two operands of the AND are not what they look like.
+        - The compiler reads this as flags AND the result of comparing FLAG_READY against zero, which is flags AND 1, so this function reports bit 0.
+      reveal: >-
+        Comparison outranks bitwise AND in C, a precedence choice that predates the operators
+        being used for flags at all. The fix is parentheses around the AND. This is worth
+        recognising by shape, because the function keeps working for any flag that happens to
+        be bit 0 and fails for every other one.
+
+    - id: extract-the-field
+      kind: blanks
+      prompt: >-
+        Fill in the field extractor. It has to return the length bits that start at start_bit,
+        moved down so the field reads as a number in its own right.
+      lang: c
+      template: |
+        uint32_t extract_field(uint32_t val, int start_bit, int length) {
+            uint32_t mask = (1U << {{1}}) - 1U;
+            return (val {{2}} {{3}}) & mask;
+        }
+      blanks:
+        - n: 1
+          as: select
+          options: [length, start_bit, start_bit + length, "8"]
+          accept: [length]
+          note: The mask has to be as wide as the field, and nothing about it depends on where the field sits.
+        - n: 2
+          as: select
+          options: [">>", "<<", "&", "^"]
+          accept: [">>"]
+          note: The field has to come down to bit 0 before a low mask can catch it.
+        - n: 3
+          as: select
+          options: [start_bit, length, start_bit + length, "1"]
+          accept: [start_bit]
+          note: The distance to travel is how far up the field starts, not how wide it is.
+      hints:
+        - "Two numbers are in play and they answer different questions: how wide the field is, and how far up it sits."
+        - Shifting left by one is doubling, so a shift that reads a field out of the middle of a word has to go the other way.
+        - One less than a power of two is a run of ones. Build that run to the width of the field, then move the field down to meet it.
+      reveal: >-
+        The mask is built from the width and the shift is built from the position, and swapping
+        them is the single most common bug in register code. Order matters too: shifting first
+        and masking second works for any position, while masking first only works when the
+        field already sits at the bottom.
 ---
 
 Digital computers represent data and instructions as sequences of binary digits. Each bit stores a single binary state, 0 or 1, physically implemented as voltage levels in semiconductor transistors.

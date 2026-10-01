@@ -7,6 +7,201 @@ estimatedMinutes: 30
 exercise:
   id: reflect-and-revise
   timeboxMinutes: 30
+challenges:
+  goal: Bound a critique and revise loop, then recognise the run where it polished an error instead of finding it.
+
+  steps:
+    - id: the-three-stops
+      kind: blanks
+      prompt: >-
+        Fill in the three things that stop this loop. Without them it runs until the model
+        says it is happy, which is a condition the model decides.
+      lang: python
+      template: |
+        CRITIQUE = (
+            "Score this draft against each rubric item.\n"
+            "{{1}}"
+        )
+
+        def reflect(task, rubric, max_passes={{2}}):
+            draft = write(task)
+            notes = []
+            for _ in range(max_passes):
+                findings = critique(CRITIQUE, draft, rubric)
+                if {{3}}:
+                    break
+                notes.extend(findings)
+                draft = revise(draft, findings)
+            return draft, notes
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - Return the items it fails. Return an empty list if it fails none.
+            - Tell me what is wrong with it.
+            - Keep revising until you are satisfied.
+            - Rate the draft out of ten.
+          accept: [Return the items it fails. Return an empty list if it fails none.]
+          note: A critique prompt with no way of reporting a clean draft will invent a finding, and the revision will act on it.
+        - n: 2
+          as: select
+          options: ["2", "20", "None", "while True"]
+          accept: ["2"]
+          note: One or two passes. A ceiling the caller sets is a ceiling; a ceiling the model sets is a bill.
+        - n: 3
+          as: select
+          options:
+            - not findings
+            - model_says_done(draft)
+            - draft == previous_draft
+            - len(notes) > 3
+          accept: [not findings]
+          note: The early exit belongs on the findings, which are structured, rather than on the model's opinion of its own progress.
+      hints:
+        - Two of the blanks bound the loop from outside. The third lets it finish early when there is nothing left to fix.
+        - Look at what the loop does with an empty findings list if you never check for one.
+        - Asking the model when to stop puts the termination condition inside the thing you are trying to bound.
+      reveal: >-
+        The ceiling and the early exit are doing different jobs. The ceiling stops a loop
+        that will never converge; the early exit stops a loop that already has, before the
+        next pass starts editing sentences that were fine.
+
+    - id: run-the-loop
+      kind: machine
+      prompt: >-
+        Two rubric items failed and each revision clears one. Ship a draft that has been
+        through the loop with both defects cleared, without running the loop past its
+        ceiling of two passes.
+      initial: drafted
+      vars: { passes: 0, defects: 2 }
+      states:
+        drafted:
+          label: First draft written
+          note: Nothing has read it yet.
+        critiqued:
+          label: Critique returned
+          note: The findings list is in hand. You can act on it or ship over it.
+        revised:
+          label: Revision written
+          note: A new draft exists and nothing has looked at it.
+        shipped:
+          label: Shipped
+          terminal: true
+        drifted:
+          label: Rewriting what was already fine
+          note: Past the second pass the critique starts on style, and the draft walks away from the task.
+          terminal: true
+          error: true
+      transitions:
+        - from: drafted
+          on: critique
+          to: critiqued
+          note: One call, and it returns findings rather than a verdict.
+        - from: drafted
+          on: ship
+          to: shipped
+          note: Shipping the first draft is allowed and sometimes right. It is not a reviewed draft.
+        - from: critiqued
+          on: revise
+          to: revised
+          when: [{ var: passes, cmp: lt, value: 2 }]
+          effects:
+            - { var: passes, op: inc, value: 1 }
+            - { var: defects, op: dec, value: 1 }
+          note: A revision clears the finding it was given and costs a pass.
+        - from: critiqued
+          on: revise
+          to: drifted
+          when: [{ var: passes, cmp: gte, value: 2 }]
+          note: The third pass has no defect left to fix, so it rewrites sentences that were already carrying the meaning.
+        - from: critiqued
+          on: ship
+          to: shipped
+          note: Shipping from here is a choice about whether the outstanding findings matter.
+        - from: revised
+          on: critique
+          to: critiqued
+          note: A new draft needs its own critique. The previous findings were about a document that no longer exists.
+      mode: drive
+      win:
+        state: shipped
+        maxSteps: 8
+        requires:
+          - { var: defects, cmp: lte, value: 0 }
+          - { var: passes, cmp: lte, value: 2 }
+      hints:
+        - Shipping is available at almost every point. Being available is not the same as being finished.
+        - Each revision needs a critique in front of it, and the critique after the last revision is the one that tells you the defects are gone.
+        - Two revisions clear two defects. A third has nothing left to do and does something anyway.
+      reveal: >-
+        The budget is what makes the loop safe, and the early exit is what makes it cheap.
+        A run that stops because it ran out of passes and a run that stops because the
+        findings came back empty end in the same state and mean opposite things, which is
+        why the pass count belongs in the log.
+
+    - id: the-rubric-item
+      kind: spot
+      prompt: >-
+        The same model that wrote the draft scores it against this rubric. Click the item
+        that turns a check on style into a claim about truth.
+      lang: python
+      source: |
+        RUBRIC = [
+            "Is the opening sentence under 25 words?",
+            "Does each paragraph lead into the next?",
+            "Is the tone consistent with the house style?",
+            "Does the draft read as accurate and well researched?",
+            "Are figures written with thousands separators?",
+        ]
+      targets: [4]
+      decoys:
+        "1": A length check the reviewer can answer by counting. It is narrow, and it is honest about being narrow.
+        "2": Flow is a style judgement and this item says so. A rubric of style items is fine while nothing on it pretends to be more.
+        "3": House style is a matter of taste, and the reviewer is being asked for taste.
+        "5": Formatting, checkable by looking. This one could be a regular expression, which is a hint about where it belongs.
+      hints:
+        - Four of these ask about the writing. One asks about the world.
+        - Reads as is not the same as is, and the reviewer can only answer the first.
+        - Whichever item comes back clean here will be quoted later as evidence the draft was checked.
+      reveal: >-
+        Reads as accurate is answered from fluency, and a wrong date in a well-formed
+        sentence is fluent. Keep the rubric to things the reviewer can actually see, and
+        send the facts somewhere that does not have the draft in front of it.
+
+    - id: after-the-polish
+      kind: choice
+      prompt: >-
+        Two passes have run and the critique came back empty. The prose is clean and the
+        founding date in the second paragraph is still wrong. What do you do?
+      context:
+        as: log
+        lines:
+          - 'pass 1  findings: 2  (wordy opener, missing transition)'
+          - 'pass 2  findings: 1  (heading capitalisation)'
+          - 'pass 3  findings: 0  -> early exit'
+          - 'ship    date in paragraph 2: 2017, actual: 2014'
+      options:
+        - id: stricter-rubric
+          label: Run a fourth pass with a stricter rubric.
+          note: Strictness changes the tone of the findings, not what the reviewer can see. It is reading the same draft with the same context and it agreed twice already.
+        - id: accept-empty
+          label: Accept it. An empty findings list is the loop's own exit condition.
+          note: An empty list says the reviewer had nothing to add. That is a fact about the reviewer, and this one was never asked about dates.
+        - id: check-the-claim
+          label: Take the date out as a standalone claim and answer it in a context that has never seen the draft.
+          correct: true
+          note: The claim goes somewhere that cannot see the paragraph it came from, so agreeing with it is no longer the cheapest reply. This is the whole of chain of verification.
+        - id: reflexion-notes
+          label: Feed the earlier critiques back in as a running list of past failures.
+          note: Worth doing, and aimed at a different problem. Carrying critiques forward stops the loop repeating an error somebody already caught. It cannot surface one nobody has.
+      hints:
+        - Three passes agreed, and all three read the same paragraph.
+        - Ask what any of these options changes about what the reviewer is shown.
+        - The date is a fact. Facts get checked somewhere the draft is not.
+      reveal: >-
+        This is laundering: three recorded passes, a clean exit, and a wrong date now
+        sitting in polished prose with an audit trail behind it. Reflection improved the
+        writing exactly as designed. Nothing in the loop was ever pointed at the fact.
 ---
 
 Reflection structures self-correction into three sequential calls: produce an initial draft, generate a critique, and revise the output according to the feedback.

@@ -1,0 +1,281 @@
+version: 1
+cases:
+  TestDocstringParsing.test_summary_is_the_first_line:
+    condition: 'a docstring whose text begins on the line after the opening quotes'
+    hints:
+      - 'The summary is the only thing the model reads to decide whether this tool applies.'
+      - 'A docstring can open with a blank line, so the first line of the string is not always the summary.'
+      - 'Take the first line that has anything on it, stripped of its indentation.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDocstringParsing.test_reads_the_args_section:
+    condition: 'a parameter documented on its own line inside an Args block'
+    hints:
+      - 'Each line in the block names a parameter before the colon and describes it after.'
+      - 'The section only starts at the Args header, so lines before it are summary rather than parameters.'
+      - 'Track whether you are inside the block and match the name and description off each line.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDocstringParsing.test_joins_continuation_lines:
+    condition: 'a description long enough to run onto a second, more indented line'
+    hints:
+      - 'Docstrings wrap at the margin, and the wrap is not a new parameter.'
+      - 'The continuation is indented further than the parameter lines, which is the only signal separating them.'
+      - 'Record the indentation of the first parameter line and treat anything indented past it as belonging to the parameter above.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDocstringParsing.test_stops_at_the_next_section:
+    condition: 'a Returns header following the parameters in the same docstring'
+    hints:
+      - 'Args is not the last section a docstring can have.'
+      - 'A header sits at the left margin while parameters are indented, which is how you can tell them apart.'
+      - 'Stop reading parameters at the first line with no indentation.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDocstringParsing.test_empty_docstring:
+    condition: 'a docstring of None, and one holding only spaces'
+    hints:
+      - 'An undocumented function still reaches this parser.'
+      - 'Splitting None into lines raises before anything is read.'
+      - 'Return an empty summary and an empty mapping when there is nothing to parse.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_name_and_description:
+    condition: 'a simple function whose name and summary have to reach the schema'
+    hints:
+      - 'The schema is nested: a wrapper naming the kind, then the function block.'
+      - 'The description is the docstring summary, not something written separately.'
+      - 'Take the name off the function and the description from the parsed docstring.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_types_come_from_annotations:
+    condition: 'a parameter annotated as an int that has to become a JSON type name'
+    hints:
+      - 'JSON Schema names types with words and Python names them with classes.'
+      - 'With postponed evaluation the annotations are stored as strings, so a lookup keyed on the class finds nothing.'
+      - 'Resolve the annotations back into real objects before mapping them to the JSON names.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_generics_unwrap_to_their_origin:
+    condition: 'a parameter annotated as a list of strings'
+    hints:
+      - 'A parameterised generic is not the same object as the plain container, so a direct lookup misses it.'
+      - 'The container is what JSON Schema cares about here. The item type is beyond what this maps.'
+      - 'Ask for the generic''s origin and fall back to the annotation itself when there is none.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_required_excludes_defaults:
+    condition: 'a function with one parameter that has a default and one that does not'
+    hints:
+      - 'A parameter with a default is optional, and marking it required forces the model to invent a value.'
+      - 'Optional is not absent: it still belongs in the properties.'
+      - 'Add a parameter to the required list only when its default is empty.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_parameter_descriptions_come_from_the_docstring:
+    condition: 'a parameter whose documented text has to reach its properties entry'
+    hints:
+      - 'The parameter description is the prompt. It is what stops the model passing the wrong thing.'
+      - 'A properties entry carrying only a type tells the model nothing about what belongs there.'
+      - 'Look the parameter up in the parsed descriptions and add it beside the type.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_no_parameters:
+    condition: 'a tool that takes no arguments at all'
+    hints:
+      - 'An empty parameter list is still a parameters block, not a missing one.'
+      - 'Omitting the properties or required keys makes the schema invalid rather than minimal.'
+      - 'Emit both keys with empty values so the shape matches every other tool.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_refuses_a_missing_description:
+    condition: 'a function with no docstring, and so nothing to describe it with'
+    hints:
+      - 'The description is the only thing the model reads about this tool, so an empty one is an unusable schema.'
+      - 'Registering it anyway produces a tool the model can see and cannot understand.'
+      - 'Raise ToolSpecError when the parsed summary is empty.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_refuses_an_unannotated_parameter:
+    condition: 'a bare parameter with no type annotation on it'
+    hints:
+      - 'The schema is not going to be guessed from the parameter name.'
+      - 'Defaulting it to a string produces a schema that quietly lies about the function.'
+      - 'Raise ToolSpecError naming the parameter that has no annotation.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_refuses_a_union:
+    condition: 'a parameter annotated as a string or None'
+    hints:
+      - 'A union has no single JSON Schema counterpart in this mapping.'
+      - 'Picking one arm of the union produces a schema that is wrong half the time.'
+      - 'Raise ToolSpecError, and let an optional value be expressed with a default instead.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestDescribe.test_refuses_a_variadic_parameter:
+    condition: 'a function taking any number of positional arguments'
+    hints:
+      - 'JSON Schema describes a fixed set of named properties.'
+      - 'Skipping the variadic parameter produces a schema that claims the function takes nothing.'
+      - 'Check the parameter kind and raise ToolSpecError rather than emitting a property for it.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_tool_returns_the_same_function:
+    condition: 'a decorated function that still has to behave exactly as it did'
+    hints:
+      - 'Wrapping the function changes its name, its signature under help, and its traceback.'
+      - 'The schema is data about the function, and data can be attached rather than wrapped around it.'
+      - 'Set the schema as an attribute on the function and return the same object.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_add_works_as_a_decorator:
+    condition: 'a registration used as a decorator above a function definition'
+    hints:
+      - 'A decorator binds whatever it returns to the name being defined.'
+      - 'Returning None from the registration leaves the name bound to None.'
+      - 'Return the function from the add method so the decorated name still points at it.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_keeps_registration_order:
+    condition: 'two tools registered in an order the schemas must preserve'
+    hints:
+      - 'The order the schemas go out in is the order the model reads them.'
+      - 'Keeping a separate list alongside the lookup gives you two structures to hold in step.'
+      - 'Store the tools in one mapping, which keeps insertion order, and derive both the names and the schemas from it.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_rejects_a_duplicate_name:
+    condition: 'the same function registered a second time under a name already taken'
+    hints:
+      - 'The name is how the model addresses a tool, so a second one with the same name is a coin toss.'
+      - 'A mapping silently overwrites, and the loser disappears with no sign of it.'
+      - 'Check whether the name is present before storing and raise ToolSpecError.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_invoke_runs_the_tool:
+    condition: 'a well formed call whose result has to come back as text with its arguments'
+    hints:
+      - 'The record is what a caller inspects afterwards, so it carries the parsed arguments as well as the result.'
+      - 'The result travels to the model as text, so a number has to be converted.'
+      - 'Return a record holding the name, the parsed arguments, the stringified result, and a flag saying it worked.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_invoke_reports_an_unknown_tool:
+    condition: 'a call naming a tool that was never registered'
+    hints:
+      - 'Models invent tool names, and raising here ends a run that could have recovered.'
+      - 'The model reads this string, so it has to say what went wrong and what exists instead.'
+      - 'Return a failed record whose result names the unknown tool and lists the available ones.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_invoke_survives_malformed_json:
+    condition: 'an argument string the model truncated partway through'
+    hints:
+      - 'The arguments are text the model generated, so malformed JSON is ordinary.'
+      - 'There are no arguments to record here, and inventing some would be worse than recording none.'
+      - 'Catch the parse failure and return a failed record with an empty argument mapping.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_invoke_rejects_non_object_arguments:
+    condition: 'arguments that parse as a JSON array rather than an object'
+    hints:
+      - 'A JSON array is valid JSON and still unusable as a set of named arguments.'
+      - 'Unpacking a list as keywords raises from inside the call rather than returning a record.'
+      - 'Check the parsed value is a mapping before looking up the tool.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_invoke_turns_a_tool_error_into_a_result:
+    condition: 'a tool that raises to say its own backend is unavailable'
+    hints:
+      - 'The tool declared this failure recoverable by raising the dedicated error type.'
+      - 'Its message is what tells the model whether to try something else or stop.'
+      - 'Catch that error specifically and put its message into the result of a failed record.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestRegistry.test_invoke_reports_wrong_arguments:
+    condition: 'a call that supplied one of the two arguments the function needs'
+    hints:
+      - 'The JSON was fine and the call still does not fit the signature.'
+      - 'Python raises a TypeError from the call itself, and letting it escape ends the run.'
+      - 'Catch that case and return a failed record naming what was wrong with the arguments.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_direct_answer:
+    condition: 'a question the model answers without reaching for a tool'
+    hints:
+      - 'Not every question needs a tool, and the result still has to report a step and an empty call list.'
+      - 'The exit condition is the finish reason, not whether any tools were configured.'
+      - 'Return the result as soon as the turn is anything other than a request for tools.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_uses_a_tool_then_answers:
+    condition: 'one tool call followed by an answer, costing two model calls'
+    hints:
+      - 'The step count is model calls, not tool calls, because that is what the bill counts.'
+      - 'The token total accumulates across the calls rather than reporting the last one.'
+      - 'Count a step per pass through the loop and add each response usage to a running total.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_sends_the_system_prompt_and_the_schemas:
+    condition: 'a request that has to open with the system message and carry the tool schemas'
+    hints:
+      - 'The system prompt is a message, not a separate field, and it goes first.'
+      - 'The API is stateless and forgets your tools too, so the schemas go on every call.'
+      - 'Put the system turn at the head of the message list and pass the registry schemas as the tools argument.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_no_system_message_when_there_is_no_prompt:
+    condition: 'an agent built with no system prompt at all'
+    hints:
+      - 'An empty system message is not the same as no system message on the wire.'
+      - 'Appending one unconditionally puts a blank instruction in front of every run.'
+      - 'Only add the system turn when a prompt was actually given.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_tool_results_answer_the_assistant_turn:
+    condition: 'a transcript where the result must follow the assistant message that asked for it'
+    hints:
+      - 'A tool message answers an assistant message, and providers reject the request when that pairing is missing.'
+      - 'The result also has to carry the id of the call it answers.'
+      - 'Append the assistant turn as soon as the calls are known, then a tool message per call carrying its id.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_a_failing_tool_does_not_end_the_run:
+    condition: 'a tool that fails, followed by the model acknowledging it'
+    hints:
+      - 'A tool failing is information the model can use, not a reason to stop.'
+      - 'The failure was already turned into a record rather than an exception, so nothing here needs to catch anything.'
+      - 'Append the failed result like any other and go round the loop again.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_enforces_the_budget:
+    condition: 'a model that keeps requesting a tool against a budget of three'
+    hints:
+      - 'An agent that loops forever costs money for as long as nobody notices.'
+      - 'The budget bounds model calls, not tool calls or rounds.'
+      - 'Loop exactly the budgeted number of times with one model call per pass and raise MaxStepsExceeded after it.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_rejects_a_nonsense_budget:
+    condition: 'an agent constructed with a budget of zero'
+    hints:
+      - 'A loop that runs no times reads as an agent that gave up rather than one that was misconfigured.'
+      - 'Failing at construction is better than failing on the first run.'
+      - 'Validate the budget in the constructor and raise ValueError.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_runs_do_not_share_state:
+    condition: 'a second run on the same agent, which must not see the first conversation'
+    hints:
+      - 'Hanging the conversation off the agent leaks one run into the next, and the leak is silent: the second answer is merely a bit odd.'
+      - 'The records and the token count belong to a run, not to the agent.'
+      - 'Build the message list, the records and the totals as locals inside the run method.'
+    concept: ai-agent-frameworks.build-a-mini-framework
+
+  TestAgentRun.test_two_agents_share_one_registry:
+    condition: 'two agents with different prompts built over the same registry'
+    hints:
+      - 'The tools are the shared part and the prompt is the specific part, which is the whole reason for the split.'
+      - 'Copying the registry per agent means adding a tool twice to give it to both.'
+      - 'Hold a reference to the registry that was passed in rather than rebuilding one.'
+    concept: ai-agent-frameworks.build-a-mini-framework

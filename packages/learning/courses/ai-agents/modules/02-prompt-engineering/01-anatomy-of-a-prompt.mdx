@@ -4,6 +4,156 @@ title: Anatomy of a prompt
 summary: A working prompt has five parts, each doing a different job to the distribution. Where they go, how specific to be, and which of the famous tricks are load bearing.
 order: 1
 estimatedMinutes: 25
+challenges:
+  goal: Put each part of a prompt where it belongs, and tell a structural technique from a phrase that worked once.
+
+  steps:
+    - id: where-each-part-lives
+      kind: assign
+      prompt: >-
+        You are building a ticket triage prompt. Sort each piece by where it belongs.
+      buckets:
+        - id: system
+          label: The system message
+          note: Identical on every request, so it stays pinned at index 0 and the provider can cache it.
+        - id: user
+          label: A user turn
+          note: Changes per request, so it cannot live in a prefix you want cached.
+        - id: code
+          label: Code, not prose
+          note: Deterministic and checkable, so asking the model nicely is strictly worse than checking.
+      items:
+        - id: role
+          label: You are triaging inbound support email for a payments company
+          bucket: system
+          because: Standing context that is true of every request, and it sets the vocabulary the rest of the prompt is read in.
+        - id: fallback
+          label: If the email contains no request, write exactly NO REQUEST
+          bucket: system
+          because: A rule that applies to every ticket. Putting it per request would mean repeating it forever and forgetting it once.
+        - id: ticket
+          label: The customer's email text, wrapped in delimiters
+          bucket: user
+          because: The input itself, and the delimiters are what keep it from reading as more instructions.
+        - id: timestamp
+          label: The current time, so the summary can be dated
+          bucket: user
+          because: It changes every call. In the system message it would break the cached prefix on every single request for no benefit.
+        - id: enum
+          label: Refusing any label outside bug, billing, feature and other
+          bucket: code
+          because: A four value enum is one comparison. Stating it in prose gets you a fifth label on the day the wording drifts.
+        - id: sentences
+          label: Rejecting a summary that runs past two sentences
+          bucket: code
+          because: Countable, so count it. The instruction still belongs in the prompt, but the guarantee comes from the check.
+        - id: json-shape
+          label: Verifying the reply parses and carries the fields you named
+          bucket: code
+          because: You will validate this anyway before using it, so the validation is the guarantee and the instruction is only a hint.
+      hints:
+        - Two questions sort most of these. Does it change between requests, and can code decide it without asking anybody?
+        - Anything that varies per call and sits in the system message costs you the cached prefix.
+        - Three of these are things you can check with a comparison rather than a sentence.
+      reveal: >-
+        The split is not about tidiness. Stable text in the system message is what makes
+        caching work; anything deterministic moved into code is a guarantee rather than a
+        request. What stays in prose is only the part where judgement is genuinely needed.
+
+    - id: pin-down-the-ambiguity
+      kind: blanks
+      prompt: >-
+        The one line version of this prompt returned a chatty reply to the customer. Fill in
+        the four constraints that make the output checkable.
+      lang: text
+      template: |
+        You are triaging inbound support email for a payments company.
+        Write a summary for {{1}}.
+        {{2}}. First what the customer wants, then what they have already tried.
+        Write about the customer in the third person. {{3}}.
+        If the email does not contain a request, write exactly: {{4}}
+      blanks:
+        - n: 1
+          as: select
+          options: [the agent who picks the ticket up next, the customer, our records, whoever reads it]
+          accept: [the agent who picks the ticket up next]
+          note: Naming the reader is what stops the model writing a customer service reply. The other three leave the audience open, which is the ambiguity that produced the chatty version.
+        - n: 2
+          as: select
+          options: [Two sentences, Be concise, Keep it short, As long as it needs to be]
+          accept: [Two sentences]
+          note: A number is checkable and an adjective is not. Concise and short are opinions the model has to guess the scale of.
+        - n: 3
+          as: select
+          options: [Do not address them, Be polite, Use their first name, Thank them for writing in]
+          accept: [Do not address them]
+          note: Third person and not addressing them are the same rule stated twice, which is deliberate. The others push the output back towards a reply.
+        - n: 4
+          as: select
+          options: [NO REQUEST, nothing, an empty summary, whatever seems right]
+          accept: [NO REQUEST]
+          note: A fixed sentinel is something your code can compare against. An empty string is indistinguishable from a failed call.
+      hints:
+        - Every blank replaces a guess the model was making on its own.
+        - Two of them are only useful because a test can check them exactly.
+        - The last one exists so the empty case has an answer that is not silence.
+      reveal: >-
+        Each blank removes one degree of freedom, and the two that matter most are the ones a
+        test can assert on. The count and the sentinel turn this from a prompt somebody likes
+        the sound of into a prompt you can put in an eval suite.
+
+    - id: where-the-question-goes
+      kind: order
+      prompt: >-
+        You are asking a question about a long policy document. Put the messages in the order
+        they should be sent.
+      items:
+        - { id: system, label: The standing rules, in the system message }
+        - { id: examples, label: Two worked examples, as user and assistant turns }
+        - { id: document, label: The policy document, wrapped in delimiters }
+        - { id: question, label: The question about the document }
+      solution: [system, examples, document, question]
+      because:
+        examples: Examples are part of the stable prefix, so they sit above the thing that changes. Putting them after the document separates them from the instructions they illustrate.
+        document: The bulk goes in the middle, which is the position the model recalls least well. That is the tradeoff you are accepting by including it at all.
+        question: Recall is strongest at the start and the end of a long context, and generation continues from the end. The question is what you most need it to be looking at.
+      hints:
+        - Two of these are the same on every request and two of them are not.
+        - The largest thing here is also the thing recalled least reliably, which tells you where it goes.
+        - Generation continues from the last token, so ask what you want sitting there.
+      reveal: >-
+        The instinct is to state the question and then supply the material, the way you would
+        in an email. Put a thousand lines between the question and the answer and the
+        question is in the worst position in the window. Ask last.
+
+    - id: which-technique-survives
+      kind: choice
+      prompt: >-
+        All four of these moved your benchmark by a point or two. Which one will still be
+        working after the next model version?
+      options:
+        - id: schema
+          label: Stating the output schema and the values each field may take.
+          correct: true
+          note: You can say what it does, which is constrain the continuation to a shape, and you can check whether the output has that shape. Both survive a version change because neither depends on one checkpoint's quirks.
+        - id: deep-breath
+          label: Adding "take a deep breath and work through this step by step".
+          note: It has measurably helped on some checkpoints and not others, and nobody can say why. That makes it a fact about a model version rather than about your task.
+        - id: caps
+          label: Writing the most important rule in capitals.
+          note: Sometimes it helps and there is no account of the mechanism. The version that keeps working is stating the rule once, clearly, where the window will not trim it.
+        - id: stakes
+          label: Telling the model your job depends on getting this right.
+          note: This one has been reported as helping and as hurting, on different models, in the same year. A technique that can go either way is not a technique.
+      hints:
+        - Ask of each one whether you could explain the mechanism to somebody without saying it just works.
+        - Three of these you would have to re-test from scratch on every new model.
+        - The one that lasts is also the only one whose effect you can check automatically.
+      reveal: >-
+        The structural techniques share a property. You can name the mechanism, and you can
+        write an assertion that catches it breaking. A phrase that moved your numbers with no
+        mechanism behind it is a measurement of one checkpoint, and it will stop being true
+        without ever announcing that it has.
 ---
 
 A prompt provides the prefix that conditions language model generation. Instructions, constraints, and context shift logit distributions across vocabulary tokens. Prompt engineering focuses on structuring this prefix to yield consistent, verifiable outputs.

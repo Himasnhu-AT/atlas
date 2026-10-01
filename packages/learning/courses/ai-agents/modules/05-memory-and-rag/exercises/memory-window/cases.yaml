@@ -1,0 +1,353 @@
+version: 1
+cases:
+  TestToolGroups.test_empty:
+    condition: 'a conversation with no messages in it yet'
+    hints:
+      - 'An empty conversation is where every session starts.'
+      - 'Grouping nothing produces no groups, not one empty group.'
+      - 'Let the loop over an empty list produce an empty result.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestToolGroups.test_plain_messages_are_groups_of_one:
+    condition: 'ordinary user and assistant turns with no tools involved'
+    hints:
+      - 'Most turns stand alone and can be dropped independently.'
+      - 'Putting consecutive turns into one group would make the window drop them in pairs.'
+      - 'Start a new group for every message that is not a tool result.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestToolGroups.test_a_tool_result_joins_the_call_that_asked_for_it:
+    condition: 'an assistant turn requesting a tool followed by the result answering it'
+    hints:
+      - 'Half of that pair is not a valid request, so the two cannot be trimmed apart.'
+      - 'The result has to attach to the group before it rather than opening a new one.'
+      - 'When the previous group is an assistant turn carrying tool calls, append the result to it.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestToolGroups.test_group_count:
+    condition: 'six messages that collapse into five groups because two of them pair up'
+    hints:
+      - 'The group count is what the window budget is spent on, not the message count.'
+      - 'One tool exchange of two messages counts as one unit.'
+      - 'Count the groups you built rather than the messages you walked.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestToolGroups.test_several_results_join_one_call:
+    condition: 'one assistant turn requesting two tools, answered by two results'
+    hints:
+      - 'A turn can request several tools, and every result belongs to the same exchange.'
+      - 'Attaching only the first result splits the exchange and makes the request malformed.'
+      - 'Keep appending results to the same group while the group ahead is that assistant turn.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestToolGroups.test_an_orphan_tool_result_gets_its_own_group:
+    condition: 'a tool result whose assistant turn is missing from the history'
+    hints:
+      - 'History an earlier trim mangled still has to be handled, not crashed on.'
+      - 'A running flag saying you are inside a tool exchange attaches this to whatever came before it.'
+      - 'Check the group ahead rather than a flag, so an orphan lands in a group of its own.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestToolGroups.test_flattening_gives_the_input_back:
+    condition: 'a grouping that must lose nothing and reorder nothing'
+    hints:
+      - 'Grouping is a view over the conversation, not a filter on it.'
+      - 'A message dropped or moved here silently changes the transcript downstream.'
+      - 'Walk the messages once in order and place each into exactly one group.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestToolGroups.test_groups_hold_the_original_objects:
+    condition: 'groups whose members must be the caller''s own message objects'
+    hints:
+      - 'Later steps compare messages by identity to work out what was dropped.'
+      - 'Copying each message breaks that comparison without changing anything visible.'
+      - 'Put the message objects into the groups unchanged.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_everything_fits:
+    condition: 'a conversation whose whole cost is within the budget'
+    hints:
+      - 'Trimming is only for conversations that overflow, and this one does not.'
+      - 'Nothing may be reordered or dropped when the whole thing fits.'
+      - 'Walking backwards and keeping everything that fits already returns the full list.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_trims_from_the_front:
+    condition: 'a budget with room for the instructions and the last two turns only'
+    hints:
+      - 'Recent turns carry the thread of the conversation, and old ones are the cheapest thing to lose.'
+      - 'Filling forwards from the start keeps the wrong end.'
+      - 'Walk the groups from the newest end towards the oldest.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_the_system_message_survives_any_budget:
+    condition: 'a budget of one token, tight enough to squeeze out the instructions'
+    hints:
+      - 'The system message is the agent''s instructions, and dropping it to save tokens changes what the agent is.'
+      - 'It also has to stay at the front, since a system message in the middle is history rather than instruction.'
+      - 'Take its cost off the budget before the walk and put it back at the head of the result.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_the_whole_leading_system_run_survives:
+    condition: 'a summary message inserted as a second system turn right after the first'
+    hints:
+      - 'A summary you paid a model call for is worthless if the next trim throws it away.'
+      - 'Protecting only the first message drops the summary and keeps the turns it was supposed to replace.'
+      - 'Protect the whole leading run of system messages, however long it is.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_a_conversation_with_no_system_message:
+    condition: 'a conversation that opens straight into a user turn'
+    hints:
+      - 'Not every conversation has instructions in front of it.'
+      - 'Treating the first message as protected pins a turn the window should be free to drop.'
+      - 'Take the leading system run as whatever run actually exists, which may be empty.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_never_leaves_half_a_tool_exchange:
+    condition: 'a budget with room for the tool result but not the call that asked for it'
+    hints:
+      - 'A tool result whose call is missing makes the next request malformed and the provider rejects it.'
+      - 'Working message by message lets the result fit while its call does not.'
+      - 'Test the cost of a whole group against the budget and take all of it or none of it.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_keeps_the_tool_exchange_whole_when_it_fits:
+    condition: 'a budget large enough for the whole tool exchange but not the turn before it'
+    hints:
+      - 'When the exchange fits, both of its messages are kept.'
+      - 'Refusing groups larger than one message would drop exchanges that could have been afforded.'
+      - 'Subtract the group''s total cost and keep every message in it.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_stops_rather_than_skipping:
+    condition: 'an oversized message with a small older turn behind it'
+    hints:
+      - 'Skipping the oversized message to fit an older one leaves a hole in the middle of the conversation.'
+      - 'Nothing downstream can see that the hole is there, so the model reads the two remaining turns as consecutive.'
+      - 'Break out of the backwards walk on the first group that does not fit.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_result_is_contiguous:
+    condition: 'a trimmed conversation that must be an unbroken tail of the original'
+    hints:
+      - 'Anything other than the instructions plus a contiguous recent run is a rewritten history.'
+      - 'Collecting groups while walking backwards builds them in reverse order.'
+      - 'Reverse the kept groups once before flattening them onto the protected prefix.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_does_not_mutate_the_input:
+    condition: 'a caller''s list that must be the same length after the call'
+    hints:
+      - 'The caller still holds the full history and will keep appending to it.'
+      - 'Popping or slicing in place destroys the record the summariser needs.'
+      - 'Build a new list from the groups you decided to keep.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_keeps_the_original_objects:
+    condition: 'a result whose entries must be the same objects the caller passed in'
+    hints:
+      - 'The caller works out what was dropped by comparing identities.'
+      - 'Copying each message makes every surviving message look dropped.'
+      - 'Select from the original messages rather than constructing new ones.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestWindow.test_a_custom_estimate_is_used:
+    condition: 'a caller supplying their own cost function that charges one per message'
+    hints:
+      - 'The default estimate is a guess, and a caller with a real tokeniser knows better.'
+      - 'Calling the module level estimator directly ignores the argument entirely.'
+      - 'Call the supplied function everywhere a cost is needed, including for the protected prefix.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_a_short_conversation_is_left_alone:
+    condition: 'a conversation with no more groups than the number being kept'
+    hints:
+      - 'There is nothing old enough to summarise, so the conversation goes back as it is.'
+      - 'Inserting an empty summary adds a message that says nothing and costs tokens forever.'
+      - 'Return a copy of the messages before deciding what to summarise.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_a_short_conversation_costs_no_call:
+    condition: 'a short conversation where the model must not be called at all'
+    hints:
+      - 'Most turns are short, and the common path has to be free.'
+      - 'Calling first and discarding the summary pays for something nobody reads.'
+      - 'Return early before making the request.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_replaces_the_older_groups_with_one_summary:
+    condition: 'a long conversation whose older half becomes a single summary message'
+    hints:
+      - 'The summary replaces the older turns rather than being appended alongside them.'
+      - 'It carries a fixed prefix so later code can recognise it as a summary.'
+      - 'Return the protected prefix, then the summary message, then the recent groups.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_makes_exactly_one_call:
+    condition: 'a summarisation that must cost one model call rather than one per turn'
+    hints:
+      - 'Summarising per message produces a list of restatements, not a summary.'
+      - 'It also costs one call per dropped turn every time the conversation overflows.'
+      - 'Render the older messages into one transcript and summarise it in a single call.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_sends_the_older_messages_to_be_summarised:
+    condition: 'a request that must carry the older turns and not the recent ones'
+    hints:
+      - 'Summarising the whole conversation duplicates what is still in the window.'
+      - 'The recent turns are being kept verbatim, so summarising them wastes the summary.'
+      - 'Send only the groups that are about to be dropped.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_the_summary_sits_inside_the_protected_prefix:
+    condition: 'a summary that must be the second system message rather than a user turn'
+    hints:
+      - 'The window protects the leading run of system messages, and the summary needs that protection.'
+      - 'A summary added as a user turn is trimmed away by the next window pass.'
+      - 'Give the summary message the system role and place it directly after the original instructions.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_keep_recent_counts_groups_not_messages:
+    condition: 'a request to keep four groups where one of them is a two message tool exchange'
+    hints:
+      - 'Counting messages splits a tool exchange as soon as the boundary lands inside one.'
+      - 'A group is the unit that can be kept or dropped, so it is the unit the count applies to.'
+      - 'Slice the group list rather than the message list, then flatten.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestSummarizeOlder.test_works_without_a_system_message:
+    condition: 'a conversation with no instructions in front of it to insert the summary after'
+    hints:
+      - 'The protected prefix can legitimately be empty.'
+      - 'Assuming a first message exists puts the summary in the wrong place or raises.'
+      - 'Put the summary at the front when there is no system run to follow.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestExtractFacts.test_parses_a_json_array:
+    condition: 'a reply that is a clean JSON array of two short facts'
+    hints:
+      - 'The instruction asks for a JSON array, so the happy path is a parse and a list.'
+      - 'Splitting the reply on newlines works here and breaks on any fact containing one.'
+      - 'Parse the reply as JSON and take the strings out of the list.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestExtractFacts.test_strips_and_drops_empties:
+    condition: 'entries padded with spaces, plus an empty one and one of only whitespace'
+    hints:
+      - 'A fact of whitespace takes up room in the memory store and matches nothing.'
+      - 'Testing before stripping lets a string of spaces through as a fact.'
+      - 'Strip each entry and keep only the ones with something left.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestExtractFacts.test_dedupes_keeping_the_first:
+    condition: 'a list where the same fact appears twice'
+    hints:
+      - 'A repeated fact is one fact, and storing it twice costs tokens on every later turn.'
+      - 'Collecting into a set removes the duplicate and loses the order the model chose.'
+      - 'Append only facts you have not already seen, walking the list in order.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestExtractFacts.test_skips_entries_that_are_not_strings:
+    condition: 'an array holding a mapping and a number alongside a real fact'
+    hints:
+      - 'A non string entry means the model answered a different question from the one asked.'
+      - 'Converting it to a string keeps a stray object in the memory store forever.'
+      - 'Skip any entry that is not a string rather than coercing it.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestExtractFacts.test_a_reply_that_is_not_json_returns_nothing:
+    condition: 'a model that replied with an apology rather than an array'
+    hints:
+      - 'Fact extraction is a background nicety, and a confused model must not take down the turn the user is waiting on.'
+      - 'Letting the parse error escape fails a request that had already succeeded.'
+      - 'Catch the parse failure and return an empty list.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestExtractFacts.test_json_that_is_not_a_list_returns_nothing:
+    condition: 'a reply that parses as an object wrapping the facts in a key'
+    hints:
+      - 'The parse succeeded, so it is easy to move straight on to iterating.'
+      - 'Iterating a mapping yields its keys, which are not facts.'
+      - 'Check the parsed value is a list before reading anything out of it.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestExtractFacts.test_an_empty_conversation_costs_no_call:
+    condition: 'an extraction over no messages at all'
+    hints:
+      - 'There is nothing to extract facts from, and asking anyway pays for a reply about nothing.'
+      - 'This happens whenever a trim dropped nothing.'
+      - 'Return an empty list before making the request.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_a_conversation_that_fits_is_returned_unchanged:
+    condition: 'a conversation already inside the budget'
+    hints:
+      - 'Nothing was dropped and nothing was summarised, so both reports are empty.'
+      - 'Running the summariser anyway rewrites a conversation that was fine.'
+      - 'Check the total cost first and return the messages with empty dropped and fact lists.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_a_conversation_that_fits_costs_no_calls:
+    condition: 'a conversation within budget, which must not reach the model'
+    hints:
+      - 'Most turns fit, and the common path has to be free.'
+      - 'Summarising unconditionally adds two calls to every turn of every conversation.'
+      - 'Return before either the summariser or the fact extractor is called.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_trims_and_reports:
+    condition: 'a conversation over budget, whose result has to fit and say what it lost'
+    hints:
+      - 'Summarising alone does not guarantee the result fits, so the window still has to run.'
+      - 'The caller needs the trimmed messages, what was dropped, and the facts worth keeping.'
+      - 'Summarise, then window, then work out what is missing and extract facts from it.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_uses_two_calls_when_it_trims:
+    condition: 'a trim that must cost exactly one summary call and one extraction call'
+    hints:
+      - 'A trim is not free, and the cost belongs in the budget you plan for.'
+      - 'Calling the extractor per dropped message multiplies that cost by the length of the history.'
+      - 'Make one call to summarise and one to extract facts from everything dropped.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_the_summary_survives_the_window:
+    condition: 'a trim whose summary must still be present in the final messages'
+    hints:
+      - 'The whole point of paying for a summary is that it is still there after the trim.'
+      - 'Windowing the original messages rather than the summarised ones throws the summary away.'
+      - 'Run the window over the result of the summarisation, and let the protected prefix cover the summary.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_dropped_holds_the_original_messages:
+    condition: 'a dropped list that must hold the caller''s own objects and none of the survivors'
+    hints:
+      - 'The caller may want to archive or re-read exactly what left the window.'
+      - 'Rebuilding the dropped messages, or reporting summaries instead, gives them something else.'
+      - 'Select the originals that are absent from the trimmed result.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_identical_messages_are_told_apart:
+    condition: 'two user turns with identical content, only one of which survives'
+    hints:
+      - 'Equal messages are not the same message, and conversations repeat themselves.'
+      - 'An equality check would report the surviving copy as proof that the dropped one is still there.'
+      - 'Compare by object identity when working out what is missing.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_never_leaves_half_a_tool_exchange:
+    condition: 'a trim whose boundary falls near a tool exchange'
+    hints:
+      - 'Both the summariser and the window can cut in the wrong place if they work message by message.'
+      - 'A broken exchange is rejected by the provider on the very next call.'
+      - 'Have both steps operate on groups rather than on individual messages.'
+    concept: ai-memory-and-rag.conversation-memory
+
+  TestManage.test_facts_come_from_the_dropped_messages:
+    condition: 'a fact extraction that must read the turns that left rather than the ones that stayed'
+    hints:
+      - 'Facts in the surviving window are still in the prompt, so extracting them stores them twice.'
+      - 'What is worth remembering is precisely what is about to be forgotten.'
+      - 'Pass the dropped messages to the extractor.'
+    concept: ai-memory-and-rag.conversation-memory

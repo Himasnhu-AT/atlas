@@ -1,0 +1,25 @@
+version: 1
+cases:
+  TestCointegrationSpread.test_exact_linear_relationship:
+    condition: 'a pair sitting exactly on Y = 10 + 2X, which leaves no residual at all'
+    hints:
+      - 'A perfect fit leaves residuals of zero, and standardising them means dividing zero by zero.'
+      - 'A flat spread is a real state of the world, not an error, so the guard belongs on the residual dispersion rather than on the caller.'
+      - 'Return a z-score of 0.0 when the residual standard deviation is at or within a tolerance of zero, and only divide when there is dispersion to divide by.'
+    concept: quant-time-series.cointegration-and-spreads
+
+  TestCointegrationSpread.test_spread_zscore_divergence:
+    condition: 'a spread that tracks its hedge ratio for nine prints and then gaps five wide'
+    hints:
+      - 'The z-score being asked for belongs to the newest residual alone, not to the series and not to its mean.'
+      - 'Standardise against the residuals of this same regression: centre on their mean and divide by their sample standard deviation.'
+      - 'Fit the hedge ratio by ordinary least squares first, then take the last residual, subtract the residual mean and divide by the standard deviation taken with the n minus one divisor.'
+    concept: quant-time-series.cointegration-and-spreads
+
+  TestCointegrationSpread.test_validation_errors:
+    condition: 'a one-point series, a length mismatch, and an x leg quoted flat at 5.0'
+    hints:
+      - 'Three refusals, and the third is not the same error class as the first two.'
+      - 'A short or mismatched input is the caller handing over bad data, so it is a ValueError. A flat x leg is different: there is no variance in the regressor for a slope to be measured against.'
+      - 'Check both lengths before any arithmetic and raise ValueError, then compare the regression denominator against zero with a tolerance and raise ZeroDivisionError.'
+    concept: quant-time-series.cointegration-and-spreads

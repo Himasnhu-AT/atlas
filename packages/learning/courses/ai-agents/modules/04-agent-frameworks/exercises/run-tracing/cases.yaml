@@ -1,0 +1,169 @@
+version: 1
+cases:
+  TestSummarise.test_an_empty_run:
+    condition: 'no records at all, which is what an exception handler often has to summarise'
+    hints:
+      - 'This is called from the place a run went wrong, so it has to be safe when nothing was recorded.'
+      - 'Every key still has to be present, with a zero or an empty mapping behind it.'
+      - 'Sum over the empty list and build the same shape rather than returning early with something smaller.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestSummarise.test_totals:
+    condition: 'two records whose token counts and durations have to be added together'
+    hints:
+      - 'A summary of a run is the sum across its steps, not the last step.'
+      - 'The total is the two halves together, and deriving it keeps the three numbers from disagreeing.'
+      - 'Sum each field across the records and compute the total from the two halves you already summed.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestSummarise.test_counts_every_call_to_a_tool:
+    condition: 'a step that called the same tool twice, plus a step that called another once'
+    hints:
+      - 'Two calls to one tool is the signal that something is looping, so the repeat is the interesting part.'
+      - 'Collecting the names into a set throws exactly that away.'
+      - 'Count occurrences per name across every record, and sort the keys so two runs of the same shape produce identical output.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestSummarise.test_counts_failed_steps:
+    condition: 'a run where one of two steps recorded an error'
+    hints:
+      - 'A step failed when it has an error on it, whatever else it recorded.'
+      - 'Testing the error for truthiness misses an error string that happens to be empty.'
+      - 'Count the records whose error is not None.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestRedact.test_blanks_the_named_message_key:
+    condition: 'a card number sitting in the content of every message'
+    hints:
+      - 'The trace is stored and read later, so anything sensitive in it stays sensitive.'
+      - 'The caller names which keys carry the secrets rather than this function guessing.'
+      - 'Replace the value of each named key with the placeholder as you rebuild the messages.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestRedact.test_keeps_the_structure_readable:
+    condition: 'roles and call ids that are not secret and must survive the redaction'
+    hints:
+      - 'A trace with everything blanked is not worth keeping.'
+      - 'Blanking the whole message means you can no longer see who said what or which call was answered.'
+      - 'Only replace the keys that were named and copy every other key through unchanged.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestRedact.test_blanks_a_text_attribute:
+    condition: 'the response text on the record itself rather than a key inside a message'
+    hints:
+      - 'Secrets appear in the model''s reply as well as in the messages sent to it.'
+      - 'The messages are a list of mappings and the reply is a plain attribute, so they need different handling.'
+      - 'Replace the named text attributes on the copied record as well as the keys inside the messages.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestRedact.test_does_not_touch_the_original:
+    condition: 'a record the running agent is still appending to'
+    hints:
+      - 'Blanking in place edits a live run, and the agent then sends the placeholder to the model.'
+      - 'A new outer list is not enough, because the mappings inside it are still the originals.'
+      - 'Build new mappings for every message and return a new record rather than mutating the one passed in.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestRedact.test_the_numbers_survive:
+    condition: 'a redacted record that must still summarise to the same figures'
+    hints:
+      - 'A redacted trace has to add up the same, or it is not worth keeping.'
+      - 'Blanking a token count or a tool name breaks the summary that was the point of the trace.'
+      - 'Restrict the blanking to text, and copy the counts, the timings and the tool names across untouched.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestTracer.test_one_record_per_model_call:
+    condition: 'a run of two model calls whose records must be numbered from one'
+    hints:
+      - 'The record is opened when a call is about to happen, not when the step finishes.'
+      - 'Numbering from zero makes every log line disagree with how people count steps.'
+      - 'Open a record at the before point using the index the agent passed in.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestTracer.test_records_what_that_step_actually_sent:
+    condition: 'a first step that sent one message before the conversation grew to three'
+    hints:
+      - 'The agent keeps appending to the same list, so a record holding a reference shows the final state on every step.'
+      - 'A single level copy still shares the mappings, and a later turn can rewrite an earlier record through them.'
+      - 'Copy the list and copy each message inside it when the record is opened.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestTracer.test_records_the_response:
+    condition: 'a reply whose text, finish reason and token counts all belong on the record'
+    hints:
+      - 'The finish reason is what tells you later whether a step ended in an answer, a tool call or a truncation.'
+      - 'The token counts come off the usage object, in two halves.'
+      - 'Fill these in at the after point, on the record the before point opened.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestTracer.test_records_tool_names_in_order:
+    condition: 'one turn calling the same tool twice, and a following turn calling none'
+    hints:
+      - 'A set would throw away the repeat, which is the interesting part.'
+      - 'The names land after the model call, so they have to be appended to a record that is already open.'
+      - 'Append each name in the after tool point, keeping the list on the record itself rather than on a copy.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestTracer.test_elapsed_comes_from_the_clock:
+    condition: 'a fake clock handing out fixed readings, counted to make sure only two are taken per step'
+    hints:
+      - 'Reading the clock more than twice per step makes the timings wrong and the test count fail.'
+      - 'The elapsed time is milliseconds, and the clock reports seconds.'
+      - 'Take a reading when the record is opened and one when it is closed, and scale the difference.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestHookOrder.test_the_five_points_fire_in_order:
+    condition: 'a run with one tool call, where six events must fire in a fixed sequence'
+    hints:
+      - 'Each point sits at a specific line: around the model call, and around each tool call.'
+      - 'Firing the tool points before recording the assistant turn, or after the next model call, changes what a hook sees.'
+      - 'Emit before and after the model call, and before and after each tool, in that nesting.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestHookOrder.test_hooks_run_in_list_order:
+    condition: 'two hooks that must each see every event, in the order they were registered'
+    hints:
+      - 'Order matters when one hook redacts and another writes to disk.'
+      - 'Anything derived from a set makes the order depend on hashing.'
+      - 'Walk the hook list in order at every emit point.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestHookOrder.test_an_agent_with_no_hooks_still_answers:
+    condition: 'an agent constructed without any hooks at all'
+    hints:
+      - 'Hooks are optional, and the common case is having none.'
+      - 'A default of None reaches the emit loop as something you cannot iterate.'
+      - 'Default to an empty list in the constructor so the emit loop simply runs zero times.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestHookOrder.test_a_broken_hook_does_not_break_the_run:
+    condition: 'a hook that raises, with a second hook registered behind it'
+    hints:
+      - 'A bug in a counter is not a failed run, and it must not stop the hook after it either.'
+      - 'Letting the exception out gives a provider outage and a logging typo the same consequence.'
+      - 'Wrap each hook call individually so a failure in one is absorbed and the loop continues.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestHookOrder.test_a_model_error_reaches_on_error_and_still_propagates:
+    condition: 'a provider failure on the first call, which the hooks must see before the caller does'
+    hints:
+      - 'The after point must not fire for a call that raised, because there is no response to hand it.'
+      - 'Swallowing the exception here turns an outage into a run that returned nothing for no stated reason.'
+      - 'Emit the error point from the handler and re-raise, and close the open record so the failed step survives.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestHookOrder.test_a_spent_budget_marks_the_last_step:
+    condition: 'a budget of two exhausted by a model that keeps calling a tool'
+    hints:
+      - 'Running out of budget is an abnormal ending, so the hooks hear about it the same way as any other.'
+      - 'The record for the last step was already kept when the model returned, so nothing new should be appended.'
+      - 'Emit the error point with the exhaustion before raising, and let it set the error on the record already open.'
+    concept: ai-agent-frameworks.middleware-and-tracing
+
+  TestHookOrder.test_rejects_a_nonsense_budget:
+    condition: 'an agent constructed with a budget of zero'
+    hints:
+      - 'A loop that runs no times reads as an agent that gave up rather than one that was misconfigured.'
+      - 'Failing at construction is better than failing on the first run.'
+      - 'Validate the budget in the constructor and raise ValueError.'
+    concept: ai-agent-frameworks.middleware-and-tracing

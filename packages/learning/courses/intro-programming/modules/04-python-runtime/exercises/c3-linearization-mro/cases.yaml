@@ -1,0 +1,57 @@
+version: 1
+cases:
+  TestC3Linearization.test_single_inheritance:
+    condition: 'a chain of classes where every one of them has exactly one base'
+    hints:
+      - 'With one base apiece the order is the chain read downward, and the class itself comes first.'
+      - 'The merge still runs here, over one base linearization plus the list of bases.'
+      - 'Put the class at the front and follow it with the order its base already has.'
+    concept: intro-python-runtime.dynamic-attribute-lookup-and-mro
+
+  TestC3Linearization.test_diamond_inheritance:
+    condition: 'two bases that both descend from one shared ancestor'
+    hints:
+      - 'The shared ancestor appears once, and it has to come after both of the classes that inherit from it.'
+      - 'Taking A and then all of A''s order would put the ancestor ahead of B, which is the exact mistake C3 exists to stop.'
+      - 'A class may only be taken when it appears in the tail of no remaining sequence, which holds the ancestor back until both A and B are placed.'
+    concept: intro-python-runtime.dynamic-attribute-lookup-and-mro
+
+  TestC3Linearization.test_complex_hierarchy:
+    condition: 'a hierarchy whose two base orders disagree about where D belongs'
+    hints:
+      - 'One base puts E ahead of D and the other puts D ahead of F. The result has to honour both without inventing an order of its own.'
+      - 'The list of direct bases is merged in alongside the base linearizations, and that is what keeps B ahead of C.'
+      - 'Merge the linearizations of the bases together with the base list itself, taking the first head that lies in no tail.'
+    concept: intro-python-runtime.dynamic-attribute-lookup-and-mro
+
+  TestC3Linearization.test_inconsistent_hierarchy_raises_type_error:
+    condition: 'one base ordering A ahead of B while another orders B ahead of A'
+    hints:
+      - 'One parent wants A first and the other wants B first, and no single order honours both.'
+      - 'The merge stalls: every remaining head turns up in some other sequence''s tail.'
+      - 'When no head qualifies and sequences still remain, raise TypeError rather than picking one arbitrarily.'
+    concept: intro-python-runtime.dynamic-attribute-lookup-and-mro
+
+  TestC3Linearization.test_unlisted_isolated_class:
+    condition: 'a class the graph never mentions, so nothing records any bases for it'
+    hints:
+      - 'A class missing from the graph is not an error. It simply has no bases.'
+      - 'An absent entry and an empty list of bases mean the same thing here.'
+      - 'Default the base list to empty when the class is not in the graph, which gives an order holding just that class.'
+    concept: intro-python-runtime.dynamic-attribute-lookup-and-mro
+
+  TestAttributeResolution.test_resolves_inherited_attribute_following_mro:
+    condition: 'a name defined on two classes in the order, alongside names defined on only one'
+    hints:
+      - 'Two classes in the order define name, and the order decides which wins, not how deep in the hierarchy either sits.'
+      - 'The search visits classes in the order given and stops at the first dictionary that has the key.'
+      - 'Walk the order and return from the first class whose dictionary holds the name.'
+    concept: intro-python-runtime.dynamic-attribute-lookup-and-mro
+
+  TestAttributeResolution.test_missing_attribute_raises_attribute_error:
+    condition: 'a name that no class anywhere in the order defines'
+    hints:
+      - 'Running off the end of the order is a failure, and answering None would hide it until something tried to use the value.'
+      - 'Every class in the order has to be visited before the name can be called absent.'
+      - 'Raise AttributeError once the walk finishes with no dictionary holding the name.'
+    concept: intro-python-runtime.dynamic-attribute-lookup-and-mro

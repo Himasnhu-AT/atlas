@@ -7,6 +7,157 @@ estimatedMinutes: 25
 exercise:
   id: read-csv
   timeboxMinutes: 25
+challenges:
+  goal: Split a delimited line the way csv does, and see what a naive split costs before it costs you.
+  readingOptional: true
+
+  steps:
+    - id: what-the-naive-split-gives
+      kind: numeric
+      prompt: >-
+        The header names six columns. A parser that splits this line on every comma
+        produces how many fields?
+      context:
+        as: log
+        lines:
+          - 'order_id,customer,placed_at,quantity,total,status'
+          - '1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending'
+      answer: 7
+      tolerance: 0
+      unit: fields
+      hints:
+        - Count the commas rather than the values. A split on a character does not know what the characters mean.
+        - The quotes around the total are just two more characters to the splitter. They do not protect anything.
+        - Five commas separate the six values you meant, and there is a sixth comma inside the total.
+      reveal: >-
+        Seven fields against a six column header, and zip pairs them up without a word.
+        The total becomes 1 and the status is dropped entirely, so the largest order in
+        the file arrives as an order for 1 with no status.
+
+    - id: where-it-goes-quiet
+      kind: spot
+      prompt: >-
+        Click the line that turns that seven field row into a six field record without
+        raising anything.
+      lang: python
+      source: |
+        def parse(text):
+            lines = text.strip().split("\n")
+            header = lines[0].split(",")
+            return [dict(zip(header, line.split(","))) for line in lines[1:]]
+      targets: [3]
+      decoys:
+        '0': The signature is fine. Taking the whole document as one string is what a parser handling multi-line fields has to do.
+        '1': This one is a real bug of its own, because a quoted field containing a newline gets cut in half here. It is not what drops the seventh field.
+        '2': The header does split into six names, which is right for this file. The trouble starts on the rows that do not have six.
+      hints:
+        - The bug is not that something goes wrong. It is that nothing does.
+        - One of these pairs two sequences of different lengths and has to decide what to do about the difference.
+        - zip stops at the shorter of the two and returns what it has. There is no error and no warning.
+      reveal: >-
+        Corrupt data mostly arrives as a structurally valid record rather than as an
+        exception. This line is why: it produces a dict with the right keys, one wrong
+        value and one missing column, and every check downstream sees a well formed row.
+
+    - id: the-flag-that-does-the-work
+      kind: blanks
+      prompt: >-
+        Finish the character loop. The delimiter only ends a field while the parser is
+        outside a quoted one.
+      lang: python
+      template: |
+        def split_fields(line, delimiter=","):
+            fields, current, in_quotes = [], [], False
+
+            for char in line:
+                if in_quotes:
+                    if char == '"':
+                        in_quotes = {{1}}
+                    else:
+                        current.append(char)
+                elif char == '"' and {{2}}:
+                    in_quotes = True
+                elif char == {{3}}:
+                    fields.append("".join(current))
+                    current = []
+                else:
+                    current.append(char)
+
+            fields.append("".join(current))
+            return fields
+      blanks:
+        - n: 1
+          as: select
+          options:
+            - 'False'
+            - 'True'
+            - not in_quotes
+            - char
+          accept:
+            - 'False'
+          note: A quote met inside a quoted field closes it, so the flag goes off. Flipping it would reopen on the very next quote.
+        - n: 2
+          as: select
+          options:
+            - not current
+            - current
+            - in_quotes
+            - char
+          accept:
+            - not current
+          note: A quote only opens a quoted field at the start of one. Nothing collected yet is what start of a field means here.
+        - n: 3
+          as: select
+          options:
+            - delimiter
+            - char
+            - line
+            - fields
+          accept:
+            - delimiter
+          note: The separator is whatever the caller named. Tab and pipe extracts exist mostly because somebody hit the comma problem first.
+      hints:
+        - Two of the blanks are about when quoting starts and stops. The third is about what counts as a separator at all.
+        - A field that has already collected characters cannot suddenly become a quoted field, so the second blank asks whether anything has been collected.
+        - The closing quote sets the flag back to False, an opening quote needs an empty buffer, and the break test compares against the delimiter argument.
+      reveal: >-
+        That is the whole parser. One flag, one buffer, and a delimiter that only means
+        something while the flag is off. Everything the csv module does beyond this is
+        dialects and line endings.
+
+    - id: quote-the-field-that-needs-it
+      kind: text-contract
+      prompt: >-
+        Somebody wrote this row by hand and it splits into seven fields. Fix the line so
+        a reader gets the six the header asks for.
+      context:
+        as: log
+        lines:
+          - 'order_id,customer,placed_at,quantity,total,status'
+      lang: text
+      initial: |
+        1003,lin@example.com,2026-03-02T09:14:00,3,1,499.00,pending
+      rules:
+        - message: The total is still bare, so its comma is read as a field boundary and the line has seven fields.
+          check: { op: notContains, text: ',1,499.00,' }
+        - message: Wrap the total in double quotes, so the comma inside it is ordinary text rather than a separator.
+          check: { op: contains, text: '"1,499.00"' }
+        - message: The value has to survive the repair. Deleting the comma changes what the row says the order was worth.
+          check: { op: contains, text: '499.00' }
+        - message: Keep the front of the line as it was. This is still order 1003 for lin@example.com.
+          check: { op: contains, text: '1003,lin@example.com' }
+        - message: The status is the last field and it is still pending.
+          check: { op: contains, text: ',pending' }
+      hints:
+        - There is nothing wrong with any of the values. There is something missing around one of them.
+        - Deleting the offending comma would give six fields and a different total. The comma belongs to the number.
+        - The format has a way of saying "the delimiter inside here is not a delimiter", and it is two characters.
+      reveal: >-
+        Quoting is the only thing in the file that distinguishes a comma in the data from
+        a comma between fields. Nothing else can, which is why a parser has to carry the
+        flag rather than looking at the line and guessing.
+      solution: |
+        1003,lin@example.com,2026-03-02T09:14:00,3,"1,499.00",pending
 ---
 
 Production systems rely on standard libraries like Python's `csv` module rather than custom parsers. Implementing a parser manually once exposes the specific failure modes that occur in production pipelines when assumptions about input formatting break down.
