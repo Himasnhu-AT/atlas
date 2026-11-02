@@ -16,8 +16,11 @@ export const POST = route(async (request) => {
   let email: string | undefined
   let name: string | undefined
 
+  // Outside the try: missing server credentials are a configuration fault and
+  // must surface as one, not as the learner's token being "invalid".
+  ensureFirebaseAdmin()
+
   try {
-    ensureFirebaseAdmin()
     const decoded = await getAuth().verifyIdToken(body.idToken)
     email = decoded.email?.trim().toLowerCase()
     name = decoded.name || body.displayName || email?.split('@')[0] || 'Learner'

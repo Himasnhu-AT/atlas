@@ -233,6 +233,18 @@ export function ensureFirebaseAdmin() {
     })
   }
 
+  // No key anywhere. On Google Cloud the runtime's own identity (Application
+  // Default Credentials) still works, so fall through there. Anywhere else this
+  // app can verify a Google ID token, which needs no key, and then fails on the
+  // first Firestore call: sign-in answers a bare 500. Say what is missing.
+  if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    throw new Error(
+      'Firebase Admin has no credentials. Set FIREBASE_SERVICE_ACCOUNT_KEY to the service ' +
+        'account JSON, or FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY, in the Vercel ' +
+        'project environment, then redeploy.',
+    )
+  }
+
   return initializeApp({
     projectId: process.env.FIREBASE_PROJECT_ID || 'synthai-learn',
   })
