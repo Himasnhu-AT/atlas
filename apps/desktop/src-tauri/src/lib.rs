@@ -22,10 +22,14 @@ mod workspace;
 use anyhow::{bail, Context, Result};
 use tauri::{AppHandle, Manager, State, WindowEvent};
 
+/// The Python launcher's name. A python.org install on Windows provides
+/// `python` and `py` but no `python3`, so the Unix name would fail there.
+pub(crate) const PYTHON: &str = if cfg!(windows) { "python" } else { "python3" };
+
 /// Map a lesson language onto the interpreter that runs it.
 fn interpreter_for(language: &str) -> Result<&'static str> {
     match language.trim().to_ascii_lowercase().as_str() {
-        "python" | "python3" | "py" => Ok("python3"),
+        "python" | "python3" | "py" => Ok(PYTHON),
         "typescript" | "javascript" | "ts" | "js" | "node" => Ok("node"),
         "bash" | "sh" | "shell" => Ok("bash"),
         other => bail!("`{other}` is not a runnable exercise language"),
@@ -125,7 +129,7 @@ mod tests {
 
     #[test]
     fn maps_known_languages() {
-        assert_eq!(interpreter_for("python").unwrap(), "python3");
+        assert_eq!(interpreter_for("python").unwrap(), super::PYTHON);
         assert_eq!(interpreter_for("TypeScript").unwrap(), "node");
         assert_eq!(interpreter_for(" bash ").unwrap(), "bash");
     }

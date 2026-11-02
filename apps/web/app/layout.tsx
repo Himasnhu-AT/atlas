@@ -2,15 +2,18 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 
+import { SITE_URL } from '@/lib/site'
+
 import './globals.css'
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: 'SynthAI Labs',
-    template: '%s · SynthAI Labs',
+    default: 'Atlas',
+    template: '%s · Atlas',
   },
   description:
-    'Code-first engineering masterclasses by SynthAI Labs. Read the lesson, write the code, run the tests in an isolated sandbox.',
+    'Code-first engineering courses. Read the lesson, write the code, run the tests in an isolated sandbox.',
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {

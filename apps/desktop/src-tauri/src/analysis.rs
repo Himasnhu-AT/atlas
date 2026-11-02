@@ -73,7 +73,7 @@ fn analyse(root: &Path, rel: &str) -> Result<AnalysisReport> {
         bail!("`{rel}` does not exist in this project");
     }
 
-    let mut child = Command::new("python3")
+    let mut child = Command::new(crate::PYTHON)
         .arg("-")
         .arg(&target)
         .current_dir(root)

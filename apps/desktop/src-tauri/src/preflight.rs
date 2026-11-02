@@ -59,15 +59,16 @@ fn parse_version(text: &str) -> Option<(u32, u32)> {
 }
 
 fn check_python() -> Check {
-    let output = Command::new("python3").arg("--version").output();
+    let output = Command::new(crate::PYTHON).arg("--version").output();
 
     let Ok(output) = output else {
         return Check {
-            name: "python3".into(),
+            name: crate::PYTHON.into(),
             ok: false,
             detail: None,
             remedy: Some(format!(
-                "python3 was not found on your PATH. {}",
+                "{} was not found on your PATH. {}",
+                crate::PYTHON,
                 install_hint()
             )),
         };
@@ -80,13 +81,13 @@ fn check_python() -> Check {
 
     match parse_version(&text) {
         Some(version) if version >= MIN_PYTHON => Check {
-            name: "python3".into(),
+            name: crate::PYTHON.into(),
             ok: true,
             detail: Some(text),
             remedy: None,
         },
         Some((major, minor)) => Check {
-            name: "python3".into(),
+            name: crate::PYTHON.into(),
             ok: false,
             detail: Some(text),
             remedy: Some(format!(
@@ -97,11 +98,12 @@ fn check_python() -> Check {
             )),
         },
         None => Check {
-            name: "python3".into(),
+            name: crate::PYTHON.into(),
             ok: false,
             detail: Some(text),
             remedy: Some(format!(
-                "python3 responded but its version could not be read. {}",
+                "{} responded but its version could not be read. {}",
+                crate::PYTHON,
                 install_hint()
             )),
         },

@@ -171,7 +171,7 @@ export default function LandingPage() {
           <Reveal delay={0.06}>
             <div className="mt-7 max-w-[58ch] space-y-5 text-ink-soft">
               <p>
-                The SynthAI desktop app places the lesson, a native code editor, and a sandboxed test terminal
+                The Atlas desktop app places the lesson, a native code editor, and a sandboxed test terminal
                 side by side. You write code, run local test suites, and watch results stream in real time.
               </p>
               <p>

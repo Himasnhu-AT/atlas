@@ -4,13 +4,23 @@ import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { PageHeader, RuledList, RuledRow, Wrap } from '@/components/layout'
 import { Reveal } from '@/components/reveal'
+import { latestDesktopRelease, RELEASES_URL, type Installer } from '@/lib/releases'
 
 export const metadata: Metadata = {
   title: 'Desktop app',
   description: 'The practice environment: lesson, editor, and terminal side by side.',
 }
 
-export default function DownloadPage() {
+const button =
+  'inline-flex min-h-11 items-center rounded-field bg-ink px-6 text-caption font-medium text-paper transition-colors duration-200 ease-paper hover:bg-accent-deep'
+
+function megabytes(installer: Installer) {
+  return `${Math.round(installer.size / 1_000_000)} MB`
+}
+
+export default async function DownloadPage() {
+  const release = await latestDesktopRelease()
+
   return (
     <>
       <SiteHeader />
@@ -30,12 +40,48 @@ export default function DownloadPage() {
           <Reveal delay={0.2}>
             <div className="mt-14 border-t-2 border-ink pt-7">
               <p className="text-eyebrow font-medium uppercase text-muted">
-                Build it from source
+                {release ? `Version ${release.version}` : 'Download'}
               </p>
-              <p className="mt-3 max-w-[54ch] text-ink-soft">
-                Signed installers are not published yet. The app builds and runs locally today.
+              {release && (release.mac || release.windows) ? (
+                <>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    {release.mac && (
+                      <a href={release.mac.url} className={button}>
+                        macOS ({megabytes(release.mac)})
+                      </a>
+                    )}
+                    {release.windows && (
+                      <a href={release.windows.url} className={button}>
+                        Windows ({megabytes(release.windows)})
+                      </a>
+                    )}
+                  </div>
+                  <p className="mt-5 max-w-[60ch] text-ink-soft">
+                    The installers are not signed by Apple or Microsoft yet, so the first launch
+                    asks for confirmation. On macOS, open the app once, then allow it under System
+                    Settings, Privacy and Security, Open Anyway. On Windows, choose More info, then
+                    Run anyway.
+                  </p>
+                  <p className="mt-3 text-ink-soft">
+                    <a href={release.url} className="underline underline-offset-4 hover:text-accent-deep">
+                      Release notes and other files
+                    </a>
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 max-w-[54ch] text-ink-soft">
+                  No installer is published yet. Check the{' '}
+                  <a href={RELEASES_URL} className="underline underline-offset-4 hover:text-accent-deep">
+                    releases page
+                  </a>
+                  , or build it from source below.
+                </p>
+              )}
+
+              <p className="mt-10 text-eyebrow font-medium uppercase text-muted">
+                Or build it from source
               </p>
-              <pre className="mt-6 overflow-x-auto rounded-sheet border border-rule bg-paper-raised p-5 text-[13px] leading-relaxed">
+              <pre className="mt-4 overflow-x-auto rounded-sheet border border-rule bg-paper-raised p-5 text-[13px] leading-relaxed">
                 <code>{`pnpm install
 pnpm content
 pnpm dev:desktop`}</code>

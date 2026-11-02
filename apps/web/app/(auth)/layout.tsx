@@ -40,7 +40,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen flex-col justify-between p-6 sm:p-10 lg:p-14 xl:p-16">
         <header className="flex items-center justify-between">
           <Link href="/" className="font-serif text-[18px] font-medium tracking-[-0.01em] text-ink">
-            SynthAI Labs
+            Atlas
           </Link>
           <Link
             href="/learn"
@@ -57,7 +57,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         </main>
 
         <footer className="text-[12px] text-muted">
-          <span>SynthAI Labs © {new Date().getFullYear()}</span>
+          <span>Atlas © {new Date().getFullYear()}</span>
         </footer>
       </div>
 

@@ -4,14 +4,13 @@ import { redirect } from 'next/navigation'
 import type { User } from '@atlas/core'
 import { currentUser } from './session'
 
-const DEFAULT_ADMINS = ['you@example.com']
-
+/** Admins come only from ADMIN_EMAILS, so the open repo names nobody. */
 export function getAdminEmails(): string[] {
-  const envAdmins = (process.env.ADMIN_EMAILS ?? '')
+  const admins = (process.env.ADMIN_EMAILS ?? '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
-  return Array.from(new Set([...DEFAULT_ADMINS, ...envAdmins]))
+  return Array.from(new Set(admins))
 }
 
 export function isAdmin(email?: string | null): boolean {

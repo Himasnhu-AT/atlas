@@ -21,7 +21,7 @@ export async function SiteHeader() {
           href="/"
           className="inline-flex min-h-11 items-center font-serif text-[17px] font-medium tracking-[-0.01em] text-ink"
         >
-          SynthAI Labs
+          Atlas
         </Link>
 
         <nav aria-label="Main" className="flex items-center gap-5 text-caption sm:gap-7">

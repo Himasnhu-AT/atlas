@@ -12,7 +12,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-6 sm:px-8">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
-              <span className="font-serif text-title font-medium text-ink">SynthAI Labs</span>
+              <span className="font-serif text-title font-medium text-ink">Atlas</span>
               <span className="rounded bg-ink px-1.5 py-0.5 text-[11px] font-mono uppercase tracking-wider text-paper">
                 Admin
               </span>

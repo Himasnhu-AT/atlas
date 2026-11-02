@@ -29,8 +29,13 @@ use crate::outbox::{self, OutboxEvent};
 /// so a self-hosted build points at its own server without the shipped app
 /// offering a field that could be pointed anywhere.
 fn api_base() -> String {
+    let fallback = if cfg!(debug_assertions) {
+        "http://localhost:5173"
+    } else {
+        "https://atlas.himanshuat.com"
+    };
     option_env!("ATLAS_API_URL")
-        .unwrap_or("http://localhost:5173")
+        .unwrap_or(fallback)
         .trim_end_matches('/')
         .to_string()
 }

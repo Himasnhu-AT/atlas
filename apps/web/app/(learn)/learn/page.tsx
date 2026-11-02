@@ -7,7 +7,7 @@ import { activeCourses, activeModules } from '@/lib/content'
 
 export const metadata: Metadata = {
   title: 'Courses',
-  description: 'Every course on SynthAI Labs, prerequisites, and what each track asks you to build.',
+  description: 'Every course on Atlas, prerequisites, and what each track asks you to build.',
 }
 
 const COURSE_REQUIREMENTS: Record<

@@ -1,5 +1,8 @@
 # Atlas
 
+Live at [atlas.himanshuat.com](https://atlas.himanshuat.com). The desktop app is on the
+[releases page](https://github.com/Himasnhu-AT/atlas/releases/latest) for macOS and Windows.
+
 A code-first learning platform, and the courses it teaches. Students read lessons on the web
 and practice in a desktop app that puts the lesson, a code editor, and a real terminal side by
 side. Every exercise is graded locally by tests that run in about a second.
@@ -17,12 +20,12 @@ no network requirement anywhere.
 
 ```bash
 pnpm install
+cp apps/web/.env.example apps/web/.env.local   # then fill in a Firebase project
 pnpm dev            # http://localhost:5173
 ```
 
-That is the whole setup. The site runs with no configuration: accounts and progress go to a
-JSON file under `apps/web/.data/`, and a session key is generated on first run. See
-[Going to production](#going-to-production) when you want a real database.
+Accounts and progress live in Cloud Firestore, so the site needs a Firebase project to sign
+anyone in. Reading lessons does not. See [Configuration](#configuration).
 
 To run the desktop app:
 
@@ -163,9 +166,6 @@ the PyObject boxing model, C3 linearization for method resolution order, paramet
 decorators, lazy generator pipelines, a stack bytecode virtual machine, a cycle-detecting mark-and-sweep
 garbage collector, and an FFI type-marshaling bridge.
 
-`docs/CURRICULUM.md` has the lesson-by-lesson map, which idea is introduced where and paid off
-where, and the rules for changing any of it. Read it before adding or moving a lesson.
-
 ## Writing content
 
 Content lives under `packages/learning/courses/`. A course is a directory with a
@@ -249,8 +249,7 @@ test. Any course can do the same with its own `lib/`.
 
 Exercises open on the scaffold, never on the answer. The reference exists and takes a
 deliberate, confirmed click to reveal. Reading a working solution after a real attempt teaches
-something; reading one instead of attempting does not. That policy has one accepted exception,
-written down in `docs/CURRICULUM.md`.
+something; reading one instead of attempting does not.
 
 ## Scripts
 
@@ -266,24 +265,40 @@ written down in `docs/CURRICULUM.md`.
 | `pnpm test:core` | The game engine: level curve, award keys, quests, seals, streaks |
 | `pnpm test:rust` | The Rust test suite |
 | `pnpm lint:rust` | Clippy, warnings as errors |
+| `./release.sh 0.2.0` | Tag a desktop release; CI builds macOS and Windows installers |
 
-## Going to production
+## Configuration
 
-The site runs on local file storage out of the box. To move to Firebase Firestore, configure
-the credentials in `.env.local`:
+The backend is the Next.js app's own route handlers. They store users, progress and attempts
+in Cloud Firestore through the Firebase Admin SDK, and sign readers in with Firebase Auth.
+`apps/web/.env.example` lists every variable:
+
+| Variable | Purpose |
+|---|---|
+| `SESSION_SECRET` | Signs session cookies. Required in production: `openssl rand -hex 32` |
+| `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Admin SDK credentials, server only |
+| `NEXT_PUBLIC_FIREBASE_*` | The web config for Google sign-in |
+| `ADMIN_EMAILS` | Comma-separated addresses that can open `/admin` |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for metadata and the sitemap |
+
+Firebase credentials are read only by `apps/web/lib/server/` and never reach a browser or the
+desktop bundle. `firebase/firestore.rules` denies every direct client read and write, so the
+API is the security boundary: every route handler derives `user_id` from the session and none
+of them trust a user id arriving in a request body.
+
+## Releasing the desktop app
 
 ```bash
-cp apps/web/.env.example apps/web/.env.local
-# fill in FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY
+./release.sh 0.2.0
 ```
 
-Also set `SESSION_SECRET`. Without it the server generates a key and writes it to
-`.data/session-secret`, which is per machine and will not work across multiple instances.
+That sets the version in the Tauri config, `Cargo.toml` and `package.json`, commits, tags
+`v0.2.0` and pushes. The tag starts `.github/workflows/release.yml`, which builds a universal
+macOS `.dmg` and a Windows installer and publishes them as a GitHub Release. The site's
+download page reads the latest release and links straight to both.
 
-Firebase credentials are read only by `apps/web/lib/server/` and never reach a browser or
-the desktop bundle. Clients never talk to the database directly, so the API is the security boundary:
-every route handler derives `user_id` from the session and none of them trust a user id
-arriving in a request body.
+The installers are not notarized by Apple or signed for Windows, so each OS asks for
+confirmation on first launch.
 
 ## Requirements
 

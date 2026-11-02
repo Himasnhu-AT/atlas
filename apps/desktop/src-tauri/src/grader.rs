@@ -199,7 +199,7 @@ fn truncate(mut text: String) -> String {
 
 fn interpreter_for(language: &str) -> Result<&'static str> {
     match language.trim().to_ascii_lowercase().as_str() {
-        "python" | "python3" | "py" => Ok("python3"),
+        "python" | "python3" | "py" => Ok(crate::PYTHON),
         "bash" | "sh" | "shell" => Ok("bash"),
         other => bail!("`{other}` is not a runnable exercise language"),
     }
@@ -264,7 +264,7 @@ fn run_inner(
     combined.push_str(&String::from_utf8_lossy(&output.stderr));
 
     let exit_ok = output.status.success();
-    let outcome = if interpreter == "python3" {
+    let outcome = if interpreter == crate::PYTHON {
         read_report(report_file.path())
     } else {
         RunOutcome::from_exit_status(exit_ok)

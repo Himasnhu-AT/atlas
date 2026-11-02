@@ -72,3 +72,11 @@ apps/web/public/atlas_report.py
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# Internal working notes and agent instructions. Kept locally, not published.
+CLAUDE.md
+AGENTS.md
+HANDOFF.md
+DESIGN.md
+/docs/
+/.claude/

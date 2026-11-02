@@ -115,7 +115,7 @@ export default async function DashboardPage(props: DashboardPageProps) {
               <Reveal>
                 <Eyebrow>Your learning dashboard</Eyebrow>
                 <h1 className="mt-2 font-serif text-[32px] sm:text-[40px] font-medium leading-tight text-ink">
-                  {isFirstTimeUser ? 'Welcome to SynthAI Labs, ' : 'Welcome back, '}
+                  {isFirstTimeUser ? 'Welcome to Atlas, ' : 'Welcome back, '}
                   <em className="italic text-accent">{firstName}</em>.
                 </h1>
                 <p className="mt-3 max-w-[50ch] text-caption text-ink-soft sm:text-[15px]">
@@ -132,7 +132,7 @@ export default async function DashboardPage(props: DashboardPageProps) {
                   <div className="pr-3">
                     <div className="flex items-center gap-2">
                       <span className="inline-block size-2 rounded-full bg-accent" />
-                      <p className="font-serif text-[15px] font-medium text-ink">SynthAI Workbench</p>
+                      <p className="font-serif text-[15px] font-medium text-ink">Atlas Workbench</p>
                     </div>
                     <p className="mt-0.5 text-[12px] text-muted">
                       Three panes: lesson, editor & terminal.
