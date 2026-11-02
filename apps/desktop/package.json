@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Tauri v2 desktop shell for the learn platform \u2014 embedded pty terminal and sandboxed workspace.",
+  "description": "Tauri v2 desktop shell for the learn platform — embedded pty terminal and sandboxed workspace.",
   "scripts": {
     "dev": "tauri dev",
     "dev:web": "vite",
