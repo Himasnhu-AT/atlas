@@ -15,7 +15,7 @@
     "dev": "pnpm content && pnpm --filter @atlas/web dev",
     "dev:desktop": "pnpm content && pnpm --filter @atlas/desktop dev",
     "dev:desktop:web": "pnpm content && pnpm --filter @atlas/desktop dev:web",
-    "build": "pnpm content && pnpm --filter @atlas/web build",
+    "build": "pnpm --filter @atlas/web build",
     "build:desktop": "pnpm content && pnpm --filter @atlas/desktop tauri:build",
     "start": "pnpm --filter @atlas/web start",
     "validate:course": "pnpm --filter @atlas/learning validate:course",
