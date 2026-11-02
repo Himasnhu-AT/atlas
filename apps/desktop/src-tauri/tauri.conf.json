@@ -58,7 +58,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg", "msi", "nsis"],
     "category": "Education",
     "shortDescription": "Learn to build agentic AI systems",
     "longDescription": "An offline-first course platform for building agentic AI systems, with an embedded terminal and a sandboxed practice workspace.",
@@ -71,6 +71,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "wix": { "language": "en-US" },
+      "nsis": { "installMode": "currentUser" }
+    },
     "macOS": {
       "minimumSystemVersion": "10.15",
       "signingIdentity": "-"

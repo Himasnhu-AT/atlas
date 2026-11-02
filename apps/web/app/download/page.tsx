@@ -47,12 +47,12 @@ export default async function DownloadPage() {
                   <div className="mt-5 flex flex-wrap gap-3">
                     {release.mac && (
                       <a href={release.mac.url} className={button}>
-                        macOS ({megabytes(release.mac)})
+                        macOS, .dmg ({megabytes(release.mac)})
                       </a>
                     )}
                     {release.windows && (
                       <a href={release.windows.url} className={button}>
-                        Windows ({megabytes(release.windows)})
+                        Windows, .{release.windows.name.split('.').pop()} installer ({megabytes(release.windows)})
                       </a>
                     )}
                   </div>

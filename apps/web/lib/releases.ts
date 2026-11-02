@@ -52,10 +52,11 @@ export async function latestDesktopRelease(): Promise<DesktopRelease | null> {
       url: release.html_url,
       publishedAt: release.published_at,
       mac: pick(release.assets, (n) => n.endsWith('.dmg')),
-      // The NSIS installer needs no admin rights; the MSI is the fallback.
+      // The MSI is the standard Windows installer: it lands in Installed apps and
+      // the Start menu. The NSIS setup.exe does the same and is the fallback.
       windows:
-        pick(release.assets, (n) => n.endsWith('-setup.exe')) ??
-        pick(release.assets, (n) => n.endsWith('.msi')),
+        pick(release.assets, (n) => n.endsWith('.msi')) ??
+        pick(release.assets, (n) => n.endsWith('-setup.exe')),
     }
   } catch {
     return null
