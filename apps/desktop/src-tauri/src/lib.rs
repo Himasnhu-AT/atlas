@@ -72,6 +72,11 @@ pub fn run() {
         // Opens the pairing URL in the system browser. Scoped to https in
         // capabilities/default.json; it cannot execute anything.
         .plugin(tauri_plugin_shell::init())
+        // Self-update. It only ever fetches the manifest named in tauri.conf.json
+        // and installs nothing whose signature fails the public key there.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Relaunch after an update is installed. Restart only, see capabilities.
+        .plugin(tauri_plugin_process::init())
         .manage(pty::PtyManager::default())
         .manage(project::ProjectState::default())
         .setup(|app| {

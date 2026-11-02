@@ -303,6 +303,13 @@ reads the latest release and links straight to both.
 The macOS build is notarized. The Windows installers are not code-signed yet, so SmartScreen
 asks for confirmation on first launch.
 
+From v0.1.1 the app updates itself. Each release carries a `latest.json` manifest and update
+archives signed with a Tauri updater key; the app checks the manifest on launch, offers the
+new version, and verifies the signature against the public key in `tauri.conf.json` before
+installing. Releasing needs that private key on the Mac (`~/.tauri/atlas-updater.key`, with
+its password in the keychain under `atlas-tauri-updater`) and as the repository secrets
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
 ## Requirements
 
 Node 22.12+, pnpm 11. Python 3.10 or newer to run exercises. Rust only if you are building

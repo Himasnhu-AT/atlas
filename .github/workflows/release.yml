@@ -98,10 +98,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           # Compiled into the app: where it syncs progress and signs in.
           ATLAS_API_URL: https://atlas.himanshuat.com
+          # Signs the update files. tauri-action writes their entries into the
+          # release's latest.json, merging with the macOS ones if those are there.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           releaseId: ${{ needs.create-release.outputs.id }}
-          args: --bundles msi,nsis
+          args: --bundles msi,nsis --config src-tauri/tauri.release.conf.json
 
   publish:
     needs: [create-release, build]
@@ -112,11 +116,20 @@ jobs:
           RELEASE_ID: ${{ needs.create-release.outputs.id }}
         run: |
           api="repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          # Publish only once latest.json, which installed apps poll, names both
+          # systems. scripts/release-macos.sh applies the same rule, so whichever
+          # side finishes second publishes, and a lost write leaves a draft.
+          manifest="$(gh api "$api" --jq '.assets[] | select(.name == "latest.json") | .id')"
+          platforms=""
+          if [ -n "$manifest" ]; then
+            platforms="$(gh api -H "Accept: application/octet-stream" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$manifest" | jq -r '.platforms | keys[]')"
+          fi
           if [ "$(gh api "$api" --jq .draft)" != "true" ]; then
             echo "Already published."
-          elif gh api "$api" --jq '.assets[].name' | grep -q '\.dmg$'; then
+          elif grep -q '^darwin-aarch64$' <<< "$platforms" && grep -q '^windows-x86_64' <<< "$platforms"; then
             gh api -X PATCH "$api" -F draft=false -f make_latest=true >/dev/null
             echo "Published $TAG."
           else
-            echo "Left as a draft: scripts/release-macos.sh publishes once the notarized dmg is uploaded."
+            echo "Left as a draft until scripts/release-macos.sh adds the notarized macOS build."
           fi

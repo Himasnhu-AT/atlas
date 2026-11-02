@@ -14,6 +14,7 @@ import { SplitPane } from '../components/SplitPane'
 import { StatusBar, type StatusMessage } from '../components/StatusBar'
 import { TerminalSlot } from '../components/TerminalSlot'
 import { Toolbar } from '../components/Toolbar'
+import { UpdateBanner } from '../components/UpdateBanner'
 import {
   findLessonRef,
   neighboursOf,
@@ -288,6 +289,7 @@ function PracticeView({ lessonRef }: { lessonRef: LessonRef }) {
       />
 
       {!desktop && <BrowserBanner />}
+      {desktop && <UpdateBanner />}
 
       {exerciseMoved && (
         <ExerciseMovedBanner

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimum surface the main window needs: window controls, the event bus that carries `pty:output`, path/app metadata, the folder picker, and opening a pairing URL in the system browser. The app's own commands (pty_*, workspace_*, project_*, auth_*, sync_*, run_tests, preflight) are registered through `invoke_handler` and are not plugin commands, so they are not listed here. The dialog plugin is limited to opening a folder: it is how a student grants the app access to their own repository, and it is the ONLY way a path outside the sandbox is ever established. The shell plugin is limited to opening https URLs and cannot execute anything. No filesystem or http plugin is enabled: the API client lives in Rust so the bearer token never enters the webview.",
+  "description": "Minimum surface the main window needs: window controls, the event bus that carries `pty:output`, path/app metadata, the folder picker, and opening a pairing URL in the system browser. The app's own commands (pty_*, workspace_*, project_*, auth_*, sync_*, run_tests, preflight) are registered through `invoke_handler` and are not plugin commands, so they are not listed here. The dialog plugin is limited to opening a folder: it is how a student grants the app access to their own repository, and it is the ONLY way a path outside the sandbox is ever established. The shell plugin is limited to opening https URLs and cannot execute anything. The updater may check, download and install a release whose signature matches the public key in tauri.conf.json, and the process plugin may only restart the app to finish an update. No filesystem or http plugin is enabled: the API client lives in Rust so the bearer token never enters the webview.",
   "local": true,
   "windows": [
     "main"
@@ -24,6 +24,8 @@
           "url": "http://localhost:*"
         }
       ]
-    }
+    },
+    "updater:default",
+    "process:allow-restart"
   ]
 }

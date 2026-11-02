@@ -42,6 +42,12 @@ tauri-plugin-shell = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4"] }
 
+# Self-update from GitHub Releases, and the relaunch after installing. Desktop
+# only: neither plugin exists on mobile.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+
 [dev-dependencies]
 # For tests that need a throwaway directory. There was no dev-dependencies
 # section at all, so the moment `auth.rs` was declared as a module the whole
@@ -53,6 +59,7 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
 # `panic = "abort"` is deliberately NOT set. The terminal runs a reader and a
 # writer thread per session; with `abort`, a panic on either one would take the
 # whole app down (and would make the `catch_unwind` guards in `pty.rs` dead
