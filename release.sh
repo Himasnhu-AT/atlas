@@ -54,7 +54,7 @@ JS
 
 git add apps/desktop/src-tauri/tauri.conf.json apps/desktop/package.json \
   apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
-git commit -m "release: $tag"
+git diff --cached --quiet || git commit -m "release: $tag"
 git tag -a "$tag" -m "Atlas Practice $tag"
 git push origin main "$tag"
 
