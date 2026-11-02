@@ -46,8 +46,15 @@ dmg="$(ls -t "$bundle"/dmg/*.dmg | head -1)"
 codesign --verify --deep --strict "$bundle/macos/"*.app
 
 echo "Notarizing $(basename "$dmg") (usually a few minutes)"
-xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait --timeout 30m |
-  tee /dev/stderr | grep -q "status: Accepted"
+# Captured, not piped into `grep -q`: grep exits on the first match, the writer
+# then dies of SIGPIPE, and pipefail turns an accepted submission into a failure.
+result="$(xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait --timeout 30m)"
+echo "$result"
+if ! grep -q "status: Accepted" <<<"$result"; then
+  id="$(sed -n 's/^ *id: //p' <<<"$result" | head -1)"
+  echo "notarization was not accepted; see: xcrun notarytool log $id --keychain-profile $profile" >&2
+  exit 1
+fi
 xcrun stapler staple "$dmg"
 spctl --assess --type open --context context:primary-signature -v "$dmg"
 
