@@ -1,9 +1,10 @@
-# Builds the desktop app for macOS and Windows and publishes a GitHub Release.
+# Builds the Windows installers into a draft GitHub Release.
 #
-# Started by pushing a `v*` tag, which ./release.sh does. The release is made
-# as a draft and only published once both platforms have uploaded, so the
-# site's download page (which reads the latest published release) never links
-# to a half-finished one.
+# Started by pushing a `v*` tag, which ./release.sh does. The macOS app is not
+# built here: it is signed with a Developer ID and notarized on a Mac by
+# scripts/release-macos.sh, which uploads into the same draft. Whichever side
+# finishes second publishes, so the site's download page (which reads the
+# latest published release) never links to a release missing a platform.
 
 name: release
 
@@ -57,25 +58,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
-              --title "Atlas Practice $TAG" --generate-notes --verify-tag
+          # Reuse the release if this tag already has one (a rerun), else create
+          # a draft and take its id from the response. Listing releases straight
+          # after creating one can miss it, which once left the build with no id
+          # and published an empty release.
+          id="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)"
+          if [ -z "$id" ]; then
+            id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" -f name="Atlas Practice $TAG" \
+              -F draft=true -F generate_release_notes=true --jq .id)"
           fi
-          echo "id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)" >> "$GITHUB_OUTPUT"
+          test -n "$id"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [content, create-release]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: --target universal-apple-darwin
-            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-          - platform: windows-latest
-            args: ''
-            rust-targets: ''
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,8 +85,6 @@ jobs:
           node-version: 22
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri -> target
@@ -104,7 +101,7 @@ jobs:
         with:
           projectPath: apps/desktop
           releaseId: ${{ needs.create-release.outputs.id }}
-          args: ${{ matrix.args }}
+          args: --bundles msi,nsis
 
   publish:
     needs: [create-release, build]
@@ -112,4 +109,14 @@ jobs:
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          RELEASE_ID: ${{ needs.create-release.outputs.id }}
+        run: |
+          api="repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          if [ "$(gh api "$api" --jq .draft)" != "true" ]; then
+            echo "Already published."
+          elif gh api "$api" --jq '.assets[].name' | grep -q '\.dmg$'; then
+            gh api -X PATCH "$api" -F draft=false -f make_latest=true >/dev/null
+            echo "Published $TAG."
+          else
+            echo "Left as a draft: scripts/release-macos.sh publishes once the notarized dmg is uploaded."
+          fi

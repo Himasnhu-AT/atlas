@@ -57,10 +57,10 @@ export default async function DownloadPage() {
                     )}
                   </div>
                   <p className="mt-5 max-w-[60ch] text-ink-soft">
-                    The installers are not signed by Apple or Microsoft yet, so the first launch
-                    asks for confirmation. On macOS, open the app once, then allow it under System
-                    Settings, Privacy and Security, Open Anyway. On Windows, choose More info, then
-                    Run anyway.
+                    The macOS app is signed and notarized by Apple and opens like any other. The
+                    Windows installer is not code-signed yet, so SmartScreen may stop it the first
+                    time: choose More info, then Run anyway. It then installs like any app and
+                    shows up in Start and in Installed apps.
                   </p>
                   <p className="mt-3 text-ink-soft">
                     <a href={release.url} className="underline underline-offset-4 hover:text-accent-deep">

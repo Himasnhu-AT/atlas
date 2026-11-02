@@ -265,7 +265,7 @@ something; reading one instead of attempting does not.
 | `pnpm test:core` | The game engine: level curve, award keys, quests, seals, streaks |
 | `pnpm test:rust` | The Rust test suite |
 | `pnpm lint:rust` | Clippy, warnings as errors |
-| `./release.sh 0.2.0` | Tag a desktop release; CI builds macOS and Windows installers |
+| `./release.sh 0.2.0` | Tag a desktop release: Windows on CI, notarized macOS locally |
 
 ## Configuration
 
@@ -293,12 +293,15 @@ of them trust a user id arriving in a request body.
 ```
 
 That sets the version in the Tauri config, `Cargo.toml` and `package.json`, commits, tags
-`v0.2.0` and pushes. The tag starts `.github/workflows/release.yml`, which builds a universal
-macOS `.dmg` and a Windows installer and publishes them as a GitHub Release. The site's
-download page reads the latest release and links straight to both.
+`v0.2.0` and pushes. The tag starts `.github/workflows/release.yml`, which builds the Windows
+`.msi` and setup `.exe` on GitHub Actions. Meanwhile `scripts/release-macos.sh` builds a
+universal macOS `.dmg` on your Mac, signs it with your Developer ID certificate, notarizes it
+with the notarytool keychain profile named in `NOTARY_PROFILE` (default `xcnotarize`) and
+uploads it. The release stays a draft until both platforms are on it. The site's download page
+reads the latest release and links straight to both.
 
-The installers are not notarized by Apple or signed for Windows, so each OS asks for
-confirmation on first launch.
+The macOS build is notarized. The Windows installers are not code-signed yet, so SmartScreen
+asks for confirmation on first launch.
 
 ## Requirements
 

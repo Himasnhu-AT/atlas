@@ -2,9 +2,10 @@
 # Cut a desktop release: ./release.sh 0.2.0
 #
 # Sets the version everywhere the app reads it, commits, tags v<version> and
-# pushes. The tag starts .github/workflows/release.yml, which builds macOS and
-# Windows installers and publishes them as a GitHub Release. The site's
-# download page picks up the new release within ten minutes.
+# pushes. The tag starts .github/workflows/release.yml, which builds the
+# Windows installers on GitHub Actions. Then scripts/release-macos.sh builds,
+# signs and notarizes the macOS app on this Mac and uploads it to the same
+# release. The site's download page picks it up within ten minutes.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -58,7 +59,12 @@ git diff --cached --quiet || git commit -m "release: $tag"
 git tag -a "$tag" -m "Atlas Practice $tag"
 git push origin main "$tag"
 
-repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo Himasnhu-AT/atlas)"
 echo
-echo "Pushed $tag. Builds take about 15 minutes:"
-echo "  https://github.com/$repo/actions/workflows/release.yml"
+echo "Pushed $tag. GitHub Actions is building Windows:"
+echo "  https://github.com/Himasnhu-AT/atlas/actions/workflows/release.yml"
+echo "Building, signing and notarizing macOS here."
+echo
+
+# If this fails, fix it and rerun `scripts/release-macos.sh $tag`; the release
+# stays a draft until the notarized dmg is on it.
+scripts/release-macos.sh "$tag"
